@@ -78,3 +78,49 @@ missing numeric fields are `null`. Writes with `ensure_ascii=False` for French t
 
 Dates are `DD/MM/YYYY` (French locale). Pay is annual salary (permanent roles);
 rate is daily rate in EUR (contractor roles).
+
+## Enrichment pipeline
+
+Five-stage idempotent pipeline that enriches scraped jobs with translations,
+tech extraction, sector classification, company research, and multi-dimension scoring.
+
+```bash
+# Stage 5 runs without any API key — immediate scored output:
+uv run python -m pipeline.stage5_score_analyze --export-csv ranked.csv --top 30
+
+# Full pipeline (requires LLM_API_KEY or DEEPSEEK_API_KEY env var):
+uv run python -m pipeline.stage1_translate           # French → English
+uv run python -m pipeline.stage2_extract_tech        # Tech stack + competencies
+uv run python -m pipeline.stage2b_extract_languages  # Language requirements
+uv run python -m pipeline.stage3_classify_vertical   # End-client sector
+uv run python -m pipeline.stage4_company_stats       # Company info + stock data
+uv run python -m pipeline.stage4b_company_deep_research  # Deep company profiles
+uv run python -m pipeline.stage5_score_analyze       # Score + rank
+
+# Every LLM stage supports smoke testing:
+uv run python -m pipeline.stage1_translate --smoke 3
+```
+
+### Enriched fields
+
+| Field | Stage | Description |
+|---|---|---|
+| `description_en` | 1 | English translation |
+| `extracted_technologies` | 2 | Technologies, tools, platforms |
+| `extracted_competencies` | 2 | Domain knowledge, soft skills |
+| `seniority_level` | 2 | junior/intermediate/senior/lead |
+| `role_category` | 2 | data_engineer/analytics_engineer/etc |
+| `language_requirements` | 2b | Required languages + levels |
+| `end_client_sector` | 3 | Banking, insurance, energy, etc |
+| `engagement_type` | 3 | consulting vs direct hire |
+| `company_stats` | 4 | Size, type, stock_performance |
+| `company_deep_research` | 4b | Conservative LLM profile |
+| `company_verified` | web | Web-verified corrections |
+| `scores` | 5 | pay, flexibility, responsibility, tech, company |
+| `overall_score` | 5 | Weighted composite |
+
+### Data quality
+
+- Most posting companies are ESN/consulting firms — `end_client_sector` is from descriptions
+- `company_stats` reputation claims with `info_quality: "medium"` are LLM inference (unverified unless `company_verified` present)
+- Stock performance via yfinance is deterministic and verified
