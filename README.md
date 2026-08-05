@@ -5,7 +5,7 @@ Scrapes tech/IT job listings from [free-work.com](https://www.free-work.com) int
 ## Quick start
 
 ```bash
-git clone https://github.com/evanofslack/job_search_scraping.git
+git clone https://github.com/evanokeefe39/job_search_scraping.git
 cd job_search_scraping
 uv sync
 ```
