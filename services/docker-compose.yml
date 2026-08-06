@@ -1,0 +1,25 @@
+# ATS Matcher Services
+#
+# Services:
+#   ats-checker  — ats-resume-checker (TF-IDF, port 8001)
+#   atsflow      — ATSFlow 30-rule scanner + Claude proxy (port 3101)
+#
+# Prerequisites:
+#   git clone https://github.com/ry-ops/ATSFlow.git services/atsflow
+#   cd services/atsflow && npm install
+#
+# Start:  docker compose -f services/docker-compose.yml up -d --build
+# Stop:   docker compose -f services/docker-compose.yml down
+
+services:
+  ats-checker:
+    build: ./ats_checker
+    ports:
+      - "8001:8001"
+    restart: unless-stopped
+
+  atsflow:
+    build: ./atsflow
+    ports:
+      - "3101:3101"
+    restart: unless-stopped

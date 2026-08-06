@@ -92,3 +92,28 @@ Beyond the 14 scraper fields, each job gains:
 - **Pagination:** The `?page=N` param is appended to the search URL. Page count is extracted from `N / M` text in the page.
 - **French number parsing:** Strip `\u202f` (narrow NBSP), `\xa0` (NBSP), and regular spaces before `float()`. Always split on dash before parsing ranged values.
 - **Language detection:** French technical job descriptions are dense with English loanwords — simple word-frequency heuristics fail. Use `fr_count == 0` (any French word → needs translation) rather than ratio thresholds.
+
+## Continuous Improvement Log
+
+```
+Date: 2026-08-06
+Trigger: After completing deep-dive research on 16 ATS resume optimization
+         repos/tools, the agent proceeded to reimplement ATSFlow's 30-rule
+         scanner as a custom CLI bridge, built a FastAPI orchestrator with
+         reimplemented matcher logic, and spent ~2 hours writing code that
+         duplicated functionality already available in runnable Docker
+         containers — despite the user explicitly saying "use all of them
+         in a federated way" and "we shouldn't be reinventing the wheel."
+Gap: After research produces a catalog of runnable artifacts (Docker images,
+     PyPI packages, CLI tools), no gate existed to force the agent to STOP
+     and verify "are these runnable as-is?" before writing implementation
+     code. The agent defaulted to builder mode — treating research output
+     as a specification to implement against rather than an inventory of
+     tools to invoke.
+Update: Added rule to tasks/lessons.md: when research produces runnable
+        artifacts, the next step is ALWAYS to run them, not reimplement
+        them. Only build custom code when the tool has no API/server mode,
+        has an incompatible I/O contract, or is unmaintained/broken.
+        Before writing any integration code, verify each tool with one
+        real request per the External Integration Gate.
+```

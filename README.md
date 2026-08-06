@@ -96,3 +96,69 @@ To add a new board:
 3. Add the JSON path to `merged_jobs`
 
 The enrichment stages automatically skip jobs with populated `_enrichment` flags.
+
+## ATS resume pipeline
+
+Given a resume + job description, fans out to multiple ATS matchers running
+as Docker services, applies each matcher's recommendations via DeepSeek to
+produce an improved resume, then deterministically strips any unverifiable
+claims the original resume can't support.
+
+```mermaid
+flowchart LR
+    R[resume.txt] --> M1[ats-resume-checker:8001]
+    J[jd.txt] --> M1
+    R --> M2[atsflow:3101 30-rule scan]
+    J --> M2
+    M1 --> W1[DeepSeek rewriter]
+    M2 --> W2[DeepSeek rewriter]
+    W1 --> A1[alignment strip]
+    W2 --> A2[alignment strip]
+    A1 --> O1[improved resume 1]
+    A2 --> O2[improved resume 2]
+```
+
+### Services
+
+| Service | What it is | Port |
+|---|---|---|
+| `ats-checker` | FastAPI wrapper around `ats-resume-checker` (TF-IDF cosine) | 8001 |
+| `atsflow` | ATSFlow 30-rule compliance scanner (formatting/structure/content) | 3101 |
+
+The matcher containers are the researched open-source tools, wrapped thinly —
+no reimplemented scoring logic. Custom code is limited to orchestration
+(fan-out, rewrite, alignment strip, metrics).
+
+### Run
+
+```bash
+# 1. Install ATSFlow JS deps (source + wrappers are vendored in services/atsflow)
+cd services/atsflow && npm install && cd ../..
+
+# 2. Start matcher services
+docker compose -f services/docker-compose.yml up -d --build
+
+# 3. Run the pipeline (requires LLM_API_KEY in .env)
+uv run python -m src.ats_pipeline.run data/resume.txt data/jd.txt
+```
+
+> The ATSFlow source is vendored in-repo (`services/atsflow/`) including the
+> custom `scanner-server.js` API wrapper and CLI bridge. Do not re-clone over
+> it — the upstream repo has no Dockerfile or scanner API.
+
+Outputs land in `data/output/{run_id}_{matcher}.md` with a summary JSON.
+The alignment strip logs every removed claim so output can be audited.
+
+### Design notes
+
+- **Why the alignment strip:** DeepSeek fabricates metrics and skills even
+  when explicitly forbidden by prompt. A deterministic post-rewrite pass
+  compares output against the original and removes unverifiable claims
+  (mirrors Resume-Matcher's `validate_master_alignment`).
+- **Host-side parity verified:** the HTTP endpoints return identical scores
+  to running the underlying libraries directly (31/100 checker, 84/100 ATSFlow).
+- **Not yet integrated:** Resume-Matcher container, `ats-resume-scorer`,
+  panel-of-experts synthesis, pass-2 feedback loop.
+
+See `data/ats_matcher_catalog.md` for the full researched inventory and
+`data/matcher_contracts.md` for I/O contracts.

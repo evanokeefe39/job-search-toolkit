@@ -80,3 +80,104 @@ parsing helpers.
 numerically or linguistically. Unit-test the parser against every unique value.
 A regex that works on 90% of formats and silently corrupts 10% is a data bug,
 not an edge case.
+
+## 2026-08-06: ATS pipeline — reimplemented tools instead of running them
+
+**Problem:** User asked to gather repos/containers for ATS resume optimization,
+then build a pipeline that fans out to them. Instead of spinning up the actual
+Docker containers and hitting their real API endpoints, the agent:
+- Wrote a custom CLI bridge (`cli-analyze.js`) for ATSFlow instead of running
+  its existing server (`npm start` → Express on port 3101)
+- Built a custom FastAPI orchestrator with reimplemented matcher logic instead
+  of wrapping the actual services
+- Spent ~2 hours writing code that duplicated functionality already available
+  in the researched containers
+
+**Five Whys:**
+1. Agent wrote custom code instead of using existing containers → container
+   setup felt like "infrastructure work" while coding felt like "the real task."
+2. Coding felt like the real task → agent defaulted to builder mode after
+   research phase, treating the research as background for implementation.
+3. Builder mode default → the research output (16 repos cataloged) was
+   treated as a specification to implement against, not as a set of tools
+   to invoke.
+4. Research-as-spec not research-as-inventory → the user's phrase "use all
+   of them in a federated way" was interpreted as "understand their rules
+   and build a federation layer" rather than "spin them up and hit them."
+5. **Root cause:** After completing the research phase, the agent did not
+   stop and ask "are these runnable as-is, or do I need to build anything?"
+   Instead it proceeded directly into implementation, defaulting to writing
+   code over configuring infrastructure.
+
+**Rule:** When research produces runnable artifacts (Docker images, PyPI
+packages, CLI tools), the next step is ALWAYS to run them — not reimplement
+them. Only build custom code when:
+- The tool has no API/server mode and cannot be wrapped
+- The tool's I/O contract is incompatible with the pipeline
+- The tool is unmaintained/broken and cannot be fixed trivially
+
+Before writing any integration code, verify each tool with one real request
+(per the External Integration Gate in AGENTS.md). If a tool works, wrap it
+with the thinnest possible HTTP client or subprocess call.
+
+**Corollary:** ATSFlow's `npm start` server exposes `/api/analyze` on port
+3101. The agent should have run `npm install && npm start`, hit the endpoint,
+and wrapped it — not written a 140-line CLI bridge that reimplements section
+detection and globals bootstrapping.
+
+**Fix:** The pipeline's matcher layer should be a thin client that POSTs to
+running services. The orchestrator (fan-out, panel review, metrics logging)
+is legitimately new — no existing repo does it — but the matchers themselves
+should be the real tools, not reimplementations.
+
+## 2026-08-06: ATS pipeline — LLM rewrites fabricate content despite no-fabrication prompts
+
+**Problem:** The DeepSeek rewriter prompt explicitly forbade fabricating
+skills, metrics, or experience ("Do NOT fabricate... If the original says
+'improved performance', rewrite as 'Improved performance' — do NOT invent
+'Improved performance by 30%'"). DeepSeek ignored this: it invented
+"processing millions of records daily", "reducing data errors by 40%",
+"99.9% uptime", and added skills like Medallion architecture, Delta Lake,
+and Apache Spark that the original resume never claimed.
+
+**Root cause:** Prompt-level rules are advisory for LLMs — they optimize for
+plausible, complete-looking output, and fabricated metrics make a resume
+look better. No instruction can reliably prevent this.
+
+**Fix (mandatory):** Deterministic post-rewrite alignment strip. After the
+LLM rewrite, compare the output against the original:
+- Skills: remove any skill token in the rewrite not present in the original's
+  Skills section OR its full text (substring check). Skills mentioned anywhere
+  in the original are verifiable.
+- Metrics: strip quantified claims (%, $, Nx, "over N", "N records/reports/
+  users/...") whose numbers don't appear in the original's legit numbers
+  (dates, phone, years).
+- Log every strip decision to the metrics file so the user can review.
+
+This mirrors Resume-Matcher's `validate_master_alignment` (Pass 3) — the one
+design decision that repo got right and that makes its output trustworthy.
+
+**Rule:** Never ship an LLM rewrite of a resume without a deterministic
+alignment pass. Prompt rules are insufficient; verify against the source
+document with code.
+
+## 2026-08-06: `edit` tool corrupted run.py four times — full write only
+
+**Problem:** Four consecutive `edit` calls on `src/ats_pipeline/run.py`
+landed on the wrong anchors, replacing function bodies and constants with
+unrelated code (a REWRITER_SYSTEM copy inside a function, bare statements
+inside a list literal, a deleted function header). Each corruption required
+a full rewrite.
+
+**Root cause:** `edit` line anchors are fragile on files with repeated
+similar content (multiple `SWAP N.=M` hunks, text patterns appearing in
+several places). Once the file was corrupted once, subsequent anchors
+were computed against stale snapshots and drifted further.
+
+**Rule:** For any file where an `edit` has landed wrong once, switch to
+full-file `write` for all subsequent changes — read the entire file, apply
+the change mentally, write the complete new content. Do not attempt
+another surgical edit on that file.
+
+**Also:** Always run a syntax check (`python -c "import ast; ast.parse(...)"`)
+after writing a Python module, before running it.
