@@ -12,6 +12,8 @@ wheels/
 # Scraper output
 *.csv
 *.json
+freework_jobs
+jobs_ranked.csv
 
 # OS
 .DS_Store
