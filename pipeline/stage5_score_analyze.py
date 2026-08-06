@@ -69,51 +69,24 @@ def load_jobs(path: Path) -> list[dict]:
         return json.load(f)
 
 
-def _parse_pay(job: dict) -> tuple[float, float]:
-    """Extract normalized annual pay in EUR. Returns (min, max) or (0, 0).
-
-    Handles: "40k-75k €", "450-650 €" (daily rate), "700-1k €".
-    """
-    pay_str = job.get("pay") or ""
-    rate_str = job.get("rate") or ""
-
-    def _parse_single(value: str) -> float:
-        """Parse one figure: '40k' -> 40000, '1 260' -> 1260."""
-        v = value.strip().replace("\xa0", "").replace("\u202f", "").replace(" ", "")
-        if v.lower().endswith("k"):
-            return float(v[:-1]) * 1000
-        return float(v)
-
-    if pay_str:
-        # Split on dash, strip currency suffix
-        parts = re.split(r"\s*[-–—]\s*", pay_str.replace("\xa0", " "))
-        parts = [re.sub(r"\s*[€¤$].*", "", p).strip() for p in parts]
-        nums = [_parse_single(p) for p in parts if p]
-        if len(nums) >= 2:
-            return nums[0], nums[-1]
-        if len(nums) == 1:
-            return nums[0], nums[0]
-
-    # Fall back to daily rate x 220 days/year
-    if rate_str:
-        parts = re.split(r"\s*[-–—]\s*", rate_str.replace("\xa0", " "))
-        parts = [re.sub(r"\s*[€¤$].*", "", p).strip() for p in parts]
-        nums = [_parse_single(p) for p in parts if p]
-        if len(nums) >= 2:
-            return nums[0] * 220, nums[-1] * 220
-        if len(nums) == 1:
-            return nums[0] * 220, nums[0] * 220
+def _get_pay(job: dict) -> tuple[float, float]:
+    """Extract normalized annual EUR pay from canonical salary field."""
+    salary = job.get("salary") or {}
+    if salary.get("is_disclosed"):
+        mn = salary.get("min_annual_eur")
+        mx = salary.get("max_annual_eur")
+        # Use whichever is available
+        if mn is not None or mx is not None:
+            return mn or mx or 0.0, mx or mn or 0.0
     return 0.0, 0.0
 
 
 def _score_pay(job: dict) -> float:
     """Score pay: higher is better, normalized against market range."""
-    pay_min, pay_max = _parse_pay(job)
+    pay_min, pay_max = _get_pay(job)
     if pay_min == 0:
-        return 0.3  # unknown → neutral
+        return 0.3  # unknown -> neutral
     avg = (pay_min + pay_max) / 2
-    # Paris DE market: ~40k (junior) to ~120k+ (senior/lead contractor)
-    # Score 0-1 where 80k+ = excellent
     if avg >= 90000:
         return 1.0
     elif avg >= 75000:
@@ -132,20 +105,20 @@ def _score_flexibility(job: dict) -> float:
     """Score flexibility: remote work, contract type, travel potential."""
     score = 0.5  # baseline
 
-    remote = (job.get("remote_type") or "").lower()
-    if remote == "remote":
+    workplace = (job.get("workplace_type") or "").lower()
+    if workplace == "remote":
         score += 0.3
-    elif remote == "hybrid":
+    elif workplace == "hybrid":
         score += 0.15
 
-    contracts = [c.lower() for c in job.get("contract_types", [])]
-    if "contractor" in contracts:
+    contracts = job.get("contract_types") or []
+    if "contract" in contracts:
         score += 0.2  # contractor = more flexibility
-    if "permanent" in contracts:
+    if "full_time" in contracts:
         score += 0.0  # CDI is neutral
 
-    # Short duration = less commitment, more flexibility to move on
-    duration = (job.get("duration") or "").lower()
+    # Short duration = less commitment
+    duration = (job.get("contract_duration") or "").lower()
     if any(d in duration for d in ["month", "mois"]):
         score += 0.1
 
@@ -153,10 +126,9 @@ def _score_flexibility(job: dict) -> float:
 
 
 def _score_low_responsibility(job: dict) -> float:
-    """Score for low-to-moderate responsibility (user wants not too demanding).
-    Higher score = less demanding role."""
+    """Score for low-to-moderate responsibility."""
     title = (job.get("title") or "").lower()
-    desc = (job.get("description_en") or job.get("description") or "").lower()
+    desc = (job.get("description_text") or "").lower()
     seniority = (job.get("seniority_level") or "").lower()
     role = (job.get("role_category") or "").lower()
 
@@ -177,19 +149,19 @@ def _score_low_responsibility(job: dict) -> float:
     if title_words & low_responsibility:
         score += 0.15
 
-    # Seniority signal
-    if seniority in ("lead", "architect", "manager"):
+    # Seniority signal (canonical: entry, junior, mid, senior, lead, manager)
+    if seniority in ("lead", "manager"):
         score -= 0.2
     elif seniority == "senior":
         score -= 0.05
-    elif seniority == "junior":
+    elif seniority in ("entry", "junior"):
         score += 0.1
 
     # Role category signal
-    if role == "data_product_manager":
-        score -= 0.15  # usually higher pressure
+    if role == "product_manager":
+        score -= 0.15
     if role == "data_analyst":
-        score += 0.1  # typically less operational pressure than DE
+        score += 0.1
 
     # Management keywords in description
     mgmt_keywords = [
@@ -208,14 +180,12 @@ def _score_low_responsibility(job: dict) -> float:
 
 
 def _score_tech_match(job: dict) -> float:
-    """Score how well the tech stack matches modern, enjoyable data engineering."""
-    techs = job.get("extracted_technologies") or []
-    skills = job.get("skills") or []
+    """Score how well the tech stack matches modern data engineering."""
+    technologies = job.get("technologies") or []
 
-    all_tech = {t.lower() for t in techs + skills}
+    all_tech = {t.lower() for t in technologies}
     if not all_tech:
-        # Fall back to description keyword scan
-        desc = (job.get("description_en") or job.get("description") or "").lower()
+        desc = (job.get("description_text") or "").lower()
         all_tech = set(desc.split())
 
     high_value_count = len(all_tech & HIGH_VALUE_TECH)
@@ -232,22 +202,24 @@ def _score_company_quality(job: dict) -> float:
 
     posting_type = (job.get("posting_company_type") or "").lower()
     engagement = (job.get("engagement_type") or "").lower()
-    stats = job.get("company_stats") or {}
+    ci = job.get("company_info") or {}
 
     if engagement == "direct":
-        score += 0.2  # direct hire more stable, better culture integration
+        score += 0.2
     if posting_type == "esn":
-        score -= 0.05  # consulting meat-grinder risk
+        score -= 0.05
 
-    company_type = stats.get("company_type", "")
-    if company_type == "enterprise":
-        score += 0.1  # stability, benefits
-    if company_type == "consulting_firm":
-        score -= 0.1  # body-shop risk
+    org_type = ci.get("org_type", "")
+    if org_type == "enterprise":
+        score += 0.1
+    if org_type == "consulting_firm":
+        score -= 0.1
 
-    info_quality = stats.get("info_quality", "")
-    if info_quality == "high":
-        score += 0.05  # well-known company
+    # Well-known company = has stock symbol or significant funding
+    if ci.get("stock_symbol") or (
+        ci.get("latest_funding_amount_usd") and ci["latest_funding_amount_usd"] > 50_000_000
+    ):
+        score += 0.05
 
     return max(min(score, 1.0), 0.0)
 
