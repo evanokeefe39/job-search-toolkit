@@ -21,6 +21,19 @@ uv run python scrape_freework.py --format json
 uv run python scrape_hiringcafe.py --max-pages 50
 ```
 
+Application workflow is agent-driven (see `.agents/skills/`):
+
+```bash
+# 1. Refresh jobs and shortlist (run scrapers + enrichment, report delta)
+/skill:jd-refresh
+
+# 2. Scaffold an application folder and research the company
+/skill:new-application
+
+# 3. Tailor the master CV to the JD, review diffs, render PDF
+/skill:tailor-resume
+```
+
 ## Architecture
 
 ```
@@ -97,68 +110,62 @@ To add a new board:
 
 The enrichment stages automatically skip jobs with populated `_enrichment` flags.
 
-## ATS resume pipeline
+## Application workspace
 
-Given a resume + job description, fans out to multiple ATS matchers running
-as Docker services, applies each matcher's recommendations via DeepSeek to
-produce an improved resume, then deterministically strips any unverifiable
-claims the original resume can't support.
+Discovery is automated; everything after shortlisting is an interactive,
+per-role workflow operated with agent skills and human review gates.
 
 ```mermaid
 flowchart LR
-    R[resume.txt] --> M1[ats-resume-checker:8001]
-    J[jd.txt] --> M1
-    R --> M2[atsflow:3101 30-rule scan]
-    J --> M2
-    M1 --> W1[DeepSeek rewriter]
-    M2 --> W2[DeepSeek rewriter]
-    W1 --> A1[alignment strip]
-    W2 --> A2[alignment strip]
-    A1 --> O1[improved resume 1]
-    A2 --> O2[improved resume 2]
+    subgraph DISCOVERY[Discovery - automated batch, stable]
+        S1[scrape_freework] --> M[merge + enrich + score]
+        S2[scrape_hiringcafe] --> M
+        M --> R[jobs_ranked.csv]
+    end
+    subgraph WORKSPACE[Triage + research + tailoring - human + agent]
+        R --> PICK[shortlist from ranked CSV]
+        PICK --> APP[applications/date_company_role/]
+        APP --> RES[jd.md + research.md]
+        RES --> RM[Resume-Matcher advisor]
+        MASTER[resume/cv.yaml] --> RM
+        RM --> DIFF[review detailed_changes]
+        DIFF --> TAILOR[cv_tailored.yaml -> PDF]
+        TAILOR --> TRACK[tracker.csv]
+    end
 ```
+
+### Skills
+
+Playbooks in `.agents/skills/` drive the workflow; each stops at human gates.
+
+| Skill | Orchestrates | Human gate |
+|---|---|---|
+| `jd-refresh` | Run scrapers + enrichment, report delta and top-ranked jobs | Shortlist selection |
+| `new-application` | Scaffold application folder, write `jd.md`, research company (web search, yfinance, manual Crunchbase checkpoint), write `research.md` | Go/no-go on applying |
+| `tailor-resume` | Start Resume-Matcher, run CV+JD through it, present diff log, apply approved changes to tailored YAML, render PDF, audit, track | Every diff; final PDF |
+| `application-tracker` | `tracker.csv` transitions + response-rate stats | — |
+
+### Canonical resume
+
+`resume/cv.yaml` is the single master resume (RenderCV schema, gitignored —
+this repo is PUBLIC, never commit personal data). Render with
+`uv run rendercv render resume/cv.yaml`. Tailoring forks a copy per application
+(`applications/<folder>/cv_tailored.yaml`); the master never changes.
 
 ### Services
 
-| Service | What it is | Port |
-|---|---|---|
-| `ats-checker` | FastAPI wrapper around `ats-resume-checker` (TF-IDF cosine) | 8001 |
-| `atsflow` | ATSFlow 30-rule compliance scanner (formatting/structure/content) | 3101 |
+`services/docker-compose.yml` runs Resume-Matcher only (`http://localhost:8000`),
+started by the `tailor-resume` skill and torn down afterward — nothing is
+always-on. ATSFlow and ats-resume-checker were retired in the 2026-08-06 rework;
+ATSFlow's 30-rule scan is at most a one-time manual lint of the master template.
 
-The matcher containers are the researched open-source tools, wrapped thinly —
-no reimplemented scoring logic. Custom code is limited to orchestration
-(fan-out, rewrite, alignment strip, metrics).
+### Fabrication guard
 
-### Run
+`scripts/audit_alignment.py <original> <rewrite>` deterministically strips
+claims the original can't support (skills and metrics absent from the master)
+and exits 1 if anything was stripped. Resume-Matcher's built-in
+master-alignment validation plus this audit are two lines of defense; the human
+reviews the diff log regardless.
 
-```bash
-# 1. Install ATSFlow JS deps (source + wrappers are vendored in services/atsflow)
-cd services/atsflow && npm install && cd ../..
-
-# 2. Start matcher services
-docker compose -f services/docker-compose.yml up -d --build
-
-# 3. Run the pipeline (requires LLM_API_KEY in .env)
-uv run python -m src.ats_pipeline.run data/resume.txt data/jd.txt
-```
-
-> The ATSFlow source is vendored in-repo (`services/atsflow/`) including the
-> custom `scanner-server.js` API wrapper and CLI bridge. Do not re-clone over
-> it — the upstream repo has no Dockerfile or scanner API.
-
-Outputs land in `data/output/{run_id}_{matcher}.md` with a summary JSON.
-The alignment strip logs every removed claim so output can be audited.
-
-### Design notes
-
-- **Why the alignment strip:** DeepSeek fabricates metrics and skills even
-  when explicitly forbidden by prompt. A deterministic post-rewrite pass
-  compares output against the original and removes unverifiable claims
-  (mirrors Resume-Matcher's `validate_master_alignment`).
-- **Host-side parity verified:** the HTTP endpoints return identical scores
-  to running the underlying libraries directly (31/100 checker, 84/100 ATSFlow).
-- **Not yet integrated:** Resume-Matcher container, `ats-resume-scorer`,
-  panel-of-experts synthesis, pass-2 feedback loop.
-
-See `data/ats_matcher_catalog.md` for the full researched inventory and
-`data/matcher_contracts.md` for I/O contracts.
+See `docs/ats_matcher_catalog.md` for the researched tool inventory and
+`docs/matcher_contracts.md` for verified I/O contracts.

@@ -29,3 +29,9 @@ data/_tmp_*.txt
 
 # Node dependencies (vendored ATSFlow source)
 node_modules/
+
+# Personal application workspace — PUBLIC repo: PII, target companies, salary data
+# Must stay ignored before any real content is created (gitignore is not retroactive)
+resume/
+applications/
+rendercv_output/

@@ -1,25 +1,43 @@
-# ATS Matcher Services
+# Resume-Matcher service (Tailoring Engine, seam option B)
 #
-# Services:
-#   ats-checker  — ats-resume-checker (TF-IDF, port 8001)
-#   atsflow      — ATSFlow 30-rule scanner + Claude proxy (port 3101)
+# Single service: Resume-Matcher at http://localhost:8000.
+# Verified endpoints (smoke-tested 2026-08-06):
+#   POST /api/v1/resumes/upload (PDF/DOCX only) -> resume_id
+#   POST /api/v1/jobs/upload {job_descriptions: [...], resume_id?} -> job_id[]
+#   POST /api/v1/resumes/improve {resume_id, job_id} -> tailored ResumeData +
+#       ats_score + detailed_changes
+#   GET  /api/v1/resumes/{resume_id}/pdf?template=swiss-single
+#   GET  /api/v1/health  (liveness check; does NOT call the LLM provider)
 #
-# Prerequisites:
-#   git clone https://github.com/ry-ops/ATSFlow.git services/atsflow
-#   cd services/atsflow && npm install
+# Env: LLM_PROVIDER=deepseek, LLM_MODEL=deepseek-chat; LLM_API_KEY comes from
+# the repo-root .env file (env_file: ../.env).
 #
-# Start:  docker compose -f services/docker-compose.yml up -d --build
-# Stop:   docker compose -f services/docker-compose.yml down
+# Healthcheck: curl is present in the image (upstream Dockerfile installs it
+# via apt-get on python:3.13-slim-bookworm); the upstream HEALTHCHECK uses
+# `curl -f http://127.0.0.1:8000/api/v1/health` — /health alone would 404
+# because the health router is mounted under the /api/v1 prefix.
+#
+# Start: docker compose -f services/docker-compose.yml up -d
+# Stop:  docker compose -f services/docker-compose.yml down
 
 services:
-  ats-checker:
-    build: ./ats_checker
+  resume-matcher:
+    image: srbhr/resume-matcher:latest
     ports:
-      - "8001:8001"
-    restart: unless-stopped
+      - "8000:8000"
+    env_file:
+      - ../.env
+    environment:
+      LLM_PROVIDER: deepseek
+      LLM_MODEL: deepseek-chat
+    volumes:
+      - resume_matcher_data:/app/backend/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
 
-  atsflow:
-    build: ./atsflow
-    ports:
-      - "3101:3101"
-    restart: unless-stopped
+volumes:
+  resume_matcher_data: {}

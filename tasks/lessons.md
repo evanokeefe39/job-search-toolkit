@@ -181,3 +181,87 @@ another surgical edit on that file.
 
 **Also:** Always run a syntax check (`python -c "import ast; ast.parse(...)"`)
 after writing a Python module, before running it.
+
+## 2026-08-06: Pivot — skills and workspaces replace the ATS pipeline
+
+**Problem:** After the federated-ATS reimplementation debacle, the repo still
+carried a 15KB custom orchestrator, a vendored ATSFlow fork, two matcher
+services, and fifteen test-run artifacts — all validated against a fictional
+"Alex Chen" resume. That machinery was batch-pipeline-shaped for a workflow
+that is actually interactive and per-role: shortlist → read JD → research
+company → tailor → manual review. The user's volume (a handful of real
+applications) cannot justify a fully automated pipeline, and the user's own
+words said so from the start.
+
+**Five Whys:**
+1. Infrastructure kept growing → the agent defaulted to "build a system"
+   whenever the workflow was described.
+2. "Build a system" was the default → there was no question asked about
+   volume ("how many items flow through this per week?").
+3. No volume question → automation was applied uniformly, including at the
+   narrow end of the funnel where judgment dominates.
+4. Uniform automation → pipeline code replaced human gates and review, which
+   is exactly where fabrication and misalignment creep in.
+5. **Root cause:** No architectural principle separated "batch work that
+   automates" from "judgment work that assists". The system was designed as a
+   pipeline because that is what pipelines are built for — the workflow was
+   never the input.
+
+**Update (the pivot):** This repo is now an application workspace.
+- Agent skills (`.agents/skills/`) are the only orchestration layer: playbooks
+  with explicit human gates, invoking existing scripts, Docker, and web tools.
+- Docker services are ephemeral: `docker compose up` inside the tailor skill,
+  `down` when the session ends — nothing always-on.
+- Resume-Matcher is an advisor (seam option B): its `detailed_changes` diff
+  log is human-reviewed; approved changes go into a tailored RenderCV YAML
+  copy; its exported PDF is never the submission artifact.
+- The fabrication guard lives on: `scripts/audit_alignment.py` (salvaged from
+  the old orchestrator) strips claims the master can't support, exit 1 = stop.
+- Personal data is gitignored (`resume/`, `applications/`, `tracker.csv`,
+  `rendercv_output/`) because the repo is PUBLIC — and the ignore rules were
+  committed before any real content existed (gitignore is not retroactive).
+
+**Rule:** Before building automation for a step in a personal workflow, ask
+"does this step process >50 items, or is it judgment on one item?" Batch work
+gets pipeline code; judgment work gets a skill (procedure + human gate) that
+orchestrates tools. A workflow is not a pipeline until volume proves it is.
+
+## 2026-08-06: Dry-run execution — two discovery-layer findings
+
+The jd-refresh step of the dry run ran live against the real pipeline and
+surfaced two issues. Both are logged here per the continuous-improvement rule.
+
+**Finding 1 — Skill snapshot path broke on Windows git-bash.**
+The jd-refresh skill instructed agents to snapshot jobs_ranked.csv to `/tmp`,
+but `/tmp` does not exist on this machine's git-bash (C:/tmp missing) — the cp
+failed. Fixed in the skill: snapshot to `data/_tmp_jobs_ranked_prior_*.csv`,
+which the global `*.csv` gitignore rule keeps out of the repo.
+**Rule:** agent skill playbooks must assume Windows git-bash, not POSIX: no
+`/tmp`, no `/dev/null` idioms; use repo-local gitignored paths for scratch files.
+
+**Finding 2 — Classification structured-output calls fail validation.**
+The vertical_classified stage hit `Max retries exceeded` on every record: 4
+validation errors (missing fields) because the model's tool-call arguments were
+invalid JSON. Probe (2026-08-06): `POST /v1/chat/completions` with
+`model=deepseek-chat` returns a completion whose served model is
+`deepseek-v4-flash` — the alias now points at the v4-flash family upstream, and
+v4-flash emits malformed function-call JSON (`"end_client_sector": other`
+unquoted, arguments double-wrapped as a JSON string). The classification stage
+was tuned when deepseek-chat meant the previous generation. Impact: end_client
+fields stay empty for newly enriched jobs (they were already ~86% empty);
+engagement_type and scoring unaffected; existing records keep prior values.
+Pending decision: harden llm_client.py structured-output calls with a
+JSON-repair fallback (parse arguments string; on failure retry with JSON
+embedded in the prompt instead of a function call) — discovery layer change,
+awaiting user approval per plan negative space.
+**Rule:** vendor model aliases move under you. Before a batch enrichment run,
+probe the served model for the configured alias once (one tiny completion) and
+compare against the model the prompts were tuned on. Structured-output calls
+need a repair fallback, not a retry loop — retrying the same malformed
+generation pattern burns attempts without fixing anything.
+
+**Dry-run status:** jd-refresh complete and verified live; Wave 3 verified all
+tailoring endpoints with real traffic; master resume rendered. The remaining
+steps (new-application scaffold, tailor-resume diff review, tracker) are
+human-gated by design — the shortlist pick and go/no-go are the user's, and the
+agent must not simulate them.
