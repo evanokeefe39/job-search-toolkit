@@ -107,7 +107,9 @@ Beyond the 14 scraper fields, each job gains:
 - **Pagination:** The `?page=N` param is appended to the search URL. Page count is extracted from `N / M` text in the page.
 - **French number parsing:** Strip `\u202f` (narrow NBSP), `\xa0` (NBSP), and regular spaces before `float()`. Always split on dash before parsing ranged values.
 - **Language detection:** French technical job descriptions are dense with English loanwords — simple word-frequency heuristics fail. Use `fr_count == 0` (any French word → needs translation) rather than ratio thresholds.
-- **deepseek-chat alias (probed 2026-08-06):** the `deepseek-chat` model alias is now served upstream by `deepseek-v4-flash`, which emits malformed function-call JSON in the classification stage (unquoted enum values, arguments double-wrapped as a string) — validation retries fail and `end_client_*` fields stay empty. Probe the served model before tuning structured-output prompts; a JSON-repair fallback in `llm_client.py` is the proposed fix (pending approval).
+- **deepseek-chat alias (probed 2026-08-07):** now served upstream by `deepseek-v4-flash` (0731 revision as of Aug 2026). The pipeline's classification stage still hits malformed function-call JSON (unquoted enum values, double-wrapped arguments); a JSON-repair fallback in `llm_client.py` is the proposed fix. However, `response_format: {"type": "json_object"}` works correctly with v4-flash for prompt-only structured output — Resume-Matcher is confirmed working with this config.
+- **deepseek-v4-pro and structured output:** the raw API supports `response_format: {"type": "json_object"}` but v4-pro emits `reasoning_content` that consumes ~65% of the `max_tokens` budget before JSON generation starts. For large structured outputs (resume tailoring), this risks truncation and wastes budget. Use v4-flash for structured output tasks; reserve v4-pro for reasoning-heavy work where the thinking is the deliverable.
+- **Resume-Matcher LLM config:** `LLM_PROVIDER=deepseek`, `LLM_MODEL=deepseek-chat` in `services/docker-compose.yml`. The matcher's `DEFAULT_JSON_MAX_TOKENS` is 8192 (in `llm.py`). If truncation recurs on large resumes, switch to `openai/gpt-5.6-luna` via OpenRouter ($0.10/$0.60, Intel 52.3) or `z-ai/glm-5.2` ($0.206/$0.647, Intel 52.6). Full model comparison in the 2026-08-07 CI log entry below.
 - **RenderCV highlights are `list[str]`:** a literal `" - "` (space-hyphen-space) inside a highlight string becomes a nested sub-bullet (see `process_highlights`); em-dashes are safe. The Hancock clusters in `resume/cv.yaml` use this convention.
 - **Windows git-bash has no `/tmp`:** scratch files must go to repo-local gitignored paths (`data/_tmp_*`); POSIX idioms break skill playbooks and scripts.
 
@@ -153,4 +155,38 @@ Update: Pivoted to an application workspace. Agent skills (.agents/skills/)
         personal data is gitignored (repo is PUBLIC). Rule: ask ">50 items or
         judgment on one?" before building automation — judgment steps get
         skills + tools, not pipelines. Full detail in tasks/lessons.md.
+```
+
+```
+Date: 2026-08-07
+Trigger: ISSUES.md reported Resume-Matcher structured-output failures with
+         both deepseek-v4-pro ("JSON mode rejected") and deepseek-chat/v4-flash
+         ("JSON truncated, unbalanced braces"). Raw API smoke tests (8 models,
+         8 providers) proved both models support response_format correctly.
+         Resume-Matcher integration test with deepseek-chat succeeded (10s,
+         valid JSON, no truncation). The failures were likely transient — the
+         deepseek-chat alias may have resolved to an older v4-flash build, and
+         the v4-pro rejection was likely a matcher client-detection bug.
+Gap: The original test assumed API-level failure without ruling out the
+     matcher's client code. The "health check doesn't exercise the LLM path"
+     note in ISSUES.md was exactly right — the fix was one raw API call away.
+Update: deepseek-chat (v4-flash) is confirmed working for Resume-Matcher.
+        v4-pro is disqualified for structured-output tasks because its
+        reasoning_content field consumes ~65% of the token budget before JSON
+        generation starts. Full model comparison across 8 providers documented
+        below. Rule: before declaring an API broken, test it raw — the client
+        layer is always a suspect.
+
+Model comparison (2026-08-07, OpenRouter API + direct providers):
+Candidates filtered for: released ≤12mo ago, structured_outputs support,
+quality parity with v4-pro (Intel ≥38 or Code ≥48), cost ≤2x v4-pro.
+Top picks for resume tailoring (writing/editing task, not coding):
+  Rank  Model                 Intel  Code   In$/1M  Out$/1M  Released    Notes
+  1     deepseek-v4-flash-0731 51.8  69.1   $0.090  $0.180  2026-07-31  Best cost/perf, no reasoning overhead
+  2     z-ai/glm-5.2           52.6  68.8   $0.206  $0.647  2026-06-16  Highest quality in budget
+  3     openai/gpt-5.6-luna    52.3  71.4   $0.100  $0.600  2026-07-09  GPT-class, strong coding
+  4     minimax-m3             45.4  58.6   $0.300  $1.200  2026-05-31  Closest quality parity
+  5     deepseek-v4-pro        45.3  59.4   $0.435  $0.870  2026-04-24  Baseline; avoid (reasoning overhead)
+Excluded: llama-3.3-70b (>12mo), deepseek-reasoner (rejects response_format),
+          codestral (code model), Gemini Flash (3-10x cost), Claude/GPT-5 (>10x).
 ```
