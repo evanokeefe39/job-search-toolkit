@@ -28,6 +28,7 @@ data/metrics/
 data/_tmp_*
 data/market_*
 data/outreach_*
+data/contacts*
 # Node dependencies (vendored ATSFlow source)
 node_modules/
 
