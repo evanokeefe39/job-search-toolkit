@@ -36,10 +36,14 @@ pipeline/                        # Dagster 9-asset graph: scrape -> merge -> enr
 .agents/skills/                  # Agent playbooks (oh-my-pi / Claude)
 ├── jd-refresh/SKILL.md          # Refresh jobs, report delta, stop for shortlist
 ├── new-application/SKILL.md     # Scaffold application folder + company research
-├── tailor-resume/SKILL.md       # Resume-Matcher tailoring, human-reviewed diffs
-└── application-tracker/SKILL.md # tracker.csv transitions + response-rate stats
+├── tailor-resume/SKILL.md       # Resume-Matcher advisory pass + human-reviewed diff + RenderCV PDF
+├── application-tracker/SKILL.md # tracker.csv transitions + response-rate stats
+├── market-research/SKILL.md     # [planned] Multi-level job market trend analysis
+└── cold-outreach/SKILL.md       # [planned] Find contacts, draft outreach messages
 
 resume/cv.yaml                   # Master resume (RenderCV YAML — gitignored, public repo)
+job_search_preferences.yaml      # Job search preferences (location, comp, roles — gitignored)
+docs/ats_resume_knowledge_2026.md # ATS systems, resume writing, job search strategy knowledge base
 applications/                    # One folder per application (gitignored)
 services/docker-compose.yml      # Resume-Matcher only; ephemeral (up/down via tailor-resume)
 scripts/audit_alignment.py       # Deterministic fabrication strip (master vs tailored)
@@ -71,11 +75,12 @@ uv run python -m pipeline.stage5_score_analyze --export-csv jobs_ranked.csv --to
 ### Application workflow (agent-driven)
 
 ```bash
-/skill:jd-refresh          # run discovery, report delta, stop for shortlist
-/skill:new-application     # scaffold applications/<date>_<company>_<role>/, research
-/skill:tailor-resume       # Resume-Matcher advisory pass + human-reviewed diff + RenderCV PDF
-/skill:application-tracker # tracker.csv transitions and response-rate stats
-```
+/skill:jd-refresh           # run discovery, report delta, stop for shortlist
+/skill:new-application      # scaffold applications/<date>_<company>_<role>/, research
+/skill:tailor-resume        # Resume-Matcher advisory pass + human-reviewed diff + RenderCV PDF
+/skill:application-tracker  # tracker.csv transitions and response-rate stats
+/skill:market-research      # [planned] Multi-level job market trend analysis
+/skill:cold-outreach        # [planned] Find contacts, draft outreach messages
 
 ### Enriched JSON schema
 
@@ -110,6 +115,8 @@ Beyond the 14 scraper fields, each job gains:
 - **deepseek-chat alias (probed 2026-08-07):** now served upstream by `deepseek-v4-flash` (0731 revision as of Aug 2026). The pipeline's classification stage still hits malformed function-call JSON (unquoted enum values, double-wrapped arguments); a JSON-repair fallback in `llm_client.py` is the proposed fix. However, `response_format: {"type": "json_object"}` works correctly with v4-flash for prompt-only structured output — Resume-Matcher is confirmed working with this config.
 - **deepseek-v4-pro and structured output:** the raw API supports `response_format: {"type": "json_object"}` but v4-pro emits `reasoning_content` that consumes ~65% of the `max_tokens` budget before JSON generation starts. For large structured outputs (resume tailoring), this risks truncation and wastes budget. Use v4-flash for structured output tasks; reserve v4-pro for reasoning-heavy work where the thinking is the deliverable.
 - **Resume-Matcher LLM config:** `LLM_PROVIDER=deepseek`, `LLM_MODEL=deepseek-chat` in `services/docker-compose.yml`. The matcher's `DEFAULT_JSON_MAX_TOKENS` is 8192 (in `llm.py`). If truncation recurs on large resumes, switch to `openai/gpt-5.6-luna` via OpenRouter ($0.10/$0.60, Intel 52.3) or `z-ai/glm-5.2` ($0.206/$0.647, Intel 52.6). Full model comparison in the 2026-08-07 CI log entry below.
+- **Resume-Matcher tailoring quality:** the matcher works (confirmed: 5 work experiences preserved, ATS 82.6) but produces surface-level tailoring only — summary rewrites with JD keywords, minor phrasing tweaks to bullets. It does not deeply reframe experience for a target role. The alignment/refinement pass acts as a fabrication guard (validates against master resume) which limits how aggressively the LLM can rewrite. For deeper tailoring, investigate alternative engines (see ISSUES.md closed items). Until then, the matcher provides a useful ATS keyword gap analysis and summary rewrite; bullet-level reframing remains manual.
+- **Resume-Matcher master resume requirement:** the improve endpoint's alignment pass validates against a master resume. If the master has unrelated data (e.g., the default `Jane_Doe_CV.pdf` dummy), real work experience gets stripped as "unfabricated." Fix: `PATCH /api/v1/resumes/{master_id}` with real structured data before running improve. Structured data injection via `PATCH` bypasses PDF parsing entirely — field names must match the matcher's schema exactly (`title`, `company`, `years`, `description` as array of strings).
 - **RenderCV highlights are `list[str]`:** a literal `" - "` (space-hyphen-space) inside a highlight string becomes a nested sub-bullet (see `process_highlights`); em-dashes are safe. The Hancock clusters in `resume/cv.yaml` use this convention.
 - **Windows git-bash has no `/tmp`:** scratch files must go to repo-local gitignored paths (`data/_tmp_*`); POSIX idioms break skill playbooks and scripts.
 

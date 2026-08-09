@@ -35,3 +35,5 @@ node_modules/
 resume/
 applications/
 rendercv_output/
+job_search_preferences.yaml
+tracker.csv
