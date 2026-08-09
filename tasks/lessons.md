@@ -274,28 +274,41 @@ returned HTTP 200 with valid JSON, an improved ATS score (87.3), and a PDF
 artifact. I declared success. The user looked at the PDF and found it was
 1 page with no work experience — the single most important section of a resume.
 
-**Five Whys:**
+**Five Whys (technical):**
 1. PDF had no work experience → `resume_preview.workExperience` was `[]`.
-2. Structured model was empty → the parser couldn't extract work experience
-   from the RenderCV PDF.
-3. Parser failed → PyMuPDF text extraction order doesn't match logical reading
-   order for externally-formatted PDFs.
-4. Extraction order mismatch → Resume-Matcher's parser was built for its own
-   templates, not RenderCV's typographic conventions.
-5. **Root cause (agent):** I verified the pipeline (HTTP status, JSON validity,
-   ATS scores) but never opened the PDF to check whether it actually contained
-   a resume. Pipeline success is not domain correctness. A resume without work
-   experience is not a resume — no amount of JSON validity or ATS scoring
+2. Work experience was stripped → the matcher's refinement/alignment pass
+   removed them.
+3. Alignment pass stripped them → they didn't exist in the **master resume**
+   that the alignment validates against.
+4. Master resume had unrelated data → the default master was `Jane_Doe_CV.pdf`,
+   a dummy sample with completely different work history.
+5. **Root cause:** The matcher's refinement pass compares tailored output against
+   the master resume to prevent fabrication. When the master has unrelated data,
+   real experiences are treated as "unfabricated" and stripped. Fix: PATCH the
+   master resume with real structured data before running improve. This is a
+   correctness feature, not a bug — it prevents the LLM from inventing roles.
+   The gap was that our API-driven workflow never set up the master correctly.
+
+**Five Whys (agent):**
+1. I didn't catch the empty work experience → I never opened the PDF.
+2. I didn't open the PDF → I verified pipeline success (HTTP 200, valid JSON,
+   ATS scores) and stopped there.
+3. Pipeline verification felt sufficient → the artifact was produced without
+   errors.
+4. No explicit content-verification step → the workflow checklist didn't
+   include "open and inspect the output document."
+5. **Root cause:** Pipeline success is not domain correctness. A resume without
+   work experience is not a resume — no amount of JSON validity or ATS scoring
    compensates for a document that fails its purpose.
 
-**Rule:** After any pipeline that produces a human-facing artifact (PDF, report,
-resume, dashboard), open the artifact and verify domain-essential content before
-declaring success. For a resume: work experience MUST be present. For a report:
-data MUST be populated. For a dashboard: charts MUST render. The artifact is the
-deliverable, not the pipeline log.
-
-**Corollary:** When the artifact is sparse or empty, trace backward through the
-dependency chain (PDF → structured model → parser → input format) before
-reporting results. The matcher's `detailed_changes` proved the LLM saw the work
-experience in raw markdown — the gap was in the parser, not the LLM. Surfacing
-this immediately would have saved the user from discovering it in the PDF.
+**Rules:**
+- After any pipeline that produces a human-facing artifact (PDF, report,
+  resume, dashboard), open the artifact and verify domain-essential content
+  before declaring success.
+- When the artifact is sparse or empty, trace the full dependency chain before
+  attributing blame. The initial "PDF parser failure" diagnosis was wrong —
+  the parser extracted all 12KB of text correctly. The stripping happened in
+  the alignment pass against a misconfigured master resume.
+- Before tailoring in Resume-Matcher via API: PATCH the master resume with
+  real structured data. The alignment pass is a fabrication guard that will
+  strip any content not present in the master.
