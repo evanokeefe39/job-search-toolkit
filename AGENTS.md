@@ -22,6 +22,12 @@ with human review gates — no fully automated ATS pipeline.
 - Application folders: `applications/YYYY-MM-DD_<company>_<role>/` with `jd.md`, `research.md`, `cv_tailored.yaml`, `cv_tailored.pdf`, `notes.md`; status lives in `tracker.csv` (11 columns — see the application-tracker skill)
 - PUBLIC repo: `resume/`, `applications/`, `tracker.csv`, `rendercv_output/` are gitignored — never commit personal data or target-company info; gitignore is not retroactive, so new personal paths must be ignored before the first commit
 - Dates are `DD/MM/YYYY` (French locale from free-work.com)
+- **No hand-tailoring.** Resume tailoring must be driven by ATS-based analysis
+  and industry-knowledge-backed rules, not human intuition. Until a specialized
+  tailoring pipeline or skill exists, the Resume-Matcher's `cv_tailored_matcher.pdf`
+  is the submission artifact. Hand-tailored `cv_tailored.yaml`/`cv_tailored.pdf`
+  are never created. The `cv_tailored_matcher.pdf` in each application folder is
+  the matcher's output for that job.
 
 ## Architecture
 
