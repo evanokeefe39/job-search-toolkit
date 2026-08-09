@@ -221,9 +221,71 @@ scrape_hiringcafe─┘       │                    │
 | LinkedIn growth signals | Medium (requires enrichment) | Medium (growth ≠ hiring) | Requires API/scraping | **Not implemented** |
 | Conference/ecosystem | Low (periodic) | High (curated, high-growth) | Manual research | **Not implemented** |
 
+
+### Portfolio & Lead Magnets
+
+Inbound leads come from demonstrating expertise publicly. Every asset that shows
+work attracts prospects who self-qualify before reaching out.
+
+**Lead magnet assets:**
+
+| Asset | Effort | Distribution | Conversion Path |
+|---|---|---|---|
+| **Market research report** | Low (automated) | LinkedIn post, dev.to, personal site | The `market-research` skill produces territory viability reports from scraped + enriched data. Publish sanitized versions (no personal targeting data) as "State of Data Engineering in Paris — Aug 2026." Recruiters and agencies share these → inbound inquiries. |
+| **Technical blog posts** | Medium | dev.to, Medium, LinkedIn articles | "How I built a medallion architecture on Microsoft Fabric" — demonstrates Fabric expertise, ranks for Fabric-related searches. Include a "hire me" footer. |
+| **Open-source project** | High (build once) | GitHub, PyPI, LinkedIn | The existing `pi-fuse` (multi-model LLM fusion) and `loc-dock` (Rust dev metrics widget) are portfolio pieces. Add a `README` with a "consulting available" note. |
+| **Conference talk / meetup** | High (one-off) | PyData Paris, Data + AI Summit | Speaking establishes credibility with hiring managers in the audience. Submit to CFPs; even a local meetup talk compounds. |
+| **Case study / white paper** | Medium | Personal site, LinkedIn | "Migrating a 10TB on-prem SQL Server to Azure Fabric: a case study" — anonymize the client, show the architecture, end with "available for similar engagements." |
+
+**Conversion mechanics:**
+
+1. Every asset includes a call-to-action: "I'm available for freelance data
+   engineering engagements in Paris — reach out at [email] or [LinkedIn]."
+2. The market research report is the highest-ROI lead magnet: it's built from
+   pipeline data we already generate, establishes authority in the Paris data
+   market, and attracts recruiters and agencies actively searching for data
+   talent in the region.
+3. Track inbound leads in `data/outreach_tracker.csv` with `direction: inbound`
+   and the source asset — this separates them from outbound cold outreach for
+   conversion rate analysis.
+
+### Creator & Social Profile Analysis
+
+Social media surfaces leads that don't appear on job boards: companies
+posting about data problems, engineers complaining about broken pipelines,
+recruiters announcing new searches.
+
+**Signals to monitor:**
+
+| Platform | Signal | Lead Type |
+|---|---|---|
+| **LinkedIn** | "We're hiring a data engineer" posts from CTOs/ Heads of Data | Direct hiring intent — warm outreach to the poster |
+| **LinkedIn** | "Our data platform can't scale" or "Looking for Fabric consultants" | Problem signal — reach out offering solution |
+| **Twitter/X** | #DataEngineering + #Paris / #France — technical discourse | Community presence, not direct leads — builds reputation |
+| **Reddit** (r/dataengineering) | "Freelance rate in Paris?" or "Best ESN for data engineers?" | Market intelligence, not leads — feeds rate benchmarking |
+| **GitHub** | Companies open-sourcing data tools (e.g. a retailer releasing a dbt package) | Company investing in data — research and outreach |
+| **Dev.to / Medium** | Technical authors at target companies | Contact discovery — the author is often approachable |
+
+**Creator profile strategy:**
+- Build a personal brand as "the Fabric data engineer in Paris"
+- Post weekly: one technical insight, one market observation, one project update
+- Engage with posts from target-company engineers and recruiters (comment, not
+  just like) — this puts your name in their notifications
+- The goal is not viral reach; it's being the first person a Paris recruiter
+  thinks of when they need a Fabric contractor
+
+**Automation potential:**
+- LinkedIn saved searches for "data engineer Paris freelance" and "Fabric
+  consultant France" — manual review weekly
+- Google Alert for "Microsoft Fabric" + "France" / "Paris" — surfaces news
+  about Fabric adoption at French companies
+- The `market-research` skill already searches for tech trends; extend it to
+  capture social signals from the platforms above
+
 ---
 
 ## 4. Gaps & Next Steps
+
 
 ### Critical (blocks lead flow)
 
