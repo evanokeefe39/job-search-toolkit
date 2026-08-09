@@ -31,7 +31,21 @@ This skill researches and scaffolds only. It does NOT tailor the CV (see
 - Never run `uv run python -m pipeline.run` from this skill; the discovery layer
   is read-only input here.
 
-## Playbook
+
+## Pre-flight
+
+1. Read `job_search_preferences.yaml` — load `location`, `work_arrangement`,
+   `employment_type`, `language`, `compensation`, and `roles`. These are
+   standing constraints; every job must pass the dealbreaker gate (step 1b)
+   before proceeding.
+2. If `data/market_state.md` exists, read the "Current Assessment" section —
+   it carries the latest territory viability ratings per region. Reference
+   it in the Market Context section of research.md.
+3. If `data/market_state.md` does not exist, note "market state not yet
+   researched" — proceed with the application but flag in research.md that
+   market context is pending.
+
+ ## Playbook
 
 ### 1. Identify the job record
 
@@ -61,7 +75,35 @@ rec = next(j for j in jobs if (j.get("apply_url") or "").rstrip("/") == target_u
    is `description_en` there). If it is still not found, STOP and report to the
    human — do not scrape a live page to reconstruct the JD.
 
-### 2. Scaffold the application folder and write jd.md
+### 1b. Dealbreaker gate (preferences check)
+
+Before scaffolding, check the job record against `job_search_preferences.yaml`.
+Auto-reject (STOP, report reason, do not create folder or tracker row) if ANY
+of these fire:
+
+1. **Language barrier:** if `language.dealbreakers.hard_french_requirement` is
+   set and the JD text (description + requirements) contains phrases like
+   "français courant", "maîtrise du français", "bilingue français", "French
+   mandatory", "fluent French required", or the entire JD is in French with
+   no English version available — STOP: "Rejected: hard French language
+   requirement detected."
+2. **Employment type mismatch:** if `employment_type.preferred` is
+   `freelance_contract` and the job's `contract_types` only contains
+   `['cdi', 'permanent']` with no freelance/contract option — flag as
+   "Warning: CDI only — preference mismatch" but do NOT auto-reject; present
+   to human.
+3. **Hybrid location mismatch:** if `work_arrangement.preferred` is `hybrid`
+   and `work_arrangement.hybrid_location` is `Paris`, but the job's location
+   is outside Paris/Île-de-France with `workplace_type: on_site` — flag as
+   "Warning: on-site outside Paris — commute may not be viable" but do NOT
+   auto-reject; present to human.
+
+If the job passes all dealbreakers (or only fires warnings), proceed to step 2.
+Record any warnings in the go/no-go summary (step 5) so the human sees them
+before deciding.
+
+ ### 2. Scaffold the application folder and write jd.md
+
 
 1. Create the folder per the convention above (today's date, company slug, role
    slug).
@@ -149,10 +191,18 @@ Crunchbase export filename):
 - **Red flags** — e.g. declining stock, layoffs in the news, vague JD, long
   "mission" posts, glassdoor noise, missing funding info; an explicit "none
   identified" is acceptable when genuinely nothing surfaced.
+- **Market Context** — the territory viability for this role's region from
+  `data/market_state.md` (if available). Note: "market state not yet
+  researched — run market-research skill" if the file is absent. Include
+  relevant headwinds or tailwinds that affect this company/role/region.
+- **Headwinds / Tailwinds** — specific signals affecting this application:
+  e.g. "Tailwind: company raised Series B in Q1 2026, likely expanding team"
+  or "Headwind: parent company announced 10% layoffs in June 2026". Source
+  each signal. If no signals found: "No significant market signals identified
+  for this company/role."
 - **Questions to ask** — 3–6 questions for the interview/recruiter call, derived
   from gaps and red flags above (e.g. team size, project length, pay structure,
   remote policy, churn).
-
 Rules: every factual claim carries a source; mark anything inferred or
 unverified as `[INFERENCE]` / `[UNVERIFIED]`; never invent a fact to fill a
 section.
