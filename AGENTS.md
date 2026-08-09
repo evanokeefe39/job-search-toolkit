@@ -1,6 +1,11 @@
 # AGENTS.md — job_search_scraping
 
-## Project summary
+
+**Status:** Operational for job-board-to-application workflow. 1 application
+(UpClear) at `ready` — submit immediately. ROADMAP.md captures future scope;
+do not let roadmap work block submissions. The rule is: if an application is
+`ready`, it goes out. Research, tooling, and pipeline improvements happen
+between applications, not instead of them.
 
 A multi-board job discovery + application workspace. Scrapers pull
 free-work.com and hiringcafe.com listings into a canonical schema; a Dagster
@@ -38,16 +43,21 @@ pipeline/                        # Dagster 9-asset graph: scrape -> merge -> enr
 ├── new-application/SKILL.md     # Scaffold application folder + company research
 ├── tailor-resume/SKILL.md       # Resume-Matcher advisory pass + human-reviewed diff + RenderCV PDF
 ├── application-tracker/SKILL.md # tracker.csv transitions + response-rate stats
-├── market-research/SKILL.md     # [planned] Multi-level job market trend analysis
-└── cold-outreach/SKILL.md       # [planned] Find contacts, draft outreach messages
+├── market-research/SKILL.md     # Multi-level job market trend analysis
+└── cold-outreach/SKILL.md       # Find contacts, draft outreach messages
 
 resume/cv.yaml                   # Master resume (RenderCV YAML — gitignored, public repo)
 job_search_preferences.yaml      # Job search preferences (location, comp, roles — gitignored)
-docs/ats_resume_knowledge_2026.md # ATS systems, resume writing, job search strategy knowledge base
-applications/                    # One folder per application (gitignored)
+ROADMAP.md                       # 5-phase roadmap: lead gen → outreach → revenue → learning → analytics
+docs/                            # Research and planning
+├── ats_resume_knowledge_2026.md # ATS systems, resume writing, prompt injection, job search strategy
+├── data_model.md                # 6 entities: Company, JobDescription, Person, Agency, Application, Outreach
+├── lead_generation_model.md     # Sales/CRM + DE audit, unified lead sources, qualification model
+├── ats_matcher_catalog.md       # 16 ATS tools evaluated (superseded by skill approach)
+├── matcher_contracts.md         # Resume-Matcher API contract documentation
+└── remote-job-boards.md         # 30+ Europe-focused remote job boards
 services/docker-compose.yml      # Resume-Matcher only; ephemeral (up/down via tailor-resume)
 scripts/audit_alignment.py       # Deterministic fabrication strip (master vs tailored)
-docs/                            # Research: ats_matcher_catalog, matcher_contracts, remote-job-boards
 tracker.csv                      # Application tracker (gitignored)
 tasks/lessons.md                 # Session-level lessons log
 ```
@@ -72,15 +82,32 @@ uv run python -m pipeline.stage1_translate --smoke 3
 uv run python -m pipeline.stage5_score_analyze --export-csv jobs_ranked.csv --top 30
 ```
 
-### Application workflow (agent-driven)
+### Application workflow (agent-driven — submit first, optimize later)
 
 ```bash
 /skill:jd-refresh           # run discovery, report delta, stop for shortlist
-/skill:new-application      # scaffold applications/<date>_<company>_<role>/, research
-/skill:tailor-resume        # Resume-Matcher advisory pass + human-reviewed diff + RenderCV PDF
-/skill:application-tracker  # tracker.csv transitions and response-rate stats
-/skill:market-research      # [planned] Multi-level job market trend analysis
-/skill:cold-outreach        # [planned] Find contacts, draft outreach messages
+/skill:new-application      # scaffold + research + dealbreaker check + tracker
+/skill:tailor-resume        # Resume-Matcher advisory + human-reviewed diff + RenderCV PDF
+/skill:application-tracker  # tracker transitions and response-rate stats
+```
+
+**Operational rule:** when an application reaches `ready`, submit it. Do not
+wait for tooling improvements. The UpClear application has been `ready` since
+2026-08-07 with a hand-tailored `cv_tailored.pdf` — submit immediately.
+
+**Supporting skills (run between applications, not instead of them):**
+
+```bash
+/skill:market-research      # Multi-level job market trend analysis
+/skill:cold-outreach        # Find contacts, draft outreach messages
+```
+
+**Roadmap skills (not yet built — see ROADMAP.md):**
+
+```bash
+/skill:lead-qualification   # Score and prioritize leads across all sources
+/skill:event-scout          # Discover and qualify events/conferences/webinars
+```
 
 ### Enriched JSON schema
 

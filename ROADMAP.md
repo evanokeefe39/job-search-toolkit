@@ -11,7 +11,7 @@ What's already built and working.
 
 ### Discovery
 
-- [x] **Job board scraping** — free-work.com (Playwright/Crawlee) and hiringcafe.com (Next.js data route) → `merged_jobs.json`
+- [x] **Job board scraping** — free-work.com (Typer/httpx/bs4) and hiringcafe.com (Next.js data route) → `merged_jobs.json`
 - [x] **Pipeline enrichment** — Dagster 9-asset graph: scrape → merge → translate → extract tech → classify → company stats → company research → score → export
 - [x] **Ranked export** — `jobs_ranked.csv` with scoring (pay, flexibility, responsibility, tech match, company quality)
 
@@ -52,7 +52,7 @@ platforms and proactive signals.
 
 ### New Lead Sources
 
-- [ ] **Freelance platforms** — Malta, Comet, Crème de la Crème. French-native, rate-transparent, freelance-first. Even weekly manual review would 2-3x pipeline
+- [ ] **Freelance platforms** — Malt, Comet, Crème de la Crème. French-native, rate-transparent, freelance-first. Even weekly manual review would 2-3x pipeline
 - [ ] **Crunchbase funding** — companies raising Series A/B are hiring data teams. Highest-signal lead indicator
 - [ ] **LinkedIn growth signals** — headcount deltas, "we're hiring" posts, CTO/Head of Data activity
 - [ ] **French Tech 120 / Next40** — government-curated high-growth startups in France. Public list, annual refresh
@@ -120,7 +120,7 @@ offerings.
 | Fabric architecture review | Company posting Fabric roles (they have Fabric, may need expertise before team is hired) | Cold outreach: "I noticed you're building a Fabric team — I do architecture reviews for companies in that phase. Happy to chat." |
 | Data platform health check | Company with multiple data roles posted (scaling pains) | Cold outreach to CTO/Head of Data: "Scaling data platforms is what I do — want a second opinion on your architecture?" |
 | Fabric workshop | ESN posting Fabric roles (they need to train consultants) | Cold outreach to ESN training/ practices lead: "I run a 1-day Fabric workshop for data engineering teams — interested?" |
-| DAX for data engineers guide | Companies posting Power BI + data engineering roles (crossover demand) | Content marketing: publish free chapter, gate the rest. LinkedIn ads targeting Paris data professionals |
+| DAX for data engineers guide | Companies posting Power BI + data engineering roles (crossover demand) | Content marketing: publish free chapter, gate the rest. Promote via LinkedIn posts, dev.to, and data engineering communities — no paid ads.
 
 ---
 
