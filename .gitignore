@@ -22,11 +22,12 @@ Thumbs.db
 # Environment
 .env
 
-# ATS pipeline run artifacts (regenerated on every run)
+# Runtime artifacts (regenerated on every run — never commit)
 data/output/
 data/metrics/
 data/_tmp_*
-
+data/market_*
+data/outreach_*
 # Node dependencies (vendored ATSFlow source)
 node_modules/
 
