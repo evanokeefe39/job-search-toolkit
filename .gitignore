@@ -25,7 +25,7 @@ Thumbs.db
 # ATS pipeline run artifacts (regenerated on every run)
 data/output/
 data/metrics/
-data/_tmp_*.txt
+data/_tmp_*
 
 # Node dependencies (vendored ATSFlow source)
 node_modules/
