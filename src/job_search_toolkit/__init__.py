@@ -2,8 +2,8 @@
 
 Package layout:
     job_search_toolkit.scrapers     — board scrapers (free-work, hiringcafe)
-    job_search_toolkit.pipeline     — Dagster ETL: bronze -> silver enrichment/scoring
-    job_search_toolkit.automation   — human-gated workflows (resume tailoring, …)
+    job_search_toolkit.pipelines    — domain pipelines (jd, …)
+    job_search_toolkit.automation   — human-gated workflows (resume tailoring)
     job_search_toolkit.skills       — agent skill definitions (marketplace layout)
     job_search_toolkit.cli          — single entry point: `job-search-toolkit`
 

@@ -2,24 +2,14 @@
 
 Usage:
     job-search-toolkit pipeline run
-    uv run python -m job_search_toolkit.pipeline.run
+    uv run python -m job_search_toolkit.pipelines.jd.run
 """
 import dagster as dg
 from dotenv import load_dotenv
 
 load_dotenv()
 
-from .assets import (  # noqa: E402
-    freework_jobs, hiringcafe_jobs, merged_jobs,
-    translated, tech_extracted, vertical_classified,
-    company_stats, scored_jobs, ranked_csv,
-)
-
-ALL_ASSETS = [
-    freework_jobs, hiringcafe_jobs, merged_jobs,
-    translated, tech_extracted, vertical_classified,
-    company_stats, scored_jobs, ranked_csv,
-]
+from .definitions import ALL_ASSETS
 
 
 def run_pipeline() -> bool:

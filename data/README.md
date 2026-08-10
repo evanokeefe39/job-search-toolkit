@@ -34,7 +34,7 @@ Produced by `job-search-toolkit pipeline run`.
 
 - `data/gold/jobs.db` — a DuckDB database built from
   `data/silver/merged_jobs.json` by `job-search-toolkit pipeline gold`
-  (`job_search_toolkit.pipeline.gold.build_gold`).
+  (`job_search_toolkit.pipelines.jd.gold.build_gold`).
 
 The `jobs` table flattens each job's top-level fields into columns; nested
 structures (`salary`, `company_info`, `scores`, `_source`, …) are kept as

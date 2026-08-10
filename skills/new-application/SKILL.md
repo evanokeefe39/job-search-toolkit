@@ -1,6 +1,6 @@
 ---
 name: new-application
-description: Scaffold a new application workspace for a shortlisted job. Input is a row from jobs_ranked.csv or a job URL; locate the full canonical record in merged_jobs.json (fallback freework_jobs_enriched.json), write the JD and research the company — web_search for company and role, an ad-hoc yfinance check in an eval cell (ticker + price trend, pattern in pipeline/stage4_company_stats.py), and a MANUAL Crunchbase checkpoint where the human pastes facts or drops an export — then synthesize research.md from a fixed template and update tracker.csv. Use when starting a new application, preparing to apply, or researching a company before tailoring a CV.
+description: Scaffold a new application workspace for a shortlisted job. Input is a row from jobs_ranked.csv or a job URL; locate the full canonical record in merged_jobs.json (fallback freework_jobs_enriched.json), write the JD and research the company — web_search for company and role, an ad-hoc yfinance check in an eval cell (ticker + price trend, pattern in pipelines/jd/_legacy/stage4_company_stats.py), and a MANUAL Crunchbase checkpoint where the human pastes facts or drops an export — then synthesize research.md from a fixed template and update tracker.csv. Use when starting a new application, preparing to apply, or researching a company before tailoring a CV.
 ---
 
 ## Requirements
@@ -143,7 +143,7 @@ URLs as you go — they feed research.md.
 2. **yfinance check (ad-hoc, in an eval cell).** Ticker comes from the
    `company_stock_symbol` column of `data/silver/jobs_ranked.csv`, or from `company_stats`
    in `data/silver/freework_jobs_enriched.json`, or from research. Pattern reference:
-   `src/job_search_toolkit/pipeline/_legacy/stage4_company_stats.py::_fetch_stock_perf` (already a project
+   `src/job_search_toolkit/pipelines/jd/_legacy/stage4_company_stats.py::_fetch_stock_perf` (already a project
    dependency — `yfinance>=0.2.66`). Run in an eval cell:
 
 ```python

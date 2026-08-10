@@ -24,7 +24,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from ..config import ENRICHED_JOBS
-from ..llm_client import LLMClient
+from ..resources.llm_client import LLMClient
 from ..smoke_utils import estimate_cost, print_estimate
 
 CLASSIFY_SYSTEM = """You are analyzing French IT job descriptions to classify the industry of the END CLIENT (not the consulting firm that posted the ad).

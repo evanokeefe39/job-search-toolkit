@@ -9,10 +9,10 @@ Scores each job across dimensions relevant to the user's goals:
 Idempotent — re-scores every run (scoring is cheap, no LLM needed).
 Reads from `freework_jobs_enriched.json`, writes scored output.
 
-Usage:
-    python -m pipeline.stage5_score_analyze
-    python -m pipeline.stage5_score_analyze --top 20
-    python -m pipeline.stage5_score_analyze --export-csv ranked.csv
+Usage (legacy CLI — prefer the Dagster asset):
+    python -m job_search_toolkit.pipelines.jd.score_engine
+    python -m job_search_toolkit.pipelines.jd.score_engine --top 20
+    python -m job_search_toolkit.pipelines.jd.score_engine --export-csv ranked.csv
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from ..config import ENRICHED_JOBS
+from .config import ENRICHED_JOBS
 
 # --- Scoring weights (sum to 1.0) ---
 # Tuned for: well-paid, not too demanding, flexible, interesting

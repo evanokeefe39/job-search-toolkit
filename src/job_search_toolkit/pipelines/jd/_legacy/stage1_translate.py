@@ -21,7 +21,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from ..config import RAW_JOBS, ENRICHED_JOBS
-from ..llm_client import LLMClient
+from ..resources.llm_client import LLMClient
 from ..smoke_utils import estimate_cost, print_estimate
 
 TRANSLATE_SYSTEM = """You are a technical translator specializing in IT job descriptions.

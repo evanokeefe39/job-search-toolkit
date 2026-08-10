@@ -21,7 +21,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from ..config import ENRICHED_JOBS
-from ..llm_client import LLMClient
+from ..resources.llm_client import LLMClient
 from ..smoke_utils import estimate_cost, print_estimate
 
 EXTRACT_SYSTEM = """You are a technical recruiter and data engineer analyzing job descriptions.

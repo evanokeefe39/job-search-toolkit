@@ -16,7 +16,7 @@ with human review gates — no fully automated ATS pipeline.
 ## Conventions
 
 - Python 3.14+, `uv` for package management, `.venv` in project root
-- Discovery code lives in the installable package `src/job_search_toolkit/` (scrapers, Dagster pipeline, automation). Entry: `job-search-toolkit pipeline run` (dev: `uv run python -m job_search_toolkit.pipeline.run`); legacy `pipeline/_legacy/stage*.py` scripts remain for reference only
+- Discovery code lives in the installable package `src/job_search_toolkit/` (scrapers, Dagster pipeline, automation). Entry: `job-search-toolkit pipeline run` (dev: `uv run python -m job_search_toolkit.pipelines.jd.run`); legacy `pipelines/jd/_legacy/stage*.py` scripts remain for reference only
 - No new dependencies without explicit justification
 - Per-application workflow is agent-driven via `skills/<name>/SKILL.md` playbooks (discovered from `skills/` via `.omp/config.yaml`; installed into other harnesses with `job-search-toolkit skills install`) — prose + commands with human gates, never pipeline code
 - Application folders: `applications/YYYY-MM-DD_<company>_<role>/` with `inputs/` (`jd.md`, `research.md`, `notes.md`) and `outputs/` (`cv_tailored.yaml`, `cv_tailored.pdf`, `rendercv_output/`); status lives in `tracker.csv` (11 columns — see the application-tracker skill)
@@ -43,14 +43,21 @@ src/job_search_toolkit/          # Installable PyPI package: `job-search-toolkit
 ├── scrapers/                    # Board scrapers (Typer, httpx, bs4 / Next.js data route)
 │   ├── freework.py              # free-work.com
 │   └── hiringcafe.py            # hiringcafe.com
-├── pipeline/                    # Dagster 9-asset graph: bronze -> silver
-│   ├── assets.py                # Asset definitions
-│   ├── run.py                   # run_pipeline() entry (`job-search-toolkit pipeline run`)
-│   ├── config.py                # Medallion data paths (data/bronze|silver|gold)
-│   ├── gold.py                  # DuckDB gold layer: jobs, ranked_jobs, by_sector, by_tier
-│   ├── llm_client.py, smoke_utils.py, adapt_freework.py, enrich_canonical.py
-│   └── _legacy/                 # stage*.py — superseded by assets.py, reference only
-└── automation/
+├── pipelines/                   # Domain pipelines (one sub-package each)
+│   └── jd/                      # Dagster 9-asset graph: bronze -> silver
+│       ├── definitions.py       # dg.Definitions + ALL_ASSETS
+│       ├── assets/              # Asset definitions (one module per stage)
+│       │   ├── scrape.py        # freework_jobs, hiringcafe_jobs
+│       │   ├── merge.py         # merged_jobs
+│       │   ├── enrich.py        # translated, tech_extracted, vertical_classified, company_stats
+│       │   └── score.py         # scored_jobs, ranked_csv
+│       ├── resources/           # Dagster resources
+│       │   └── llm_client.py    # LLMClient (async, retry, rate-limit)
+│       ├── run.py               # run_pipeline() convenience entry
+│       ├── config.py            # Medallion paths + LLM env config
+│       ├── gold.py              # DuckDB gold layer
+│       ├── enrich_canonical.py, adapt_freework.py, score_engine.py, smoke_utils.py
+│       └── _legacy/             # stage*.py — superseded; stage5 promoted to score_engine.py
     └── tailor/                  # Resume tailoring engine (client, prompts, merge, audit, render)
                                 # + config.example.yaml (template) + TONE.txt (package-bundled)
 
@@ -101,7 +108,7 @@ job-search-toolkit skills install --agent ompy|claude|codex
 Dev aliases (same code, no install needed):
 
 ```bash
-uv run python -m job_search_toolkit.pipeline.run   # == job-search-toolkit pipeline run
+uv run python -m job_search_toolkit.pipelines.jd.run   # == job-search-toolkit pipeline run
 uv run python -m job_search_toolkit.scrapers.freework --format json
 ```
 
@@ -225,7 +232,7 @@ Update: Pivoted to an application workspace. Agent skills (.agents/skills/)
         are the only orchestration layer; Docker services are ephemeral
         (compose up inside the tailor skill, down after); Resume-Matcher is
         an advisor whose diff log is human-reviewed and applied back into
-        RenderCV YAML; the fabrication guard lives in pipeline/tailor/audit.py;
+        RenderCV YAML; the fabrication guard lives in automation/tailor/audit.py;
         personal data is gitignored (repo is PUBLIC). Rule: ask ">50 items or
         judgment on one?" before building automation — judgment steps get
         skills + tools, not pipelines. Full detail in tasks/lessons.md.
