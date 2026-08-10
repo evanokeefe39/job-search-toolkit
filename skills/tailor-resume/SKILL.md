@@ -50,15 +50,15 @@ Playbook for one application folder.
 1. **Preflight — application folder.**
    - Determine the target folder `applications/YYYY-MM-DD_<company-slug>_<role-slug>/`
      (from the caller, or the tracker row with `status=tailoring`).
-   - Verify the folder exists AND contains `jd.md`. If either is missing:
+   - Verify the folder exists AND contains `inputs/jd.md`. If either is missing:
      `STOP: the application folder does not exist yet — run the new-application skill first.`
 
 2. **Run the tailoring pipeline.**
    ```bash
    job-search-toolkit tailor run \
        --yaml resume/cv.yaml \
-       --jd applications/<folder>/jd.md \
-       --output applications/<folder>/cv_tailored.yaml
+       --jd applications/<folder>/inputs/jd.md \
+       --output applications/<folder>/outputs/cv_tailored.yaml
    ```
    - `--yaml` defaults to `resume/cv.yaml` (the master).
    - `--output` is required here (we want the canonical path, not a timestamped one).
@@ -81,7 +81,7 @@ Playbook for one application folder.
    - If the audit reports clean: proceed.
 
 3. **Human review gate.**
-   - Open `applications/<folder>/cv_tailored.yaml` and review:
+   - Open `applications/<folder>/outputs/cv_tailored.yaml` and review:
      - Summary: JD-targeted? No first-person? 2-3 sentences?
      - Highlights: Most impressive bullets kept? Irrelevant dropped? Max 5 per role?
      - Skills: Any fabricated additions?
@@ -89,13 +89,13 @@ Playbook for one application folder.
      - Roles: Is each company's content still under its own header?
    - If issues found: fix `cv_tailored.yaml` directly, then re-render:
      ```bash
-     uv run rendercv render applications/<folder>/cv_tailored.yaml
+     uv run rendercv render applications/<folder>/outputs/cv_tailored.yaml
      ```
    - If the resume needs significant changes: re-run the pipeline with adjusted
      prompt or different model (`--model` / config.yaml).
 
 4. **Verify PDF.**
-   - Confirm `applications/<folder>/cv_tailored.pdf` exists (rendered by RenderCV
+   - Confirm `applications/<folder>/outputs/cv_tailored.pdf` exists (rendered by RenderCV
      in step 2, or manually in step 3).
    - Check page count (should be 1-2 pages).
    - Check for rendering artifacts (emoji, broken Unicode, overflow).
@@ -120,8 +120,8 @@ CLI (`--model`, `--base-url`, `--llm-client`) or config.yaml — CLI > env >
 config.yaml > defaults. To use a different model:
 
 ```bash
-job-search-toolkit tailor run --yaml resume/cv.yaml --jd applications/<folder>/jd.md \
-    --model kimi-k3 --base-url https://api.moonshot.cn/v1 --output applications/<folder>/cv_tailored.yaml
+job-search-toolkit tailor run --yaml resume/cv.yaml --jd applications/<folder>/inputs/jd.md \
+    --model kimi-k3 --base-url https://api.moonshot.cn/v1 --output applications/<folder>/outputs/cv_tailored.yaml
 ```
 
 The pipeline supports any OpenAI-compatible endpoint. If pydantic-ai's
@@ -150,6 +150,6 @@ Each run produces a new `cv_tailored.yaml`. To compare iterations, use the
 timestamped output mode (omit `--output`):
 
 ```bash
-job-search-toolkit tailor run --yaml resume/cv.yaml --jd applications/<folder>/jd.md
-# Writes: applications/<folder>/cv_tailored_20260807_143052.yaml
+job-search-toolkit tailor run --yaml resume/cv.yaml --jd applications/<folder>/inputs/jd.md
+# Writes: applications/<folder>/outputs/cv_tailored_20260807_143052.yaml
 ```

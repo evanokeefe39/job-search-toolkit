@@ -23,7 +23,7 @@ The agent never shortlists; it presents and stops.
 ## Playbook
 
 1. **Preflight.**
-   - Confirm you are at the repo root: `pwd` should print `C:/Users/evano/repos/job_search_scraping` (or the current clone path).
+   - Confirm you are at the repo root: `pwd` should print `C:/Users/evano/repos/job-search-toolkit` (or the current clone path).
    - The enrichment stages need the DeepSeek API key from `.env`; the pipeline fails loudly if it is missing. Do not improvise a fallback.
 
 2. **Snapshot the prior ranked output** (before running anything).

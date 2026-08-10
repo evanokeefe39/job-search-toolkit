@@ -12,7 +12,7 @@ Python 3.14+ and uv (package manager) are required. Install the toolkit with:
 # New Application — scaffold + research playbook
 
 Goal: turn one shortlisted job into a complete application workspace:
-`applications/YYYY-MM-DD_<company-slug>_<role-slug>/` with `jd.md` and `research.md`,
+`applications/YYYY-MM-DD_<company-slug>_<role-slug>/` with `inputs/jd.md` and `inputs/research.md`,
 plus a `tracker.csv` row — ending at a human go/no-go decision.
 
 This skill researches and scaffolds only. It does NOT tailor the CV (see
@@ -21,8 +21,9 @@ This skill researches and scaffolds only. It does NOT tailor the CV (see
 ## Conventions (fixed)
 
 - Application folder: `applications/YYYY-MM-DD_<company-slug>_<role-slug>/`
-  containing `jd.md`, `research.md`, `cv_tailored.yaml`, `cv_tailored.pdf`, `notes.md`.
-  Only `jd.md` and `research.md` are produced here; the rest belong to later skills.
+  with `inputs/` (`jd.md`, `research.md`, `notes.md`) and `outputs/`
+  (`cv_tailored.yaml`, `cv_tailored.pdf`, `rendercv_output/`).
+  Only `inputs/jd.md` and `inputs/research.md` are produced here; the rest belong to later skills.
 - Slugs: lowercase, hyphens, no accents. Company slug from the company name,
   role slug from the title.
   Example: company "Mon Consultant Indépendant" → `mon-consultant-independant`;
@@ -107,13 +108,12 @@ of these fire:
 If the job passes all dealbreakers (or only fires warnings), proceed to step 2.
 Record any warnings in the go/no-go summary (step 5) so the human sees them
 before deciding.
-
  ### 2. Scaffold the application folder and write jd.md
 
 
-1. Create the folder per the convention above (today's date, company slug, role
-   slug).
-2. Write `jd.md` containing the FULL canonical fields, including the English
+1. Create the folder structure per the convention: `applications/YYYY-MM-DD_<company-slug>_<role-slug>/inputs/`.
+
+2. Write `inputs/jd.md` containing the FULL canonical fields, including the English
    `description_text` verbatim. Required sections (mirror the canonical record):
 
    - Title, company, apply URL, source board, source URL/id
@@ -174,14 +174,13 @@ if ticker:
 3. **Crunchbase — MANUAL checkpoint.**
    STOP and present to the human: "Crunchbase is a manual step. Please paste the
    profile facts (founded, funding rounds, headcount, recent news) or drop a
-   Crunchbase export file into `applications/<folder>/`, then I will synthesize
+   Crunchbase export file into `applications/<folder>/inputs/`, then I will synthesize
    them into research.md." Do not proceed to write the Crunchbase portions of
    research.md until the human supplies the facts or file. Never attempt to
    scrape or automate Crunchbase.
 
 ### 4. Write research.md from the fixed template
-
-Write `applications/<folder>/research.md` with exactly these sections, each
+Write `applications/<folder>/inputs/research.md` with exactly these sections, each
 citing its sources (web_search result URLs, the yfinance data date, the
 Crunchbase export filename):
 
