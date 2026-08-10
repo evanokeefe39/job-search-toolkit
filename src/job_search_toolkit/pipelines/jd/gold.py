@@ -17,7 +17,7 @@ Idempotent: the table and all views are (re)created on every run, so calling
 ``build_gold`` twice yields the same database.
 
 Usage:
-    from job_search_toolkit.pipeline.gold import build_gold
+    from job_search_toolkit.pipelines.jd.gold import build_gold
     build_gold(Path("data/silver/merged_jobs.json"), Path("data/gold/jobs.db"))
 """
 

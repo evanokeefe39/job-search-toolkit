@@ -107,7 +107,7 @@ async def _call_json_mode(
     max_tokens: int = 8000,
 ) -> dict:
     """Original json_mode call with retry-on-ValidationError."""
-    from pipeline.llm_client import LLMClient
+    from job_search_toolkit.pipelines.jd.resources.llm_client import LLMClient
 
     client = LLMClient(model=model_name, base_url=base_url, api_key=api_key)
     _last_error = ""

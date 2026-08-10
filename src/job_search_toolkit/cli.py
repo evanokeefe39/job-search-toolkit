@@ -42,7 +42,7 @@ pipeline_app = typer.Typer(help="Enrichment pipeline: bronze -> silver.")
 @pipeline_app.command("run")
 def pipeline_run() -> None:
     """Run the full DAG: scrape -> merge -> enrich -> score -> export."""
-    from job_search_toolkit.pipeline.run import run_pipeline
+    from job_search_toolkit.pipelines.jd.run import run_pipeline
 
     ok = run_pipeline()
     if not ok:
@@ -52,8 +52,8 @@ def pipeline_run() -> None:
 @pipeline_app.command("gold")
 def pipeline_gold() -> None:
     """Load silver JSON into the DuckDB gold layer (views for analytics)."""
-    from job_search_toolkit.pipeline.config import GOLD_DIR, SILVER_DIR, ensure_data_dirs
-    from job_search_toolkit.pipeline.gold import build_gold
+    from job_search_toolkit.pipelines.jd.config import GOLD_DIR, SILVER_DIR, ensure_data_dirs
+    from job_search_toolkit.pipelines.jd.gold import build_gold
 
     ensure_data_dirs()
     silver = SILVER_DIR / "merged_jobs.json"

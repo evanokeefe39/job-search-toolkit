@@ -40,7 +40,7 @@ From a repo checkout (no install needed):
 
 ```bash
 uv sync
-uv run python -m job_search_toolkit.pipeline.run   # == job-search-toolkit pipeline run
+uv run python -m job_search_toolkit.pipelines.jd.run   # == job-search-toolkit pipeline run
 ```
 
 ## Data layout (medallion)
@@ -58,8 +58,11 @@ src/job_search_toolkit/
 ├── cli.py                  # single entry point: scrape | pipeline | tailor | skills
 ├── schemas.py              # CanonicalJob + normalized enums
 ├── scrapers/               # freework.py, hiringcafe.py
-├── pipeline/               # Dagster 9-asset graph + DuckDB gold layer
-│   └── _legacy/            # superseded stage scripts (reference only)
+├── pipelines/              # Domain pipelines
+│   └── jd/                 # Dagster 9-asset graph + DuckDB gold layer
+│       ├── definitions.py  # dg.Definitions(assets=[...])
+│       ├── assets/         # scrape, merge, enrich, score
+│       └── resources/      # LLM client
 └── automation/tailor/      # resume tailoring engine (client, prompts, merge, audit, render)
 skills/                     # plugin-standard agent skills (skills/<name>/SKILL.md)
 ```

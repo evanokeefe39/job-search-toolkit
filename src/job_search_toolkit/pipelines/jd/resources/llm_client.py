@@ -13,7 +13,7 @@ from typing import Any
 
 import httpx
 
-from .config import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL, LLM_MAX_RPM, LLM_CONCURRENCY
+from ..config import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL, LLM_MAX_RPM, LLM_CONCURRENCY
 
 
 class LLMClient:
@@ -29,7 +29,7 @@ class LLMClient:
         """Async client; params override the module defaults (config chain).
 
         Backward-compatible: ``LLMClient()`` uses LLM_MODEL/LLM_BASE_URL/
-        LLM_API_KEY from pipeline.config as before. The tailor pipeline passes
+        LLM_API_KEY from pipelines.jd.config as before. The tailor pipeline passes
         its resolved (CLI > env > config.yaml) values explicitly so the
         fallback honors overrides.
         """

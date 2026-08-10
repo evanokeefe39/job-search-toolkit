@@ -20,7 +20,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from ..config import ENRICHED_JOBS
-from ..llm_client import LLMClient
+from ..resources.llm_client import LLMClient
 from ..smoke_utils import estimate_cost, print_estimate
 
 DEEP_RESEARCH_SYSTEM = """You are researching French IT consulting/recruitment companies for a senior data engineer job seeker in Paris.
