@@ -161,11 +161,10 @@ ATSFlow's 30-rule scan is at most a one-time manual lint of the master template.
 
 ### Fabrication guard
 
-`scripts/audit_alignment.py <original> <rewrite>` deterministically strips
-claims the original can't support (skills and metrics absent from the master)
-and exits 1 if anything was stripped. Resume-Matcher's built-in
-master-alignment validation plus this audit are two lines of defense; the human
-reviews the diff log regardless.
+`pipeline/tailor/audit.py:check_fabrication()` validates tailored YAML against
+the master: experience count, company names, fabricated skills (with synonym
+map), and fabricated metrics. Runs as a hard gate in the tailoring pipeline;
+the human reviews any JD-derived additions flagged as verify-with-human.
 
 See `docs/ats_matcher_catalog.md` for the researched tool inventory and
 `docs/matcher_contracts.md` for verified I/O contracts.

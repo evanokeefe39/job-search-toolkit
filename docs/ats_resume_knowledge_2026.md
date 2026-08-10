@@ -219,3 +219,40 @@ After the fix: 5 work experiences preserved, ATS 82.6, 65KB PDF with all roles.
 **Conclusion:** Resume-Matcher IS fit for purpose as a tailoring engine when
 the master resume is correctly set up. The structured data injection path
 (PATCH master + improve) works and bypasses PDF parsing entirely.
+
+
+
+## 7. ATS Rules for LLM Prompt Injection (2026-08-09)
+
+Structured rules compendium extracted from 10+ source-verified ATS tools.
+Two artifacts for different consumers:
+
+- **`docs/ats_llm_rules.yaml`** — machine-parseable YAML for direct LLM prompt
+  injection. Every rule has provenance (CODE_VERIFIED, DOCUMENTED, ANECDOTAL),
+  source list, weight (1.0 = all tools agree), and trigger conditions.
+- **`docs/ats_llm_rules.md`** — human-readable prose reference with the same
+  rules organized into Format, Structure, Content, Anti-Fabrication, and
+  Scoring categories plus prompt templates.
+
+### Key additions since the 2026-08-08 base:
+
+| Category | New Rules | Primary Source |
+|---|---|---|
+| Format | F5 (special chars limit), F6 (tab ban), F8 (filename convention) | Resume-Analyzer-MLOps, CV-ATS-Checker |
+| Structure | S2 (section variant mappings), S4 (contact scoring) | Resume-Analyzer-MLOps |
+| Content | C1-C3 (word count, metrics, action verbs with numeric thresholds) | Resume-Analyzer-MLOps |
+| Anti-fabrication | A4 (zero phantom experience), A5-A9 (bullet identity, frozen sections) | Waaangjl, Razzy005, cv4offer |
+| Scoring | W1-W5 (weighted scoring dimensions with consensus ranges) | CV-ATS-Checker + Resume-Analyzer-MLOps |
+| Prompts | System, JD analysis, Gap analysis templates | Resume-Tailor-AI, Waaangjl, cv-word-checker |
+| Synonyms | Tech and business synonym maps for keyword expansion | CV-ATS-Checker |
+
+### New tools discovered (not in ats_matcher_catalog.md):
+
+| Tool | Stars | Key Contribution |
+|---|---|---|
+| CV-ATS-Checker (Sydulamin) | 4 | Format warnings, scoring weights, synonym map, spaCy fuzzy matching at 0.82 |
+| Resume-Analyzer-MLOps (ananttripathi) | 7 | Content quality thresholds, section variants, contact scoring, 5-dimension weighted scoring |
+| Waaangjl/resume-tailor | 1 | Anti-fabrication constraints, STAR format, bullet priority order, hard constraint prompt |
+| Razzy005/resume-tailor | 0 | Anti-fabrication guard: "never invents experience, employers, technologies, or metrics" |
+| cv-word-checker (PromptPasture) | 3 | Gap analysis structure, weak phrase detection, browser-only (no extraction value) |
+| ResumeAtsChecker (Joseph24x7) | 29 | Apache OpenNLP approach, structured keyword extraction (Java/Spring Boot) |

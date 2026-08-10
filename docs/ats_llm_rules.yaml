@@ -1,0 +1,745 @@
+# v2 — 2026-08-09, 54 rules, 3 prompts, 17 sources
+# Supersedes v1 (35 rules, 10 sources). Changelog at docs/ats_llm_rules.md §"What Changed".
+# ATS Rules for LLM Prompt Injection — Structured YAML Artifact
+# Compiled 2026-08-09 from 14+ tools (source-verified).
+# Provenance: USER_POLICY (highest authority, standing preference), CODE_VERIFIED (source read), DOCUMENTED (README/paper/wiki),
+#   ANECDOTAL (Reddit/forum), DEAD_END (URL blocked/404).
+# Weight: 1.0 = mandatory (all tools agree), lower = less consensus.
+
+rules:
+  # ═══════════════════════════════════════════════════════════════
+  # FORMAT RULES (from ATSFlow formatting.js — all 10 CODE_VERIFIED)
+  # ═══════════════════════════════════════════════════════════════
+
+  - id: F1
+    category: format
+    rule: "NO tables. ATS parsers read left-to-right, top-to-bottom. Tables break this flow. Convert tables to simple text sections with clear hierarchies."
+    provenance: CODE_VERIFIED
+    sources: ["ATSFlow/checks/formatting.js:noTables()", "CV-ATS-Checker/scoring.py:format_warnings()"]
+    weight: 1.0
+    severity: critical
+    score_deduction: 100
+    trigger: "table-based layout detected"
+
+  - id: F2
+    category: format
+    rule: "NO multi-column layouts. ATS reads line-by-line. Multi-column scrambles content order. Use single-column, stack all content vertically."
+    provenance: CODE_VERIFIED
+    sources: ["ATSFlow/checks/formatting.js:noMultiColumn()"]
+    weight: 1.0
+    severity: critical
+    score_deduction: 100
+    trigger: "multi-column layout detected"
+
+  - id: F3
+    category: format
+    rule: "NO headers or footers with important content. Many ATS systems skip header/footer regions entirely. Move name and contact into the main body."
+    provenance: CODE_VERIFIED
+    sources: ["ATSFlow/checks/formatting.js:noHeadersFooters()"]
+    weight: 0.9
+    severity: high
+    score_deduction: 70
+    trigger: "content in header or footer regions"
+
+  - id: F4
+    category: format
+    rule: "NO images, photos, charts, icons, logos, or infographics. ATS cannot extract text from images. Use text only."
+    provenance: CODE_VERIFIED
+    sources: ["ATSFlow/checks/formatting.js:noImages()", "ats_resume_knowledge_2026.md:§1"]
+    weight: 1.0
+    severity: medium
+    score_deduction: 50
+    trigger: "images, photos, charts, icons, logos, or infographics detected"
+
+  - id: F5
+    category: format
+    rule: "NO text boxes or floating elements. They break the document flow ATS parsers expect. Use standard paragraphs and bullet points."
+    provenance: CODE_VERIFIED
+    sources: ["ATSFlow/checks/formatting.js:noTextBoxes()"]
+    weight: 0.9
+    severity: high
+    score_deduction: 80
+    trigger: "text boxes or positioned/floating elements detected"
+
+  - id: F6
+    category: format
+    rule: "Web-safe fonts only: Arial, Times New Roman, Calibri, Helvetica, Georgia, Verdana. Non-standard fonts may not render correctly in ATS."
+    provenance: CODE_VERIFIED
+    sources: ["ATSFlow/checks/formatting.js:webSafeFonts() — -20 per unsafe font"]
+    weight: 0.9
+    severity: low
+    score_deduction: 20
+    trigger: "non-standard font detected"
+
+  - id: F7
+    category: format
+    rule: "NO unicode/special bullets. Use only: •, -, *, ◦. Special bullets may display as garbage characters in ATS."
+    provenance: CODE_VERIFIED
+    sources: ["ATSFlow/checks/formatting.js:noUnicodeBullets() — -5 per unicode bullet"]
+    weight: 0.8
+    severity: low
+    score_deduction: 5
+    trigger: "unicode or special bullet characters detected"
+
+  - id: F8
+    category: format
+    rule: "Consistent date formats throughout. Inconsistency may confuse ATS date parsing. Standardize to one format (MM/YYYY or Month YYYY)."
+    provenance: CODE_VERIFIED
+    sources: ["ATSFlow/checks/formatting.js:consistentDates() — -10 per inconsistent format"]
+    weight: 0.8
+    severity: low
+    score_deduction: 10
+    trigger: "inconsistent date formats detected"
+
+  - id: F9
+    category: format
+    rule: "PDF format (preferred) or DOCX. PDF preserves formatting while remaining ATS-parseable. DOCX acceptable (90% score). Never image-based PDF."
+    provenance: CODE_VERIFIED
+    sources: ["ATSFlow/checks/formatting.js:supportedFileFormat() — PDF=100, DOCX=90, other=50"]
+    weight: 0.9
+    severity: medium
+    score_deduction: 10
+    trigger: "unsupported file format"
+
+  - id: F10
+    category: format
+    rule: "NO background colors or shading. May reduce text readability in ATS. Use white/transparent backgrounds. Add emphasis with bold or headings."
+    provenance: CODE_VERIFIED
+    sources: ["ATSFlow/checks/formatting.js:noBackgroundColors()"]
+    weight: 0.7
+    severity: low
+    score_deduction: 30
+    trigger: "background colors or shading detected"
+
+  # ═══════════════════════════════════════════════════════════════
+  # STRUCTURE RULES (from ATSFlow structure.js — all 10 CODE_VERIFIED)
+  # ═══════════════════════════════════════════════════════════════
+
+  - id: S1
+    category: structure
+    rule: "Standard section headers only. 16 recognized headers: contact, summary, objective, experience, work experience, professional experience, employment, education, skills, technical skills, core competencies, certifications, licenses, projects, awards, volunteer, references. Non-standard header: -15 score each."
+    provenance: CODE_VERIFIED
+    sources: ["ATSFlow/checks/structure.js:standardSectionHeaders() — 16 recognized headers, -15 per non-standard"]
+    weight: 1.0
+    severity: medium
+    score_deduction: 15
+    trigger: "non-standard section header"
+
+  - id: S2
+    category: structure
+    rule: "Parseable contact info: name (2+ chars), valid email, valid phone. All three REQUIRED. Missing any: CRITICAL severity."
+    provenance: CODE_VERIFIED
+    sources: ["ATSFlow/checks/structure.js:parseableContactInfo()"]
+    weight: 1.0
+    severity: critical
+    score_deduction: 33
+    trigger: "missing or invalid name, email, or phone"
+
+  - id: S3
+    category: structure
+    rule: "Reverse chronological order (most recent → oldest) for all experience entries. Forward-chronological: -20 per issue."
+    provenance: CODE_VERIFIED
+    sources: ["ATSFlow/checks/structure.js:chronologicalOrder() — -20 per ordering issue"]
+    weight: 1.0
+    severity: medium
+    score_deduction: 20
+    trigger: "experience entries not in reverse chronological order"
+
+  - id: S4
+    category: structure
+    rule: "Spell out all acronyms on first use. Example: 'Application Programming Interface (API)'. Unspelled-out acronym: -10 each."
+    provenance: CODE_VERIFIED
+    sources: ["ATSFlow/checks/structure.js:acronymsSpelledOut() — -10 per unspelled acronym"]
+    weight: 0.7
+    severity: low
+    score_deduction: 10
+    trigger: "unspelled acronym detected"
+
+  - id: S5
+    category: structure
+    rule: "Clear, standard job titles. Avoid internal jargon. BAD: 'Code Ninja', 'Growth Hacker', 'Rockstar Developer'. GOOD: 'Software Engineer', 'Senior Product Manager', 'Data Analyst'."
+    provenance: CODE_VERIFIED
+    sources: ["ATSFlow/checks/structure.js:clearJobTitles() — penalty proportional to unclear fraction"]
+    weight: 0.8
+    severity: medium
+    score_deduction: 50
+    trigger: "non-standard or jargon job titles"
+
+  - id: S6
+    category: structure
+    rule: "Proper section ordering: Contact → Summary → Experience → Education → Skills → Certifications → Projects → Awards → Volunteer → References. Score based on similarity to ideal order."
+    provenance: CODE_VERIFIED
+    sources: ["ATSFlow/checks/structure.js:properSectionOrdering() — <80% match = fail"]
+    weight: 0.7
+    severity: low
+    score_deduction: 20
+    trigger: "sections out of logical order"
+
+  - id: S7
+    category: structure
+    rule: "NO orphaned/empty sections or items. Empty sections or items with no text: -15 per occurrence."
+    provenance: CODE_VERIFIED
+    sources: ["ATSFlow/checks/structure.js:noOrphanedContent() — -15 per orphaned section"]
+    weight: 0.8
+    severity: low
+    score_deduction: 15
+    trigger: "empty sections or content items"
+
+  - id: S8
+    category: structure
+    rule: "Consistent heading hierarchy. H1 for name, H2 for section titles, H3 for job titles/subsections. Inconsistency: -10 per issue."
+    provenance: CODE_VERIFIED
+    sources: ["ATSFlow/checks/structure.js:consistentHeadingHierarchy() — -10 per issue"]
+    weight: 0.6
+    severity: low
+    score_deduction: 10
+    trigger: "heading hierarchy inconsistency"
+
+  - id: S9
+    category: structure
+    rule: "Clear section boundaries with adequate spacing. Each section must have a clear title and visual separation from the next."
+    provenance: CODE_VERIFIED
+    sources: ["ATSFlow/checks/structure.js:clearSectionBoundaries() — -10 per boundary issue"]
+    weight: 0.7
+    severity: low
+    score_deduction: 10
+    trigger: "unclear section boundaries"
+
+  - id: S10
+    category: structure
+    rule: "NO complex tables (merged cells, nested tables). They break ATS parsing logic. Use simple lists."
+    provenance: CODE_VERIFIED
+    sources: ["ATSFlow/checks/structure.js:noComplexTables() — -30 per complex table"]
+    weight: 0.9
+    severity: high
+    score_deduction: 30
+    trigger: "complex table structures with merged cells or nesting"
+
+  # ═══════════════════════════════════════════════════════════════
+  # CONTENT RULES (from ATSFlow content.js — all 10 CODE_VERIFIED)
+  # ═══════════════════════════════════════════════════════════════
+
+  - id: C1
+    category: content
+    rule: "Keyword density: 2-8% of total words. Below 2% = too thin, add more relevant keywords naturally. Above 8% = keyword stuffing, reduce."
+    provenance: CODE_VERIFIED
+    sources: ["ATSFlow/checks/content.js:keywordDensity() — optimal 2-8%"]
+    weight: 0.9
+    severity: medium
+    score_deduction: null
+    trigger: "keyword density outside 2-8% range"
+
+  - id: C2
+    category: content
+    rule: "Dedicated Skills section with 5-15 skills REQUIRED. Fewer than 5 skills = FAIL. More than 15 acceptable but max recommended."
+    provenance: CODE_VERIFIED
+    sources: ["ATSFlow/checks/content.js:dedicatedSkillsSection() — ≥5 skills required"]
+    weight: 1.0
+    severity: high
+    score_deduction: 50
+    trigger: "no dedicated skills section or <5 skills"
+
+  - id: C3
+    category: content
+    rule: "Quantified achievements: ≥40% of bullet points MUST contain numbers, percentages, or metrics. Target: 40%+. Examples: 'Increased sales by 25%', 'Managed team of 10', '$2M budget'."
+    provenance: CODE_VERIFIED
+    sources: ["ATSFlow/checks/content.js:quantifiedAchievements() — ≥40% threshold", "Resume-Analyzer-MLOps/ats_scorer.py — ≥5 numbers"]
+    weight: 1.0
+    severity: medium
+    score_deduction: 40
+    trigger: "<40% of bullets contain numbers/metrics"
+
+  - id: C4
+    category: content
+    rule: "ZERO personal pronouns (I, me, my, mine, myself, we, us, our, ours). -10 score per pronoun found. Write in third-person implied. BAD: 'I managed a team'. GOOD: 'Managed team of 10 engineers'."
+    provenance: CODE_VERIFIED
+    sources: ["ATSFlow/checks/content.js:noPersonalPronouns() — -10 per pronoun"]
+    weight: 1.0
+    severity: medium
+    score_deduction: 10
+    trigger: "personal pronouns detected"
+
+  - id: C5
+    category: content
+    rule: "Action verb bullets: ≥80% of bullets must start with a strong action verb. 22 recognized verbs: achieved, implemented, developed, managed, led, created, designed, built, launched, optimized, increased, decreased, improved, reduced, streamlined, automated, coordinated, established, executed, generated, spearheaded, delivered."
+    provenance: CODE_VERIFIED
+    sources: ["ATSFlow/checks/content.js:actionVerbBullets() — ≥80% threshold, 22 recognized verbs"]
+    weight: 0.9
+    severity: medium
+    score_deduction: 20
+    trigger: "<80% of bullets start with action verb"
+
+  - id: C6
+    category: content
+    rule: "Appropriate length: 400-1400 words (roughly 1-2 pages at 600 words/page). <400 = too short. >1400 = too long. SUPERSEDED by UP1 — target rich 1 page, 2 pages absolute max."
+    provenance: CODE_VERIFIED
+    sources: ["ATSFlow/checks/content.js:appropriateLength()", "SUPERSEDED by UP1"]
+    weight: 0.4
+    severity: low
+    score_deduction: 25
+    trigger: "word count outside 400-1400 range"
+
+  - id: C7
+    category: content
+    rule: "NO typos or grammar errors. Common typos checked: teh, recieve, occured, seperate, acheive, managment, experiance, responsable. -10 per issue."
+    provenance: CODE_VERIFIED
+    sources: ["ATSFlow/checks/content.js:noTyposOrGrammar() — -10 per issue, 8 common typos"]
+    weight: 0.8
+    severity: high
+    score_deduction: 10
+    trigger: "typo or grammar error detected"
+
+  - id: C8
+    category: content
+    rule: "Industry-specific keywords: ≥40% match rate against detected industry keyword list. Below 40% = add more industry-specific terms."
+    provenance: CODE_VERIFIED
+    sources: ["ATSFlow/checks/content.js:industryKeywords() — ≥40% match threshold"]
+    weight: 0.7
+    severity: medium
+    score_deduction: 60
+    trigger: "<40% of industry keywords present"
+
+  - id: C9
+    category: content
+    rule: "Proper noun capitalization: company names, product names, certifications must be correctly capitalized."
+    provenance: CODE_VERIFIED
+    sources: ["ATSFlow/checks/content.js:properNounCapitalization()"]
+    weight: 0.8
+    severity: low
+    score_deduction: 20
+    trigger: "improper capitalization of known proper nouns"
+
+  - id: C10
+    category: content
+    rule: "NO excessive jargon or internal-only acronyms. Penalty if >5 unrecognized abbreviations or internal terms detected."
+    provenance: CODE_VERIFIED
+    sources: ["ATSFlow/checks/content.js:noExcessiveJargon()"]
+    weight: 0.7
+    severity: low
+    score_deduction: 10
+    trigger: ">5 unrecognized abbreviations or internal terms"
+
+  # ═══════════════════════════════════════════════════════════════
+  # USER POLICY RULES (standing preferences, highest authority)
+  # ═══════════════════════════════════════════════════════════════
+
+  - id: UP1
+    category: user_policy
+    rule: "TARGET 1 PAGE, 2 PAGES ABSOLUTE MAXIMUM. Resume must be rich and tightly tuned to the JD. Every bullet earns its space — no filler. This overrides C6 (400-1400 words) and Q1 (200-1000). Target ~400-700 words for a dense, impactful 1-pager. Senior/10yr+ candidates may need 2 pages but must prune aggressively."
+    provenance: USER_POLICY
+    sources: ["User standing preference — 2026-08-09"]
+    weight: 1.0
+    severity: critical
+    trigger: null
+
+  - id: UP2
+    category: user_policy
+    rule: "SABBATICAL: do NOT list as top experience or even in the experience section. For now, mention it only in the Summary section if relevant. Several in-flight sabbatical projects (not yet finished) may warrant experience-section placement later but are not ready. This is TEMPORARY — re-evaluate when projects land."
+    provenance: USER_POLICY
+    sources: ["User standing preference — 2026-08-09"]
+    weight: 1.0
+    severity: critical
+    trigger: "sabbatical placed in experience section"
+  # ═══════════════════════════════════════════════════════════════
+  # ONTOLOGY-BASED MATCHING RULES
+  # (amiradridi/Job-Resume-Matching 134★, Rules.py CODE_VERIFIED)
+  # ═══════════════════════════════════════════════════════════════
+
+  - id: O1
+    category: ontology
+    rule: "Degree-level matching: compare candidate's highest degree against job's minimum degree level using an ontology (0=no degree, 1=high school, 2=associate, 3=bachelor, 4=master, 5=PhD). If candidate ≥2 levels above minimum: score 0.5. If candidate 0-1 levels above: score 1.0."
+    provenance: CODE_VERIFIED
+    sources: ["amiradridi/Job-Resume-Matching/services/Rules.py:degree_matching()"]
+    weight: 0.9
+    severity: null
+    score_deduction: null
+    trigger: null
+
+  - id: O2
+    category: ontology
+    rule: "Major matching: candidate's major matches job's acceptable major exactly → score 1.0. Same category but not exact → score 0.5. Different category → score 0. Uses a pre-defined major-category ontology mapping."
+    provenance: CODE_VERIFIED
+    sources: ["amiradridi/Job-Resume-Matching/services/Rules.py:major_matching()"]
+    weight: 0.9
+    severity: null
+    score_deduction: null
+    trigger: null
+
+  - id: O3
+    category: ontology
+    rule: "Skills semantic matching: use SentenceTransformer('all-mpnet-base-v2') embeddings. For each JD skill: exact match in resume = +1.0. Semantic match via cosine similarity ≥0.4 = +similarity_score. Final = sum / len(JD skills)."
+    provenance: CODE_VERIFIED
+    sources: ["amiradridi/Job-Resume-Matching/services/Rules.py:semantic_similarity() — threshold 0.4, model all-mpnet-base-v2"]
+    weight: 0.9
+    severity: null
+    score_deduction: null
+    trigger: null
+
+  - id: O4
+    category: ontology
+    rule: "Final matching score: mean of (skills_semantic_score + degree_match_score + major_match_score) / 3. Equal weighting across all three dimensions."
+    provenance: CODE_VERIFIED
+    sources: ["amiradridi/Job-Resume-Matching/services/Rules.py:matching_score()"]
+    weight: 0.8
+    severity: null
+    score_deduction: null
+    trigger: null
+
+  - id: O5
+    category: ontology
+    rule: "Embedding model benchmark (6 models evaluated, precision@15): bert-base-nli-mean-tokens = highest precision (chosen). Also tested: all-mpnet-base-v2, paraphrase-MiniLM-L6-v2, gpt3, all-MiniLM-L12-v1, all-roberta-large-v1. Use Sentence Transformers for production semantic matching."
+    provenance: CODE_VERIFIED
+    sources: ["amiradridi/Job-Resume-Matching/services/Models evaluation.ipynb"]
+    weight: 0.6
+    severity: null
+    score_deduction: null
+    trigger: null
+
+  # ═══════════════════════════════════════════════════════════════
+  # ANTI-FABRICATION RULES (non-negotiable, all CODE_VERIFIED)
+  # ═══════════════════════════════════════════════════════════════
+
+  - id: A1
+    category: anti_fabrication
+    rule: "NEVER fabricate facts, numbers, metrics, percentages, or dollar amounts not in the master resume."
+    provenance: CODE_VERIFIED
+    sources: ["Resume-Tailor-AI/prompts.ts:Rule 4", "Waaangjl/resume-tailor/prompts.py", "Razzy005/resume-tailor/ai.js", "career-tailor", "ResuMeshAI"]
+    weight: 1.0
+    trigger: "any added metric, stat, or dollar figure not in original"
+
+  - id: A2
+    category: anti_fabrication
+    rule: "NEVER add technologies, tools, platforms, or skills not evidenced in the master resume."
+    provenance: CODE_VERIFIED
+    sources: ["Resume-Tailor-AI", "Waaangjl/resume-tailor", "Razzy005/resume-tailor", "career-tailor", "ResuMeshAI"]
+    weight: 1.0
+    trigger: "any added tech/skill/stack item not in original"
+
+  - id: A3
+    category: anti_fabrication
+    rule: "NEVER change job titles, company names, employment dates, or education credentials."
+    provenance: CODE_VERIFIED
+    sources: ["Resume-Tailor-AI", "Waaangjl/resume-tailor", "Razzy005/resume-tailor", "career-tailor", "cv4offer"]
+    weight: 1.0
+    trigger: "any changed title, date, employer name, degree"
+
+  - id: A4
+    category: anti_fabrication
+    rule: "NEVER add target company as past employer (ZERO PHANTOM EXPERIENCE)."
+    provenance: CODE_VERIFIED
+    sources: ["ResuMeshAI", "career-tailor", "Waaangjl/resume-tailor"]
+    weight: 1.0
+    trigger: "target company name appears as employer"
+
+  - id: A5
+    category: anti_fabrication
+    rule: "Same number of bullets per role as original. Do not merge, split, or drop silently."
+    provenance: CODE_VERIFIED
+    sources: ["Resume-Tailor-AI/prompts.ts:Rule 6", "cv4offer", "career-tailor"]
+    weight: 0.9
+    trigger: "bullet count mismatch per role"
+
+  - id: A6
+    category: anti_fabrication
+    rule: "If a bullet needs no keyword change, return it EXACTLY unchanged (character-level identity)."
+    provenance: CODE_VERIFIED
+    sources: ["Resume-Tailor-AI/prompts.ts:Rule 1", "Waaangjl/resume-tailor"]
+    weight: 0.9
+    trigger: null
+
+  - id: A7
+    category: anti_fabrication
+    rule: "When inserting a JD keyword, use minimal edit: replace only the variant word, not the whole sentence."
+    provenance: CODE_VERIFIED
+    sources: ["Resume-Tailor-AI/prompts.ts:Rule 2-3"]
+    weight: 0.8
+    trigger: null
+
+  - id: A8
+    category: anti_fabrication
+    rule: "No self-assessment clauses ('demonstrating…', 'showcasing…', 'proving…')."
+    provenance: CODE_VERIFIED
+    sources: ["Razzy005/resume-tailor/ai.js", "Waaangjl/resume-tailor"]
+    weight: 0.8
+    trigger: null
+
+  - id: A9
+    category: anti_fabrication
+    rule: "Frozen sections: education credentials, certifications, and references are NEVER modified."
+    provenance: CODE_VERIFIED
+    sources: ["cv4offer", "career-tailor", "Waaangjl/resume-tailor"]
+    weight: 0.9
+    trigger: null
+
+  # ═══════════════════════════════════════════════════════════════
+  # SCORING WEIGHTS (from source-verified scoring modules)
+  # ═══════════════════════════════════════════════════════════════
+
+  - id: W1
+    category: scoring
+    rule: "Keywords/JD match: 50% of total score (consensus range: 40-65%)."
+    provenance: CODE_VERIFIED
+    sources: ["CV-ATS-Checker/scoring.py: W_KEY=0.65", "Resume-Analyzer-MLOps/ats_scorer.py: keywords 20%+match_ratio weight"]
+    weight: 0.8
+
+  - id: W2
+    category: scoring
+    rule: "Format quality: 20% of total score (consensus range: 15-30%)."
+    provenance: CODE_VERIFIED
+    sources: ["CV-ATS-Checker/scoring.py: W_FMT=0.15", "Resume-Analyzer-MLOps/ats_scorer.py: format 30%", "ATSFlow: 10 formatting checks"]
+    weight: 0.8
+
+  - id: W3
+    category: scoring
+    rule: "Section completeness: 15% of total score (consensus range: 20-25%)."
+    provenance: CODE_VERIFIED
+    sources: ["CV-ATS-Checker/scoring.py: W_COMP=0.20", "Resume-Analyzer-MLOps/ats_scorer.py: sections 25%"]
+    weight: 0.8
+
+  - id: W4
+    category: scoring
+    rule: "Content quality: 10% of total score."
+    provenance: CODE_VERIFIED
+    sources: ["Resume-Analyzer-MLOps/ats_scorer.py: content 15%", "ATSFlow: 10 content checks"]
+    weight: 0.7
+
+  - id: W5
+    category: scoring
+    rule: "Contact information completeness: 5% of total score."
+    provenance: CODE_VERIFIED
+    sources: ["Resume-Analyzer-MLOps/ats_scorer.py: contact 10%", "ATSFlow/structure.js: parseableContactInfo() — CRITICAL"]
+    weight: 0.7
+
+  # ═══════════════════════════════════════════════════════════════
+  # CONTENT QUALITY THRESHOLDS (from Resume-Analyzer-MLOps 7★)
+  # ═══════════════════════════════════════════════════════════════
+
+  - id: Q1
+    category: content_quality
+    rule: "Word count: 200-1000 optimal. <200 = -30. >1000 = -15. SUPERSEDED by UP1 — target rich 1 page, 2 pages max."
+    provenance: CODE_VERIFIED
+    sources: ["Resume-Analyzer-MLOps/ats_scorer.py", "SUPERSEDED by UP1"]
+    weight: 0.4
+  - id: Q2
+    category: content_quality
+    rule: "Quantifiable achievements: ≥5 numbers/metrics in resume. <5 numbers = -20 score."
+    provenance: CODE_VERIFIED
+    sources: ["Resume-Analyzer-MLOps/ats_scorer.py — <5 digits = -20"]
+    weight: 0.8
+
+  - id: Q3
+    category: content_quality
+    rule: "Action verbs: ≥3 from list (led, managed, developed, created, implemented, designed, achieved, improved, increased, built). <3 = -15."
+    provenance: CODE_VERIFIED
+    sources: ["Resume-Analyzer-MLOps/ats_scorer.py — <3 action verbs = -15"]
+    weight: 0.7
+
+  - id: Q4
+    category: content_quality
+    rule: "Contact scoring: email = 40% of contact score, phone = 30%, LinkedIn = 20%, location = 10%."
+    provenance: CODE_VERIFIED
+    sources: ["Resume-Analyzer-MLOps/ats_scorer.py:_calculate_contact_score()"]
+    weight: 0.8
+
+  - id: Q5
+    category: content_quality
+    rule: "Format warning triggers: special chars >50 = -15, tabs present = -10, avg line length <20 chars = -10."
+    provenance: CODE_VERIFIED
+    sources: ["Resume-Analyzer-MLOps/ats_scorer.py:_calculate_format_score()", "CV-ATS-Checker/scoring.py:format_warnings()"]
+    weight: 0.8
+
+# ═══════════════════════════════════════════════════════════════
+# PROMPT TEMPLATES
+# ═══════════════════════════════════════════════════════════════
+
+prompts:
+  system:
+    description: "System prompt for LLM resume tailoring. Includes all anti-fabrication rules + rewrite protocol."
+    template: |
+      You are a resume tailoring assistant. Rewrite resume bullet points to align
+      with a job description's language and priorities. TARGET 1 PAGE, 2 PAGES
+      ABSOLUTE MAXIMUM. Every bullet must earn its space — prune aggressively.
+      HARD CONSTRAINTS (violation = disqualification): Never fabricate facts,
+      numbers, technologies, or company names. Never change job titles, dates, or
+      employer names. Never add skills or tools not present in the original. Never
+      add self-assessment clauses. Maintain the same number of bullets per role.
+      No trailing periods. No first-person pronouns. If a bullet needs no change,
+      return it EXACTLY unchanged. Education, certifications, references are frozen.
+      SABBATICAL: do NOT put in experience section. If relevant, mention briefly
+      in Summary only. REWRITE PROTOCOL (apply in order): 1. RETURN UNCHANGED —
+      bullet already covers JD keywords → copy verbatim. 2. VARIANT FIX — same
+      concept, different phrasing → replace only variant word. 3. KEYWORD INSERT —
+      JD keyword missing → find most relevant bullet, insert naturally with minimal
+      edit. 4. AGGRESSIVE (business context only) — JD domain keywords → proactively
+      work into relevant bullets if truthful. PRIORITY ORDER: Most recent experience
+      → Skills section → Older experience → Projects. FORMAT: STAR (Situation→Task→
+      Action→Result) when original contains enough information.
+
+  jd_analysis:
+    description: "Prompt for structured JD keyword extraction into 7 buckets."
+    template: |
+      Analyze this job description and extract keywords into these categories:
+      titleKeywords (max 4), hardSkills (max 12), actionKeywords (max 8),
+      businessContext (max 10), domainKeywords (max 5), hardFilters (max 6),
+      top10 (max 10, ranked). RULES: Do NOT include generic soft skills
+      (communication, collaboration, teamwork). These have no ATS value. Use exact
+      JD phrasing where possible. For hardFilters, extract only explicit requirements.
+
+  gap_analysis:
+    description: "Prompt for resume-vs-JD gap analysis."
+    template: |
+      Compare the resume against the job description. Identify: 1. Matched keywords
+      grouped into Skills & Technologies, Abilities, Title & Degree, Other Terms.
+      2. Missing keywords (same groups). 3. Match percentage. 4. Weak phrases with
+      suggested stronger alternatives (replace passive with active). 5. Top 5-7 most
+      important missing keywords that would improve ATS score most.
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION VARIANT MAPPINGS (from Resume-Analyzer-MLOps + ATSFlow)
+# ═══════════════════════════════════════════════════════════════
+
+section_variants:
+  description: "Recognized section heading variants (case-insensitive)."
+  experience:
+    canonical: "Work Experience"
+    variants: ["experience", "work experience", "professional experience", "employment", "employment history", "work history", "career history", "positions held"]
+  education:
+    canonical: "Education"
+    variants: ["education", "academic background", "academic qualifications", "qualifications", "schooling", "degrees", "university", "college"]
+  skills:
+    canonical: "Skills"
+    variants: ["skills", "technical skills", "core competencies", "competencies", "expertise", "technologies", "tools", "proficiencies"]
+  summary:
+    canonical: "Summary"
+    variants: ["summary", "professional summary", "profile", "about me", "objective", "career objective", "overview", "introduction"]
+  contact:
+    canonical: "Contact"
+    variants: ["contact", "contact information", "contact details", "email", "phone", "mobile", "linkedin", "address"]
+  certifications:
+    canonical: "Certifications"
+    variants: ["certifications", "licenses", "certificates", "professional certifications"]
+
+# ═══════════════════════════════════════════════════════════════
+# SYNONYM MAPS (from CV-ATS-Checker nlp_utils.py — CODE_VERIFIED)
+# ═══════════════════════════════════════════════════════════════
+
+synonym_map:
+  description: "Technology and domain synonym expansion for keyword matching."
+  tech:
+    aws: ["amazon web services", "aws"]
+    k8s: ["kubernetes", "k8s"]
+    docker: ["docker", "containers"]
+    ci_cd: ["ci/cd", "continuous integration", "continuous delivery", "continuous deployment"]
+    postgres: ["postgres", "postgresql"]
+    gcp: ["google cloud", "gcp"]
+    azure: ["microsoft azure", "azure"]
+    rest_api: ["rest", "rest api", "restful"]
+    nlp: ["nlp", "natural language processing"]
+  business:
+    accounting: ["accounting", "bookkeeping", "financial accounting"]
+    financial_analysis: ["financial analysis", "finance analysis", "analyst"]
+    auditing: ["auditing", "audit"]
+    budgeting: ["budgeting", "budget planning", "cost planning"]
+    crm: ["crm", "customer relationship management"]
+    lead_generation: ["lead gen", "lead generation"]
+    recruitment: ["recruitment", "talent acquisition", "hiring"]
+    seo: ["seo", "search engine optimization"]
+    sem: ["sem", "search engine marketing"]
+
+# ═══════════════════════════════════════════════════════════════
+# EMBEDDING MODEL BENCHMARKS
+# (amiradridi/Job-Resume-Matching, precision@15 evaluation)
+# ═══════════════════════════════════════════════════════════════
+
+embedding_benchmarks:
+  description: "Precision@15 for 6 sentence embedding models on skills matching task."
+  evaluated: 2023
+  source: "amiradridi/Job-Resume-Matching/services/Models evaluation.ipynb"
+  models:
+    "bert-base-nli-mean-tokens":
+      rank: 1
+      note: "Highest precision — chosen for production."
+    "all-mpnet-base-v2":
+      rank: 2
+      note: "Used in Rules.py production code; second highest precision."
+    "all-roberta-large-v1":
+      rank: 3
+    "all-MiniLM-L12-v1":
+      rank: 4
+    "paraphrase-MiniLM-L6-v2":
+      rank: 5
+    "gpt3":
+      rank: 6
+      note: "Lowest precision; not recommended for semantic matching."
+  current_best_practice: "Use all-mpnet-base-v2 or sentence-transformers/all-MiniLM-L6-v2 for production (2026). BERT-based models have been superseded by newer architectures but the relative ranking of embedding quality vs speed holds."
+
+# ═══════════════════════════════════════════════════════════════
+# SOURCE INVENTORY
+# ═══════════════════════════════════════════════════════════════
+
+source_inventory:
+  description: "All sources consulted, with verification depth."
+  sources:
+    - name: "ATSFlow (ry-ops)"
+      url: "https://github.com/ry-ops/ATSFlow"
+      stars: 1
+      verified: "ALL 30 checks source-read: formatting.js (10), structure.js (10), content.js (10). Every rule extracted."
+    - name: "CV-ATS-Checker (Sydulamin)"
+      url: "https://github.com/Sydulamin/CV-ATS-Checker"
+      stars: 4
+      verified: "scoring.py, nlp_utils.py — source read, rules+synonym map+scoring weights extracted."
+    - name: "Resume-Analyzer-MLOps (ananttripathi)"
+      url: "https://github.com/ananttripathi/Resume-Analyzer-MLOps"
+      stars: 7
+      verified: "src/ats_scorer.py — source read, content quality thresholds+contact scoring extracted."
+    - name: "Job-Resume-Matching (amiradridi)"
+      url: "https://github.com/amiradridi/Job-Resume-Matching"
+      stars: 134
+      verified: "services/Rules.py + notebook — source read, degree/major/skills ontology matching rules extracted."
+    - name: "Resume-Tailor-AI (JaimeYeung)"
+      url: "https://github.com/JaimeYeung/Resume-Tailor-AI"
+      stars: 37
+      verified: "lib/prompts.ts — source read via ats_matcher_catalog.md 2026-08-07."
+    - name: "Waaangjl/resume-tailor"
+      url: "https://github.com/Waaangjl/resume-tailor"
+      stars: 1
+      verified: "prompts.py, README — source read, anti-fabrication+STAR+bullet priority extracted."
+    - name: "Razzy005/resume-tailor"
+      url: "https://github.com/Razzy005/resume-tailor"
+      stars: 0
+      verified: "server/ai.js — architecture verified, anti-fabrication constraints confirmed."
+    - name: "cv-word-checker (PromptPasture)"
+      url: "https://github.com/PromptPasture/cv-word-checker"
+      stars: 3
+      verified: "src/lib/engine/ — component structure verified, gap analysis pattern noted."
+    - name: "ResumeAtsChecker (Joseph24x7)"
+      url: "https://github.com/Joseph24x7/ResumeAtsChecker"
+      stars: 29
+      verified: "KeywordMatcher.java — Java/OpenNLP approach confirmed."
+    - name: "OpenResume (xitanggg)"
+      url: "https://github.com/xitanggg/open-resume"
+      stars: 8808
+      verified: "README — resume parser validates ATS readability. Builder not rules-source."
+    - name: "AI-Resume-Analyzer (deepakpadhi986)"
+      url: "https://github.com/deepakpadhi986/AI-Resume-Analyzer"
+      stars: 895
+      verified: "README — Streamlit app built on pyresparser; no novel rules."
+    - name: "binoydutt/Resume-Job-Description-Matching"
+      url: "https://github.com/binoydutt/Resume-Job-Description-Matching"
+      stars: 188
+      verified: "README — Word2Vec 300d + TF-IDF + cosine similarity. Methodology noted, no novel rules."
+    - name: "ats_resume_knowledge_2026.md"
+      url: "docs/ats_resume_knowledge_2026.md"
+      verified: "Repo knowledge base, multi-source synthesis from 20+ articles."
+    - name: "ats_matcher_catalog.md"
+      url: "docs/ats_matcher_catalog.md"
+      verified: "16-tool evaluation, source-verified prompts from top candidates."
+    - name: "Greenhouse resume parsing docs"
+      url: "https://support.greenhouse.io/hc/en-us/articles/360000021386-Resume-Parsing"
+      verified: "DEAD_END — HTTP 404."
+    - name: "Lever resume parsing docs"
+      url: "https://help.lever.co/hc/en-us/articles/360043511911-How-does-resume-parsing-work-in-Lever"
+      verified: "DEAD_END — HTTP 401 (bot-blocked)."
+    - name: "Reddit r/cscareerquestions, r/recruitinghell, r/datascience"
+      url: "reddit.com"
+      verified: "DEAD_END — reddit search returned no renderable ATS-specific content."

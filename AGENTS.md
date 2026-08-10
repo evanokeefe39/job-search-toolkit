@@ -22,12 +22,11 @@ with human review gates — no fully automated ATS pipeline.
 - Application folders: `applications/YYYY-MM-DD_<company>_<role>/` with `jd.md`, `research.md`, `cv_tailored.yaml`, `cv_tailored.pdf`, `notes.md`; status lives in `tracker.csv` (11 columns — see the application-tracker skill)
 - PUBLIC repo: `resume/`, `applications/`, `tracker.csv`, `rendercv_output/` are gitignored — never commit personal data or target-company info; gitignore is not retroactive, so new personal paths must be ignored before the first commit
 - Dates are `DD/MM/YYYY` (French locale from free-work.com)
-- **No hand-tailoring.** Resume tailoring must be driven by ATS-based analysis
-  and industry-knowledge-backed rules, not human intuition. Until a specialized
-  tailoring pipeline or skill exists, the Resume-Matcher's `cv_tailored_matcher.pdf`
-  is the submission artifact. Hand-tailored `cv_tailored.yaml`/`cv_tailored.pdf`
-  are never created. The `cv_tailored_matcher.pdf` in each application folder is
-  the matcher's output for that job.
+- **Resume tailoring is LLM-driven.** `scripts/tailor_resume.py` takes
+  `resume/cv.yaml` + a JD and produces `cv_tailored.yaml` + `cv_tailored.pdf`
+  via a single DeepSeek API call with Pydantic-validated structured output.
+  Resume-Matcher is DEPRECATED (CP1252 mojibake, keyword-padding, 3-page bloat).
+  The submission artifact is `cv_tailored.pdf` rendered by RenderCV from LLM-tailored YAML.
 
 ## Architecture
 
@@ -47,8 +46,7 @@ pipeline/                        # Dagster 9-asset graph: scrape -> merge -> enr
 .agents/skills/                  # Agent playbooks (oh-my-pi / Claude)
 ├── jd-refresh/SKILL.md          # Refresh jobs, report delta, stop for shortlist
 ├── new-application/SKILL.md     # Scaffold application folder + company research
-├── tailor-resume/SKILL.md       # Resume-Matcher advisory pass + human-reviewed diff + RenderCV PDF
-├── application-tracker/SKILL.md # tracker.csv transitions + response-rate stats
+├── tailor-resume/SKILL.md       # LLM pipeline: scripts/tailor_resume.py + human review + RenderCV PDF
 ├── market-research/SKILL.md     # Multi-level job market trend analysis
 └── cold-outreach/SKILL.md       # Find contacts, draft outreach messages
 
@@ -59,12 +57,11 @@ docs/                            # Research and planning
 ├── ats_resume_knowledge_2026.md # ATS systems, resume writing, prompt injection, job search strategy
 ├── data_model.md                # 6 entities: Company, JobDescription, Person, Agency, Application, Outreach
 ├── lead_generation_model.md     # Sales/CRM + DE audit, unified lead sources, qualification model
-├── ats_matcher_catalog.md       # 16 ATS tools evaluated (superseded by skill approach)
-├── matcher_contracts.md         # Resume-Matcher API contract documentation
+├── ats_matcher_catalog.md       # ATS tools evaluated (rules reference for pipeline maturation)
+├── matcher_contracts.md         # Resume-Matcher API contracts (HISTORICAL — Resume-Matcher deprecated)
 └── remote-job-boards.md         # 30+ Europe-focused remote job boards
-services/docker-compose.yml      # Resume-Matcher only; ephemeral (up/down via tailor-resume)
-scripts/audit_alignment.py       # Deterministic fabrication strip (master vs tailored)
-tracker.csv                      # Application tracker (gitignored)
+services/docker-compose.yml      # DEPRECATED — Resume-Matcher retired, kept for reference
+scripts/tailor_resume.py         # LLM-driven resume tailoring: cv.yaml + JD → cv_tailored.yaml → PDF
 tasks/lessons.md                 # Session-level lessons log
 ```
 
@@ -93,13 +90,9 @@ uv run python -m pipeline.stage5_score_analyze --export-csv jobs_ranked.csv --to
 ```bash
 /skill:jd-refresh           # run discovery, report delta, stop for shortlist
 /skill:new-application      # scaffold + research + dealbreaker check + tracker
-/skill:tailor-resume        # Resume-Matcher advisory + human-reviewed diff + RenderCV PDF
+/skill:tailor-resume        # LLM pipeline: cv.yaml + JD → cv_tailored.yaml → human review → PDF
 /skill:application-tracker  # tracker transitions and response-rate stats
 ```
-
-**Operational rule:** when an application reaches `ready`, submit it. Do not
-wait for tooling improvements. The UpClear application has been `ready` since
-2026-08-07 with a hand-tailored `cv_tailored.pdf` — submit immediately.
 
 **Supporting skills (run between applications, not instead of them):**
 
@@ -191,7 +184,7 @@ Update: Pivoted to an application workspace. Agent skills (.agents/skills/)
         are the only orchestration layer; Docker services are ephemeral
         (compose up inside the tailor skill, down after); Resume-Matcher is
         an advisor whose diff log is human-reviewed and applied back into
-        RenderCV YAML; the fabrication guard lives in scripts/audit_alignment.py;
+        RenderCV YAML; the fabrication guard lives in pipeline/tailor/audit.py;
         personal data is gitignored (repo is PUBLIC). Rule: ask ">50 items or
         judgment on one?" before building automation — judgment steps get
         skills + tools, not pipelines. Full detail in tasks/lessons.md.
@@ -230,3 +223,26 @@ Top picks for resume tailoring (writing/editing task, not coding):
 Excluded: llama-3.3-70b (>12mo), deepseek-reasoner (rejects response_format),
           codestral (code model), Gemini Flash (3-10x cost), Claude/GPT-5 (>10x).
 ```
+```
+
+```
+Date: 2026-08-07
+Trigger: Smoke-tested Resume-Matcher's improve endpoint against the UpClear
+         Power BI JD. Output confirmed systemic failures: CP1252 mojibake
+         (UTF-8 em-dashes decoded as Windows-1252), keyword-padding (appends
+         "This project demonstrates BI/data warehousing, Power BI, SQL..."
+         to bullets without restructuring), lowercasing of strong verbs
+         ("Orchestrated"→"coordinated"), 3-page bloat (16 bullets for one
+         role, no pruning), and empty education/skills sections (parser can't
+         read RenderCV PDF). The 2026-08-06 decision to use Resume-Matcher
+         as the tailoring engine was wrong — it's a builder-first tool that
+         treats tailoring as keyword-matching removal, not content reframing.
+Gap: Resume-Matcher's architecture (PDF roundtrip, builder-first data model)
+     is fundamentally incompatible with our RenderCV YAML workflow.
+Update: Resume-Matcher is DEPRECATED. Replacement: scripts/tailor_resume.py —
+        a single-script LLM pipeline that reads cv.yaml directly (no PDF
+        roundtrip), returns only content fields (not full schema), uses
+        Pydantic for structured output validation, and guarantees clean UTF-8
+        via yaml.safe_dump(allow_unicode=True). The pipeline completed its
+        first successful end-to-end smoke test against the UpClear JD in 14.5s
+        with clean audit and valid RenderCV PDF output.

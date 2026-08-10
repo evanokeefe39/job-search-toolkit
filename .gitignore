@@ -39,3 +39,5 @@ applications/
 rendercv_output/
 job_search_preferences.yaml
 tracker.csv
+# Session plans — may contain target-company info and personal resume analysis
+tasks/plans/
