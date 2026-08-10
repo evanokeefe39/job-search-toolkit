@@ -19,7 +19,7 @@ with human review gates — no fully automated ATS pipeline.
 - Discovery code lives in the installable package `src/job_search_toolkit/` (scrapers, Dagster pipeline, automation). Entry: `job-search-toolkit pipeline run` (dev: `uv run python -m job_search_toolkit.pipeline.run`); legacy `pipeline/_legacy/stage*.py` scripts remain for reference only
 - No new dependencies without explicit justification
 - Per-application workflow is agent-driven via `skills/<name>/SKILL.md` playbooks (discovered from `skills/` via `.omp/config.yaml`; installed into other harnesses with `job-search-toolkit skills install`) — prose + commands with human gates, never pipeline code
-- Application folders: `applications/YYYY-MM-DD_<company>_<role>/` with `jd.md`, `research.md`, `cv_tailored.yaml`, `cv_tailored.pdf`, `notes.md`; status lives in `tracker.csv` (11 columns — see the application-tracker skill)
+- Application folders: `applications/YYYY-MM-DD_<company>_<role>/` with `inputs/` (`jd.md`, `research.md`, `notes.md`) and `outputs/` (`cv_tailored.yaml`, `cv_tailored.pdf`, `rendercv_output/`); status lives in `tracker.csv` (11 columns — see the application-tracker skill)
 - PUBLIC repo: `resume/`, `applications/`, `tracker.csv`, `rendercv_output/` are gitignored — never commit personal data or target-company info; gitignore is not retroactive, so new personal paths must be ignored before the first commit
 - Dates are `DD/MM/YYYY` (French locale from free-work.com)
 - **Resume tailoring is LLM-driven.** `job-search-toolkit tailor run` (CLI in
@@ -94,7 +94,7 @@ job-search-toolkit scrape freework [--format json] [--output data/bronze/freewor
 job-search-toolkit scrape hiringcafe [--output data/bronze/hiringcafe_jobs]
 job-search-toolkit pipeline run        # full Dagster DAG: scrape -> merge -> enrich -> score -> export
 job-search-toolkit pipeline gold       # load silver JSON into DuckDB (data/gold/jobs.db)
-job-search-toolkit tailor run --yaml resume/cv.yaml --jd applications/FOLDER/jd.md
+job-search-toolkit tailor run --yaml resume/cv.yaml --jd applications/FOLDER/inputs/jd.md
 job-search-toolkit skills install --agent ompy|claude|codex
 ```
 

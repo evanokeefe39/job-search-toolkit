@@ -169,7 +169,7 @@ def run(
     if output is None:
         suffix = f"_{cfg.level}" if cfg.level != "relaxed" else ""
         ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-        out_dir = jd.resolve().parent
+        out_dir = jd.resolve().parent.parent / "outputs"
         output = out_dir / f"cv_tailored{suffix}_{ts}.yaml"
     output_path = output.resolve()
     if output_path == master_path:
