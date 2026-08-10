@@ -1,0 +1,6 @@
+# oh-my-pi project configuration — discover skills from the plugin-standard
+# `skills/` directory (the repo's own skills live here; distributed copies are
+# installed into user harness dirs via `job-search-toolkit skills install`).
+skills:
+  customDirectories:
+    - ./skills

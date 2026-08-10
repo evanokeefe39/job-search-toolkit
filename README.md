@@ -1,40 +1,71 @@
-# Job Search Scraping
+# Job Search Toolkit
 
-Multi-board job search pipeline: scrape, enrich, score, and rank job listings
-from free-work.com and hiringcafe.com (extensible to any board via canonical schema).
+Multi-board job search pipeline and application automation: scrape, enrich,
+score, and rank job listings from free-work.com and hiringcafe.com
+(extensible to any board via canonical schema), then drive the per-role
+application workflow with agent skills.
 
-Dagster DAG with 9 assets — topological execution, per-source stage toggling,
-LLM enrichment via DeepSeek + instructor for structured output.
+Installable as a PyPI package (`job-search-toolkit`) with a single CLI
+(`job-search-toolkit`) and agent skills that plug into any harness
+(oh-my-pi, Claude Code, Codex).
+
+```
+scrape -> bronze -> silver -> gold
+                   (DuckDB analytics)
+```
 
 ## Quick start
 
 ```bash
-git clone https://github.com/evanokeefe39/job_search_scraping.git
-cd job_search_scraping
-uv sync
+pip install job-search-toolkit        # or: uv tool install job-search-toolkit
 
-# Full pipeline (scrape both boards, enrich, score, export):
-uv run python -m pipeline.run
+# Full pipeline (scrape both boards, merge, enrich, score, export):
+job-search-toolkit pipeline run
 
-# Or individual scrapers:
-uv run python scrape_freework.py --format json
-uv run python scrape_hiringcafe.py --max-pages 50
+# Load the silver dataset into the DuckDB gold layer:
+job-search-toolkit pipeline gold
+
+# Individual scrapers:
+job-search-toolkit scrape freework --format json
+job-search-toolkit scrape hiringcafe --max-pages 50
+
+# Tailor the master CV to a job description (human-gated, renders PDF):
+job-search-toolkit tailor run --yaml resume/cv.yaml --jd applications/FOLDER/jd.md
+
+# Install the agent skills into your harness:
+job-search-toolkit skills install --agent ompy    # or: claude | codex
 ```
 
-Application workflow is agent-driven (see `.agents/skills/`):
+From a repo checkout (no install needed):
 
 ```bash
-# 1. Refresh jobs and shortlist (run scrapers + enrichment, report delta)
-/skill:jd-refresh
-
-# 2. Scaffold an application folder and research the company
-/skill:new-application
-
-# 3. Tailor the master CV to the JD, review diffs, render PDF
-/skill:tailor-resume
+uv sync
+uv run python -m job_search_toolkit.pipeline.run   # == job-search-toolkit pipeline run
 ```
 
+## Data layout (medallion)
+
+| Layer | Location | Content |
+|---|---|---|
+| Bronze | `data/bronze/` | Raw canonical per board (JSON + CSV) |
+| Silver | `data/silver/` | `merged_jobs.json`, `jobs_ranked.csv`, enriched JSON |
+| Gold | `data/gold/jobs.db` | DuckDB views: `ranked_jobs`, `by_sector`, `by_tier` |
+
 ## Architecture
+
+```
+src/job_search_toolkit/
+├── cli.py                  # single entry point: scrape | pipeline | tailor | skills
+├── schemas.py              # CanonicalJob + normalized enums
+├── scrapers/               # freework.py, hiringcafe.py
+├── pipeline/               # Dagster 9-asset graph + DuckDB gold layer
+│   └── _legacy/            # superseded stage scripts (reference only)
+└── automation/tailor/      # resume tailoring engine (client, prompts, merge, audit, render)
+skills/                     # plugin-standard agent skills (skills/<name>/SKILL.md)
+```
+
+Dagster DAG with 9 assets — topological execution, per-source stage toggling,
+LLM enrichment via DeepSeek + instructor for structured output:
 
 ```
 freework_jobs ──┐
@@ -44,24 +75,17 @@ hiringcafe_jobs─┘                               ├── vertical_classifie
                                                                       scored_jobs ── ranked_csv
 ```
 
-9 Dagster assets: 2 scrapers → merge → 4 enrichment stages → score → export.
 Enrichment skips hiringcafe (pre-enriched by the source) and only processes free-work.
 
 ## Scrapers
 
-| Board | File | Method | Auth |
+| Board | Module | Method | Auth |
 |---|---|---|---|
-| free-work.com | `scrape_freework.py` | HTML parsing (server-rendered) | None |
-| hiringcafe.com | `scrape_hiringcafe.py` | Next.js SSR data route (JSON) | None |
+| free-work.com | `scrapers/freework.py` | HTML parsing (server-rendered) | None |
+| hiringcafe.com | `scrapers/hiringcafe.py` | Next.js SSR data route (JSON) | None |
 
-Both output to a shared canonical schema (`schemas.py`) with normalized enums
-for workplace type, contract type, seniority, role category, engagement, and company type.
-
-## Canonical schema
-
-All boards normalize to `CanonicalJob` with ~30 fields including typed `Salary`
-(annual EUR), `CompanyInfo` (industry, size, funding, stock), and `_enrichment`
-status tracking. See `schemas.py` for the full model.
+Both normalize to the shared `CanonicalJob` schema with typed enums for
+workplace type, contract type, seniority, role category, engagement, and company type.
 
 ## Enrichment pipeline
 
@@ -101,15 +125,6 @@ Five weighted dimensions tuned for well-paid, flexible, moderate-responsibility 
 | Tech match | 0.15 | `technologies` (modern vs legacy) |
 | Company quality | 0.10 | `company_info.org_type`, `posting_company_type`, `engagement_type` |
 
-## Future boards
-
-To add a new board:
-1. Write a scraper that outputs `CanonicalJob` records (see `scrape_hiringcafe.py` for reference)
-2. Add the scraper as a Dagster asset in `pipeline/assets.py`
-3. Add the JSON path to `merged_jobs`
-
-The enrichment stages automatically skip jobs with populated `_enrichment` flags.
-
 ## Application workspace
 
 Discovery is automated; everything after shortlisting is an interactive,
@@ -118,32 +133,39 @@ per-role workflow operated with agent skills and human review gates.
 ```mermaid
 flowchart LR
     subgraph DISCOVERY[Discovery - automated batch, stable]
-        S1[scrape_freework] --> M[merge + enrich + score]
-        S2[scrape_hiringcafe] --> M
-        M --> R[jobs_ranked.csv]
+        S1[scrape freework] --> M[merge + enrich + score]
+        S2[scrape hiringcafe] --> M
+        M --> R[data/silver/jobs_ranked.csv]
     end
     subgraph WORKSPACE[Triage + research + tailoring - human + agent]
         R --> PICK[shortlist from ranked CSV]
         PICK --> APP[applications/date_company_role/]
         APP --> RES[jd.md + research.md]
-        RES --> RM[Resume-Matcher advisor]
-        MASTER[resume/cv.yaml] --> RM
-        RM --> DIFF[review detailed_changes]
-        DIFF --> TAILOR[cv_tailored.yaml -> PDF]
-        TAILOR --> TRACK[tracker.csv]
+        RES --> TAILOR[job-search-toolkit tailor run]
+        MASTER[resume/cv.yaml] --> TAILOR
+        TAILOR --> AUDIT[fabrication audit]
+        AUDIT --> PDF[cv_tailored.pdf]
+        PDF --> TRACK[tracker.csv]
     end
 ```
 
 ### Skills
 
-Playbooks in `.agents/skills/` drive the workflow; each stops at human gates.
+Playbooks in `skills/` drive the workflow; each stops at human gates.
+Install them into your harness with `job-search-toolkit skills install` (or add the
+repo as a marketplace: `/marketplace add evanokeefe39/job_search_scraping`).
 
 | Skill | Orchestrates | Human gate |
 |---|---|---|
-| `jd-refresh` | Run scrapers + enrichment, report delta and top-ranked jobs | Shortlist selection |
+| `jd-refresh` | `job-search-toolkit pipeline run`, report delta and top-ranked jobs | Shortlist selection |
 | `new-application` | Scaffold application folder, write `jd.md`, research company (web search, yfinance, manual Crunchbase checkpoint), write `research.md` | Go/no-go on applying |
-| `tailor-resume` | Start Resume-Matcher, run CV+JD through it, present diff log, apply approved changes to tailored YAML, render PDF, audit, track | Every diff; final PDF |
+| `tailor-resume` | `job-search-toolkit tailor run`, present audit, apply approved changes to tailored YAML, render PDF | Every diff; final PDF |
 | `application-tracker` | `tracker.csv` transitions + response-rate stats | — |
+| `market-research` | Multi-level job market trend analysis | Interpretation |
+| `cold-outreach` | Find contacts, draft outreach messages | Send approval |
+
+Each skill declares its requirements (Python 3.14+, uv) and assumes the
+`job-search-toolkit` CLI is installed.
 
 ### Canonical resume
 
@@ -152,16 +174,9 @@ this repo is PUBLIC, never commit personal data). Render with
 `uv run rendercv render resume/cv.yaml`. Tailoring forks a copy per application
 (`applications/<folder>/cv_tailored.yaml`); the master never changes.
 
-### Services
-
-`services/docker-compose.yml` runs Resume-Matcher only (`http://localhost:8000`),
-started by the `tailor-resume` skill and torn down afterward — nothing is
-always-on. ATSFlow and ats-resume-checker were retired in the 2026-08-06 rework;
-ATSFlow's 30-rule scan is at most a one-time manual lint of the master template.
-
 ### Fabrication guard
 
-`pipeline/tailor/audit.py:check_fabrication()` validates tailored YAML against
+`automation/tailor/audit.py:check_fabrication()` validates tailored YAML against
 the master: experience count, company names, fabricated skills (with synonym
 map), and fabricated metrics. Runs as a hard gate in the tailoring pipeline;
 the human reviews any JD-derived additions flagged as verify-with-human.

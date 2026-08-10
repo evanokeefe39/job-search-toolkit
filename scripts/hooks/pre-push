@@ -1,0 +1,53 @@
+#!/bin/sh
+# Pre-push PII guard for job-search-toolkit (PUBLIC repo — never publish
+# personal data, target-company info, or API keys).
+#
+# Blocks the push if either check fails:
+#   1. The pushed commit range touches gitignored PII paths.
+#   2. Tracked files at HEAD contain emails, French phone numbers, or API keys.
+#
+# Install: git config core.hooksPath scripts/hooks
+# Allowlist: verified non-PII matches go in the `grep -vE` line of check 2.
+
+set -u
+
+zero_sha=0000000000000000000000000000000000000000
+
+scan_range() {
+    # $1 = start sha, $2 = end sha
+    pii=$(git diff --name-only "$1..$2" 2>/dev/null | \
+        grep -E '^(resume/|applications/|tracker\.csv|job_search_preferences\.yaml|tasks/plans/|data/outreach_|data/contacts)' || true)
+    if [ -n "$pii" ]; then
+        echo "pre-push: BLOCKED — PII paths in pushed commits:" >&2
+        echo "$pii" >&2
+        exit 1
+    fi
+}
+
+while read local_ref local_sha remote_ref remote_sha; do
+    [ -z "$local_ref" ] && continue
+    if [ "$local_sha" = "$zero_sha" ]; then
+        continue  # branch deletion
+    fi
+    if [ "$remote_sha" = "$zero_sha" ]; then
+        # New branch: scan everything reachable from the pushed tip.
+        start=$(git rev-list --max-parents=0 "$local_sha" | tail -1)
+    else
+        start="$remote_sha"
+    fi
+    scan_range "$start" "$local_sha"
+done
+
+# Content scan of the tree being pushed (belt and braces — catches anything
+# tracked at HEAD, including files committed before this hook existed).
+hits=$(git grep -nE \
+    '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}|(0[67]([ .-]?[0-9]){8}|\+33[67]([ .-]?[0-9]){8})|sk-[A-Za-z0-9]{20,}' \
+    -- . ':(exclude)uv.lock' 2>/dev/null | \
+    grep -vE 'noreply@anthropic\.com|users\.noreply\.github\.com' || true)
+if [ -n "$hits" ]; then
+    echo "pre-push: BLOCKED — possible PII in tracked files:" >&2
+    echo "$hits" >&2
+    exit 1
+fi
+
+exit 0

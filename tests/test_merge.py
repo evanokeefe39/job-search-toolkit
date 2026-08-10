@@ -7,7 +7,8 @@ Covers the impact/JD-relevance ranking introduced 2026-08-10:
 - bullets with no master analogue (fabrication risk) drop first
 - master-overlap breaks ties between equally-ranked bullets
 - word-boundary term matching ("SQL" never matches "SQLite")
-- UP3 merge/cut: empty-highlight roles dropped, merged_into folds content
+- UP3 merge/cut: empty-highlight roles dropped when enabled; master
+  highlights restored when merge is off (deterministic role set)
 
 Run: uv run python -m tests.test_merge
 """
@@ -19,7 +20,7 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-from pipeline.tailor.merge import (  # noqa: E402
+from job_search_toolkit.automation.tailor.merge import (  # noqa: E402
     _impact_score,
     _jd_relevance,
     _term_matches,
@@ -176,42 +177,6 @@ def test_merge_content_cuts_empty_highlight_roles_when_enabled():
     assert companies == ["Hancock Prospecting", "Modis (now Akkodis)"]
 
 
-def test_merge_content_merged_into_drops_source_role():
-    original = {
-        "cv": {"sections": {"experience": [
-            {"company": "Hancock Prospecting", "highlights": ["a", "b"]},
-            {"company": "Modis (now Akkodis)", "highlights": ["c", "d"]},
-        ], "skills": []}}
-    }
-    content = {
-        "summary": "x" * 60,
-        "experiences": [
-            {"index": 0, "highlights": ["a", "b"]},
-            {"index": 1, "highlights": [], "merged_into": 0},
-        ],
-        "skills": [],
-    }
-    merged = merge_content(original, content, None, merge_low_value=True)
-    companies = [e["company"] for e in merged["cv"]["sections"]["experience"]]
-    assert companies == ["Hancock Prospecting"]
-
-
-if __name__ == "__main__":
-    failures = 0
-    for name, fn in sorted(globals().items()):
-        if name.startswith("test_") and callable(fn):
-            try:
-                fn()
-                print(f"PASS {name}")
-            except AssertionError as e:
-                failures += 1
-                print(f"FAIL {name}: {e}")
-    total = sum(1 for n in globals()
-                if n.startswith("test_") and callable(globals()[n]))
-    print(f"\n{total - failures}/{total} passed")
-    sys.exit(1 if failures else 0)
-
-
 def test_merge_content_empty_highlights_restore_master_when_merge_off():
     original = {
         "cv": {"sections": {"experience": [
@@ -234,3 +199,34 @@ def test_merge_content_empty_highlights_restore_master_when_merge_off():
     assert exp[0]["company"] == "Hancock Prospecting"
     assert exp[0]["highlights"] == ["h1", "h2", "h3"]
     assert len(exp) == 2
+
+
+def test_merge_content_skills_are_merged():
+    original = {
+        "cv": {"sections": {"experience": [
+            {"company": "H", "highlights": ["h1"]},
+        ], "skills": [{"label": "A", "details": "old skill"}]}}
+    }
+    content = {
+        "summary": "x" * 60,
+        "experiences": [{"index": 0, "highlights": ["h1"]}],
+        "skills": [{"label": "B", "details": "new skill"}],
+    }
+    merged = merge_content(original, content, None, merge_low_value=False)
+    assert merged["cv"]["sections"]["skills"] == [{"label": "B", "details": "new skill"}]
+
+
+if __name__ == "__main__":
+    failures = 0
+    for name, fn in sorted(globals().items()):
+        if name.startswith("test_") and callable(fn):
+            try:
+                fn()
+                print(f"PASS {name}")
+            except AssertionError as e:
+                failures += 1
+                print(f"FAIL {name}: {e}")
+    total = sum(1 for n in globals()
+                if n.startswith("test_") and callable(globals()[n]))
+    print(f"\n{total - failures}/{total} passed")
+    sys.exit(1 if failures else 0)

@@ -1,0 +1,23 @@
+# Tailor automation configuration — TEMPLATE (safe to commit).
+# Copy to config.yaml (gitignored, may hold API keys) and edit:
+#   - repo checkout:  ./config.yaml  (cwd)  — resolves when running from repo root
+#   - pip install:    ~/.config/job-search-toolkit/config.yaml
+#   - explicit:       JOB_SEARCH_CONFIG=/path/to/config.yaml
+# Precedence: CLI args > env vars > config.yaml > built-in defaults.
+# Env overrides: LLM_MODEL, LLM_BASE_URL, LLM_API_KEY, LLM_CLIENT, TAILOR_LEVEL, ...
+
+# LLM provider settings
+model: deepseek-chat
+base_url: https://api.deepseek.com/v1
+
+# Structured-output client: "pydantic_ai" (default) | "json_mode" (fallback)
+# json_mode is the proven path for deepseek v4-flash (AGENTS.md known issue);
+# pydantic_ai uses tool-calling, which worked in the 2026-08-10 smoke test.
+llm_client: pydantic_ai
+
+# Tailoring behavior
+level: relaxed            # relaxed | moderate | aggressive
+max_highlights: 5         # max bullets kept per role
+
+# Tone-of-voice: omit to use the package-bundled TONE.txt, or point at your own:
+# tone_file: /path/to/tone.txt

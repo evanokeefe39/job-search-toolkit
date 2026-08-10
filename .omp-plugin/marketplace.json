@@ -1,0 +1,20 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "job-search-toolkit",
+  "owner": {
+    "name": "evanokeefe39"
+  },
+  "metadata": {
+    "description": "Job discovery, enrichment, and application automation: scrapers, Dagster ETL, resume tailoring, and agent skills.",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "job-search-toolkit",
+      "description": "Agent skills for the job-search CLI (scrape, pipeline, tailor, skills).",
+      "source": "./",
+      "category": "productivity",
+      "skills": ["jd-refresh", "market-research", "new-application", "application-tracker", "tailor-resume", "cold-outreach"]
+    }
+  ]
+}

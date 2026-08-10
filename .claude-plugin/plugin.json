@@ -1,0 +1,9 @@
+{
+  "name": "job-search-toolkit",
+  "description": "Job discovery, enrichment, and application automation skills for the job-search CLI.",
+  "version": "0.1.0",
+  "author": {
+    "name": "evanokeefe39"
+  },
+  "license": "MIT"
+}

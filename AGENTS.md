@@ -10,46 +10,66 @@ between applications, not instead of them.
 A multi-board job discovery + application workspace. Scrapers pull
 free-work.com and hiringcafe.com listings into a canonical schema; a Dagster
 pipeline enriches, scores, and ranks them. Everything after shortlisting is an
-interactive, per-role workflow operated by agent skills (`.agents/skills/`)
+interactive, per-role workflow operated by agent skills (`skills/`)
 with human review gates — no fully automated ATS pipeline.
 
 ## Conventions
 
 - Python 3.14+, `uv` for package management, `.venv` in project root
-- Discovery code: `scrape_*.py` + `schemas.py` + `pipeline/` (Dagster graph, entry `uv run python -m pipeline.run`); legacy `stage*.py` scripts remain for reference only
+- Discovery code lives in the installable package `src/job_search_toolkit/` (scrapers, Dagster pipeline, automation). Entry: `job-search-toolkit pipeline run` (dev: `uv run python -m job_search_toolkit.pipeline.run`); legacy `pipeline/_legacy/stage*.py` scripts remain for reference only
 - No new dependencies without explicit justification
-- Per-application workflow is agent-driven via `.agents/skills/<name>/SKILL.md` playbooks — prose + commands with human gates, never pipeline code
+- Per-application workflow is agent-driven via `skills/<name>/SKILL.md` playbooks (discovered from `skills/` via `.omp/config.yaml`; installed into other harnesses with `job-search-toolkit skills install`) — prose + commands with human gates, never pipeline code
 - Application folders: `applications/YYYY-MM-DD_<company>_<role>/` with `jd.md`, `research.md`, `cv_tailored.yaml`, `cv_tailored.pdf`, `notes.md`; status lives in `tracker.csv` (11 columns — see the application-tracker skill)
 - PUBLIC repo: `resume/`, `applications/`, `tracker.csv`, `rendercv_output/` are gitignored — never commit personal data or target-company info; gitignore is not retroactive, so new personal paths must be ignored before the first commit
 - Dates are `DD/MM/YYYY` (French locale from free-work.com)
-- **Resume tailoring is LLM-driven.** `scripts/tailor_resume.py` takes
-  `resume/cv.yaml` + a JD and produces `cv_tailored.yaml` + `cv_tailored.pdf`
-  via a single DeepSeek API call with Pydantic-validated structured output.
+- **Resume tailoring is LLM-driven.** `job-search-toolkit tailor run` (CLI in
+  `src/job_search_toolkit/cli_tailor.py`) takes `resume/cv.yaml` + a JD and
+  produces `cv_tailored.yaml` + `cv_tailored.pdf` via a single DeepSeek call
+  with Pydantic-validated structured output through **pydantic-ai**
+  (`OpenAIChatModel`; json_mode fallback via `--llm-client json_mode`).
+  Config precedence: CLI > env > `config.yaml` (gitignored user override,
+  template at `automation/tailor/config.example.yaml`) > defaults; the
+  package-bundled `TONE.txt` injects tone guidance.
   Resume-Matcher is DEPRECATED (CP1252 mojibake, keyword-padding, 3-page bloat).
   The submission artifact is `cv_tailored.pdf` rendered by RenderCV from LLM-tailored YAML.
 
 ## Architecture
 
 ```
-scrape_freework.py               # free-work.com scraper (Typer, httpx, bs4)
-scrape_hiringcafe.py             # hiringcafe.com scraper (Next.js data route)
-schemas.py                       # CanonicalJob schema shared by all boards
-merged_jobs.json                 # Merged job records (all boards)
-jobs_ranked.csv                  # Scored/ranked discovery output
+src/job_search_toolkit/          # Installable PyPI package: `job-search-toolkit`
+├── cli.py                       # SINGLE CLI entry point: scrape | pipeline | tailor | skills
+├── cli_tailor.py                # Tailor CLI (`job-search-toolkit tailor run`)
+├── schemas.py                   # CanonicalJob schema shared by all boards
+├── scrapers/                    # Board scrapers (Typer, httpx, bs4 / Next.js data route)
+│   ├── freework.py              # free-work.com
+│   └── hiringcafe.py            # hiringcafe.com
+├── pipeline/                    # Dagster 9-asset graph: bronze -> silver
+│   ├── assets.py                # Asset definitions
+│   ├── run.py                   # run_pipeline() entry (`job-search-toolkit pipeline run`)
+│   ├── config.py                # Medallion data paths (data/bronze|silver|gold)
+│   ├── gold.py                  # DuckDB gold layer: jobs, ranked_jobs, by_sector, by_tier
+│   ├── llm_client.py, smoke_utils.py, adapt_freework.py, enrich_canonical.py
+│   └── _legacy/                 # stage*.py — superseded by assets.py, reference only
+└── automation/
+    └── tailor/                  # Resume tailoring engine (client, prompts, merge, audit, render)
+                                # + config.example.yaml (template) + TONE.txt (package-bundled)
 
-pipeline/                        # Dagster 9-asset graph: scrape -> merge -> enrich -> score -> export
-├── assets.py                    # Asset definitions
-├── run.py                       # Entry point (`uv run python -m pipeline.run`)
-├── config.py, llm_client.py, smoke_utils.py, adapt_freework.py, enrich_canonical.py
-└── stage*.py                    # Legacy stage scripts (superseded by assets.py, kept for reference)
-
-.agents/skills/                  # Agent playbooks (oh-my-pi / Claude)
+skills/                          # Plugin-standard agent skills (skills/<name>/SKILL.md)
 ├── jd-refresh/SKILL.md          # Refresh jobs, report delta, stop for shortlist
 ├── new-application/SKILL.md     # Scaffold application folder + company research
-├── tailor-resume/SKILL.md       # LLM pipeline: scripts/tailor_resume.py + human review + RenderCV PDF
+├── tailor-resume/SKILL.md       # `job-search-toolkit tailor run` + human review + RenderCV PDF
+├── application-tracker/SKILL.md # Tracker transitions + response-rate stats
 ├── market-research/SKILL.md     # Multi-level job market trend analysis
 └── cold-outreach/SKILL.md       # Find contacts, draft outreach messages
 
+data/                            # Medallion layout (gitignored outputs)
+├── bronze/                      # Raw canonical per board (freework/hiringcafe JSON+CSV)
+├── silver/                      # merged_jobs.json, jobs_ranked.csv, enriched JSON
+└── gold/jobs.db                 # DuckDB analytics views (job-search-toolkit pipeline gold)
+
+.claude-plugin/                  # Plugin manifest + marketplace catalog (Claude Code / OMP)
+.omp-plugin/marketplace.json     # OMP-preferred marketplace catalog
+.omp/config.yaml                 # Repo agent discovers skills/ via customDirectories
 resume/cv.yaml                   # Master resume (RenderCV YAML — gitignored, public repo)
 job_search_preferences.yaml      # Job search preferences (location, comp, roles — gitignored)
 ROADMAP.md                       # 5-phase roadmap: lead gen → outreach → revenue → learning → analytics
@@ -60,30 +80,35 @@ docs/                            # Research and planning
 ├── ats_matcher_catalog.md       # ATS tools evaluated (rules reference for pipeline maturation)
 ├── matcher_contracts.md         # Resume-Matcher API contracts (HISTORICAL — Resume-Matcher deprecated)
 └── remote-job-boards.md         # 30+ Europe-focused remote job boards
-services/docker-compose.yml      # DEPRECATED — Resume-Matcher retired, kept for reference
-scripts/tailor_resume.py         # LLM-driven resume tailoring: cv.yaml + JD → cv_tailored.yaml → PDF
 tasks/lessons.md                 # Session-level lessons log
 ```
 
 ## Quick reference
 
-### Scraper
+### Single CLI (job-search-toolkit)
+
+All operations go through one console script (installed with the package):
 
 ```bash
-uv run python scrape_freework.py           # default: Paris DE, CSV
-uv run python scrape_freework.py -f json   # JSON output
+job-search-toolkit scrape freework [--format json] [--output data/bronze/freework_jobs.json]
+job-search-toolkit scrape hiringcafe [--output data/bronze/hiringcafe_jobs]
+job-search-toolkit pipeline run        # full Dagster DAG: scrape -> merge -> enrich -> score -> export
+job-search-toolkit pipeline gold       # load silver JSON into DuckDB (data/gold/jobs.db)
+job-search-toolkit tailor run --yaml resume/cv.yaml --jd applications/FOLDER/jd.md
+job-search-toolkit skills install --agent ompy|claude|codex
 ```
 
-### Pipeline (DeepSeek API key required for LLM stages)
+Dev aliases (same code, no install needed):
 
 ```bash
-# Full pipeline (canonical path — Dagster graph, all boards):
-uv run python -m pipeline.run
-
-# Legacy stage scripts (superseded; smoke-test syntax kept for reference):
-uv run python -m pipeline.stage1_translate --smoke 3
-uv run python -m pipeline.stage5_score_analyze --export-csv jobs_ranked.csv --top 30
+uv run python -m job_search_toolkit.pipeline.run   # == job-search-toolkit pipeline run
+uv run python -m job_search_toolkit.scrapers.freework --format json
 ```
+
+The repo's own agent shells need the CLI on PATH — the `.venv` script alone is
+not enough. One-time setup: `uv tool install --editable .` (installs to
+`~/.local/bin/job-search-toolkit`, kept live against the repo). Skills' `## Requirements`
+blocks carry the same instruction for external users.
 
 ### Application workflow (agent-driven — submit first, optimize later)
 
@@ -107,6 +132,22 @@ uv run python -m pipeline.stage5_score_analyze --export-csv jobs_ranked.csv --to
 /skill:lead-qualification   # Score and prioritize leads across all sources
 /skill:event-scout          # Discover and qualify events/conferences/webinars
 ```
+
+## Engineering practices
+
+- **Linear history.** No direct commits to `main`. Work on `feat/<name>` branches,
+  open a PR, and squash-merge (PR title = commit message). `main` is always the
+  sum of merged PRs.
+- **PII guard.** This repo is PUBLIC: never commit personal data, target-company
+  info, salaries, or API keys (see Conventions). A pre-push hook
+  (`scripts/hooks/pre-push`, activated via `git config core.hooksPath scripts/hooks`)
+  blocks pushes that touch gitignored PII paths or contain emails / French phone
+  numbers / API keys in tracked files. Run `git grep -nE` sweeps before PRs.
+- **Packaging.** The wheel bundles `skills/` as package data and registers the
+  `job-search-toolkit` console script. After changing package code, verify with
+  `uv build` + a clean-venv install of `dist/*.whl`.
+- **Data layout.** Data lives in `data/{bronze,silver,gold}` (gitignored).
+  `data/gold/jobs.db` is a build artifact — never commit `*.db`.
 
 ### Enriched JSON schema
 
