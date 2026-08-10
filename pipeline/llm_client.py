@@ -19,15 +19,30 @@ from .config import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL, LLM_MAX_RPM, LLM_CONCU
 class LLMClient:
     """Async LLM client with semaphore-based concurrency control."""
 
-    def __init__(self) -> None:
-        if not LLM_API_KEY:
+    def __init__(
+        self,
+        *,
+        model: str | None = None,
+        base_url: str | None = None,
+        api_key: str | None = None,
+    ) -> None:
+        """Async client; params override the module defaults (config chain).
+
+        Backward-compatible: ``LLMClient()`` uses LLM_MODEL/LLM_BASE_URL/
+        LLM_API_KEY from pipeline.config as before. The tailor pipeline passes
+        its resolved (CLI > env > config.yaml) values explicitly so the
+        fallback honors overrides.
+        """
+        self._model = model or LLM_MODEL
+        key = api_key or LLM_API_KEY
+        if not key:
             raise RuntimeError(
                 "LLM_API_KEY not set. Export it or add it to a .env file."
             )
         self._client = httpx.AsyncClient(
-            base_url=LLM_BASE_URL,
+            base_url=base_url or LLM_BASE_URL,
             headers={
-                "Authorization": f"Bearer {LLM_API_KEY}",
+                "Authorization": f"Bearer {key}",
                 "Content-Type": "application/json",
             },
             timeout=httpx.Timeout(120.0),
@@ -35,7 +50,6 @@ class LLMClient:
         self._sem = asyncio.Semaphore(LLM_CONCURRENCY)
         self._min_interval = 60.0 / LLM_MAX_RPM  # seconds between requests
         self._last_request = 0.0
-
     async def close(self) -> None:
         await self._client.aclose()
 
@@ -55,7 +69,7 @@ class LLMClient:
         messages.append({"role": "user", "content": prompt})
 
         body: dict[str, Any] = {
-            "model": LLM_MODEL,
+            "model": self._model,
             "messages": messages,
             "temperature": temperature,
             "max_tokens": max_tokens,
