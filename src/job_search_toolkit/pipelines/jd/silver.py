@@ -60,10 +60,10 @@ GATE_TRANSLATE = (
 # The freework adapter emits NULL for absent source data (see adapt_freework).
 GATE_TECH = "is_active AND technologies IS NULL"
 GATE_CLASSIFY = (
-    "is_active AND source_board = 'freework' AND engagement_type IS NULL"
+    "is_active AND source_board <> 'hiringcafe' AND engagement_type IS NULL"
 )
 GATE_COMPANY = (
-    "is_active AND source_board = 'freework' AND (company_info IS NULL "
+    "is_active AND source_board <> 'hiringcafe' AND (company_info IS NULL "
     "OR json_extract_string(company_info, '$.org_type') IS NULL)"
 )
 GATE_SCORE = "is_active AND overall_score IS NULL"
@@ -281,9 +281,9 @@ def reset_stale(con: duckdb.DuckDBPyConnection, stage: str) -> None:
 
     Called at the start of each enrichment asset: rows whose version predates
     the current ``ENRICHMENT_VERSION`` have their stage outputs cleared so the
-    stage gate re-selects them. Classify and company resets only touch
-    freework rows — hiringcafe classify/company data comes from the source,
-    not the LLM, and would otherwise be wiped with nothing to restore it.
+    stage gate re-selects them. Classify and company resets skip hiringcafe
+    rows — hiringcafe classify/company data comes from the source, not the
+    LLM, and would otherwise be wiped with nothing to restore it.
     """
     stale = f"enrichment_version < {ENRICHMENT_VERSION}"
     if stage == "translate":
@@ -300,12 +300,12 @@ def reset_stale(con: duckdb.DuckDBPyConnection, stage: str) -> None:
         con.execute(
             f"UPDATE silver.jobs SET posting_company_type = NULL, end_client_name = NULL, "
             f"end_client_sector = NULL, engagement_type = NULL "
-            f"WHERE {stale} AND source_board = 'freework'"
+            f"WHERE {stale} AND source_board <> 'hiringcafe'"
         )
     elif stage == "company":
         con.execute(
             f"UPDATE silver.jobs SET company_info = '{{\"org_type\":\"unknown\"}}'::JSON "
-            f"WHERE {stale} AND source_board = 'freework'"
+            f"WHERE {stale} AND source_board <> 'hiringcafe'"
         )
     elif stage == "score":
         con.execute(f"UPDATE silver.jobs SET overall_score = NULL WHERE {stale}")

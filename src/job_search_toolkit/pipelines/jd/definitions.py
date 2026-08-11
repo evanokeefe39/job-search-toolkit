@@ -13,8 +13,14 @@ from __future__ import annotations
 import dagster as dg
 
 from .assets import (
+    datasciencejobs_jobs,
+    englishjobs_jobs,
+    faruse_jobs,
     freework_jobs,
+    hellowork_jobs,
     hiringcafe_jobs,
+    remoteok_jobs,
+    wwr_jobs,
     silver_upsert,
     translated,
     tech_extracted,
@@ -30,6 +36,12 @@ from .assets import (
 ALL_ASSETS = [
     freework_jobs,
     hiringcafe_jobs,
+    hellowork_jobs,
+    englishjobs_jobs,
+    faruse_jobs,
+    wwr_jobs,
+    remoteok_jobs,
+    datasciencejobs_jobs,
     silver_upsert,
     translated,
     tech_extracted,
