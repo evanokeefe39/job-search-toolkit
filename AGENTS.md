@@ -44,18 +44,21 @@ src/job_search_toolkit/          # Installable PyPI package: `job-search-toolkit
 │   ├── freework.py              # free-work.com
 │   └── hiringcafe.py            # hiringcafe.com
 ├── pipelines/                   # Domain pipelines (one sub-package each)
-│   └── jd/                      # Dagster 9-asset graph: bronze -> silver
+│   └── jd/                      # Dagster 12-asset graph: scrape -> upsert -> incremental enrich -> score -> exports -> gold views
 │       ├── definitions.py       # dg.Definitions + ALL_ASSETS
+│       ├── silver.py            # DuckDB warehouse: silver.jobs DDL, upsert, enrichment gates
 │       ├── assets/              # Asset definitions (one module per stage)
-│       │   ├── scrape.py        # freework_jobs, hiringcafe_jobs
-│       │   ├── merge.py         # merged_jobs
-│       │   ├── enrich.py        # translated, tech_extracted, vertical_classified, company_stats
-│       │   └── score.py         # scored_jobs, ranked_csv
+│       │   ├── scrape.py        # freework_jobs, hiringcafe_jobs (writes timestamped bronze + runs.json)
+│       │   ├── merge.py         # silver_upsert (bronze -> silver.jobs, ON CONFLICT preserving enrichment)
+│       │   ├── enrich.py        # translated, tech_extracted, vertical_classified, company_stats (incremental gates)
+│       │   ├── score.py         # scored_jobs (pending rows only), ranked_csv (bridge export)
+│       │   ├── gold.py          # gold_views (CREATE OR REPLACE analytics views)
+│       │   └── exports.py       # merged_jobs_export, freework_enriched_export (bridge exports)
 │       ├── resources/           # Dagster resources
 │       │   └── llm_client.py    # LLMClient (async, retry, rate-limit)
 │       ├── run.py               # run_pipeline() convenience entry
 │       ├── config.py            # Medallion paths + LLM env config
-│       ├── gold.py              # DuckDB gold layer
+│       ├── gold.py              # DuckDB gold views over silver.jobs
 │       ├── enrich_canonical.py, adapt_freework.py, score_engine.py, smoke_utils.py
 │       └── _legacy/             # stage*.py — superseded; stage5 promoted to score_engine.py
     └── tailor/                  # Resume tailoring engine (client, prompts, merge, audit, render)
@@ -70,9 +73,10 @@ skills/                          # Plugin-standard agent skills (skills/<name>/S
 └── cold-outreach/SKILL.md       # Find contacts, draft outreach messages
 
 data/                            # Medallion layout (gitignored outputs)
-├── bronze/                      # Raw canonical per board (freework/hiringcafe JSON+CSV)
-├── silver/                      # merged_jobs.json, jobs_ranked.csv, enriched JSON
-└── gold/jobs.db                 # DuckDB analytics views (job-search-toolkit pipeline gold)
+├── bronze/                      # Immutable per-run snapshots: {board}/{iso_timestamp}.json + runs.json
+├── silver/                      # Bridge exports materialized from DuckDB: merged_jobs.json, jobs_ranked.csv, freework_jobs_enriched.json
+└── warehouse/jobs.db            # DuckDB warehouse: silver.jobs table (canonical + lineage) + gold.* views
+                                # (job-search-toolkit pipeline run builds it; pipeline gold rebuilds views)
 
 .claude-plugin/                  # Plugin manifest + marketplace catalog (Claude Code / OMP)
 .omp-plugin/marketplace.json     # OMP-preferred marketplace catalog
@@ -99,8 +103,8 @@ All operations go through one console script (installed with the package):
 ```bash
 job-search-toolkit scrape freework [--format json] [--output data/bronze/freework_jobs.json]
 job-search-toolkit scrape hiringcafe [--output data/bronze/hiringcafe_jobs]
-job-search-toolkit pipeline run        # full Dagster DAG: scrape -> merge -> enrich -> score -> export
-job-search-toolkit pipeline gold       # load silver JSON into DuckDB (data/gold/jobs.db)
+job-search-toolkit pipeline run        # full DAG: scrape -> upsert -> incremental enrich -> score -> exports -> gold views
+job-search-toolkit pipeline gold       # rebuild gold views over silver.jobs (data/warehouse/jobs.db)
 job-search-toolkit tailor run --yaml resume/cv.yaml --jd applications/FOLDER/inputs/jd.md
 job-search-toolkit skills install --agent ompy|claude|codex
 ```
@@ -153,22 +157,25 @@ blocks carry the same instruction for external users.
 - **Packaging.** The wheel bundles `skills/` as package data and registers the
   `job-search-toolkit` console script. After changing package code, verify with
   `uv build` + a clean-venv install of `dist/*.whl`.
-- **Data layout.** Data lives in `data/{bronze,silver,gold}` (gitignored).
-  `data/gold/jobs.db` is a build artifact — never commit `*.db`.
+- **Data layout.** Data lives in `data/{bronze,silver,warehouse}` (gitignored).
+  `data/warehouse/jobs.db` is the DuckDB warehouse (silver.jobs + gold views);
+  `data/silver/*` are bridge exports materialized from it — never commit `*.db`
+  or scraper outputs.
 
-### Enriched JSON schema
+### Silver warehouse schema (data/warehouse/jobs.db)
 
-Beyond the 14 scraper fields, each job gains:
-- `description_en` — English translation (source: deepseek-chat)
-- `extracted_technologies`, `extracted_competencies` — structured tech/skill lists
-- `seniority_level`, `role_category` — inferred from description
-- `language_requirements` — `{languages, work_language, summary}`
-- `end_client_sector`, `end_client_name`, `engagement_type` — from description analysis
-- `company_stats` — size, type, ticker, stock_performance (yfinance), reputation (LLM — verify)
-- `company_deep_research` — conservative LLM profile (stage 4b)
-- `company_verified` — web-verified corrections (present on 6 companies)
-- `scores` — `{pay, flexibility, low_responsibility, tech_match, company_quality}`
-- `overall_score`, `recommendation_tier`
+`silver.jobs` holds one row per unique `(id, source_board)` — every job ever
+seen, never deleted. All canonical fields are columns (nested dicts/lists as
+JSON), plus lineage:
+- `first_seen_run`/`first_seen_at`, `last_seen_run`/`last_seen_at`, `is_active`
+- `enriched_at` (NULL = enrichment pending), `enrichment_version`, `created_at`, `updated_at`
+
+Enrichment state is column nullability, not flags: `description_language='fr'`
+means needs translation; empty `technologies` means needs tech extraction;
+freework rows with `company_info.org_type='unknown'` need company research.
+Each stage processes only its gate's rows (LLM cost scales with new/changed
+jobs). `gold.*` views: `ranked_jobs`, `by_sector`, `by_tier`, `job_history`,
+`weekly_snapshot`, `new_this_run`, `disappeared_this_run`.
 
 ### Data quality notes
 

@@ -20,7 +20,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from ..config import ENRICHED_JOBS
+ENRICHED_JOBS = Path("data/silver/freework_jobs_enriched.json")
 from ..resources.llm_client import LLMClient
 from ..smoke_utils import estimate_cost, print_estimate
 

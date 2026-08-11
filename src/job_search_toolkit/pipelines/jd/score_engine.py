@@ -27,7 +27,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from .config import ENRICHED_JOBS
+ENRICHED_JOBS = Path("data/silver/freework_jobs_enriched.json")
 
 # --- Scoring weights (sum to 1.0) ---
 # Tuned for: well-paid, not too demanding, flexible, interesting

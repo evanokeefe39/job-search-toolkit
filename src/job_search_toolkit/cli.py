@@ -51,16 +51,15 @@ def pipeline_run() -> None:
 
 @pipeline_app.command("gold")
 def pipeline_gold() -> None:
-    """Load silver JSON into the DuckDB gold layer (views for analytics)."""
-    from job_search_toolkit.pipelines.jd.config import GOLD_DIR, SILVER_DIR, ensure_data_dirs
+    """Create gold analytics views over the silver warehouse table."""
+    from job_search_toolkit.pipelines.jd.config import WAREHOUSE_DB, ensure_data_dirs
     from job_search_toolkit.pipelines.jd.gold import build_gold
 
     ensure_data_dirs()
-    silver = SILVER_DIR / "merged_jobs.json"
-    if not silver.exists():
-        raise typer.Exit(f"Silver dataset not found: {silver}. Run `job-search-toolkit pipeline run` first.")
-    build_gold(silver, GOLD_DIR / "jobs.db")
-    print(f"Gold layer rebuilt: {GOLD_DIR / 'jobs.db'}")
+    if not WAREHOUSE_DB.exists():
+        raise typer.Exit(f"Warehouse not found: {WAREHOUSE_DB}. Run `job-search-toolkit pipeline run` first.")
+    build_gold(WAREHOUSE_DB)
+    print(f"Gold views rebuilt: {WAREHOUSE_DB}")
 
 
 app.add_typer(pipeline_app, name="pipeline")
