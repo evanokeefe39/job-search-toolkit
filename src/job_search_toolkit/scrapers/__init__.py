@@ -5,5 +5,6 @@ from job_search_toolkit.scrapers.englishjobs import app as englishjobs_app
 from job_search_toolkit.scrapers.freework import app as freework_app
 from job_search_toolkit.scrapers.hellowork import app as hellowork_app
 from job_search_toolkit.scrapers.hiringcafe import app as hiringcafe_app
+from job_search_toolkit.scrapers.remoteok import app as remoteok_app
 from job_search_toolkit.scrapers.weworkremotely import app as weworkremotely_app
-__all__ = ["englishjobs_app", "faruse_app", "freework_app", "hellowork_app", "hiringcafe_app", "weworkremotely_app"]
+__all__ = ["englishjobs_app", "faruse_app", "freework_app", "hellowork_app", "hiringcafe_app", "remoteok_app", "weworkremotely_app"]
