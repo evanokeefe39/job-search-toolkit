@@ -26,9 +26,10 @@ app = typer.Typer(no_args_is_help=True, add_completion=False)
 
 scrape_app = typer.Typer(help="Scrape job boards into data/bronze/.")
 
-from job_search_toolkit.scrapers import hiringcafe_app, freework_app  # noqa: E402
+from job_search_toolkit.scrapers import freework_app, hellowork_app, hiringcafe_app  # noqa: E402
 
 scrape_app.add_typer(freework_app, name="freework", help="Scrape free-work.com")
+scrape_app.add_typer(hellowork_app, name="hellowork", help="Scrape hellowork.com")
 scrape_app.add_typer(hiringcafe_app, name="hiringcafe", help="Scrape hiringcafe.com")
 app.add_typer(scrape_app, name="scrape")
 
