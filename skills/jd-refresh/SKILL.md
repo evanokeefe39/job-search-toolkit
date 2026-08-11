@@ -15,10 +15,11 @@ pip install job-search-toolkit
 
 # jd-refresh
 
-Refresh the job funnel: re-scrape both boards, merge, enrich, score, and export a
-new `data/silver/jobs_ranked.csv`, then diff it against the previous run and present the
-delta — new jobs, jobs that disappeared, and the top 10 ranked candidates.
-The agent never shortlists; it presents and stops.
+Refresh the job funnel: re-scrape both boards, upsert them into the medallion
+warehouse (`data/warehouse/jobs.db`), incrementally enrich, score, and export,
+then report the delta from the gold views — new jobs, jobs that disappeared,
+and the top 10 ranked candidates. The warehouse keeps every job ever seen;
+the agent never shortlists, it presents and stops.
 
 ## Playbook
 
@@ -26,49 +27,52 @@ The agent never shortlists; it presents and stops.
    - Confirm you are at the repo root: `pwd` should print `C:/Users/evano/repos/job-search-toolkit` (or the current clone path).
    - The enrichment stages need the DeepSeek API key from `.env`; the pipeline fails loudly if it is missing. Do not improvise a fallback.
 
-2. **Snapshot the prior ranked output** (before running anything).
-   - If `data/silver/jobs_ranked.csv` exists, copy it to a gitignored path
-     so a delta can be computed without ever committing the snapshot (the global
-     `*.csv` rule ignores anything under `data/`; do NOT use `/tmp` — it does not
-     exist on this Windows git-bash):
-     ```bash
-     mkdir -p data && cp data/silver/jobs_ranked.csv data/_tmp_jobs_ranked_prior_$(date +%Y%m%d_%H%M%S).csv
-     ```
-   - Note the exact snapshot path you created — you diff against it in step 4.
-   - If `data/silver/jobs_ranked.csv` does not exist, this is the first run: there is no
-     prior baseline, so every job in the new output counts as "new". State that
-     in the report.
-
-3. **Run the pipeline** (scrape → merge → enrich → score → export):
+2. **Run the pipeline** (scrape → upsert → incremental enrich → score → export → gold views):
    ```bash
    job-search-toolkit pipeline run
    ```
-   - This materializes the full Dagster asset graph (both boards → merge →
-     translate/extract/classify/company research → score → export).
-   - Outputs (under `data/silver/`, gitignored): `data/silver/jobs_ranked.csv`
-     (ranked list) and `data/silver/merged_jobs.json` (canonical records).
-   - Enrichment is idempotent — already-processed jobs are skipped on re-runs.
-   - The run takes several minutes (LLM enrichment). On failure, see
-     "Failure handling".
+   - This materializes the full Dagster asset graph (both boards → `silver_upsert`
+     into `data/warehouse/jobs.db` → translate/extract/classify/company research →
+     score → exports → gold views).
+   - Enrichment is incremental — only new or pending rows hit the LLM; already
+     enriched jobs are untouched.
+   - The run takes a few minutes. On failure, see "Failure handling".
+   - There is NO snapshot step anymore: the bronze directory
+     (`data/bronze/{board}/{timestamp}.json` + `runs.json`) and the warehouse
+     ARE the history. Disappeared jobs are marked `is_active = false`, never deleted.
 
-4. **Compute and report the delta.** Diff the NEW `data/silver/jobs_ranked.csv` against the
-   snapshot from step 2, keyed on `apply_url` (the unique posting URL — the
-    stable id across runs; it is also the `id` field in `data/silver/merged_jobs.json`).
+3. **Compute and report the delta from the gold views.** Open the warehouse in
+   an eval cell and query the run-scoped views (they are rebuilt on every
+   `pipeline run`, so they reflect the run you just executed):
+
+   ```python
+   import duckdb
+   con = duckdb.connect("data/warehouse/jobs.db")
+
+   new_jobs = con.execute(
+       "SELECT company, title, apply_url FROM gold.new_this_run ORDER BY company"
+   ).fetchall()
+
+   gone_jobs = con.execute(
+       "SELECT company, title, apply_url FROM gold.disappeared_this_run ORDER BY company"
+   ).fetchall()
+
+   top10 = con.execute(
+       "SELECT company, title, overall_score, salary, location_raw, apply_url "
+       "FROM gold.ranked_jobs LIMIT 10"
+   ).fetchall()
+   ```
+
    Report:
-   - **New jobs** (present in the new file, absent from the snapshot): for each,
-     company, title, and `apply_url`.
-   - **Disappeared jobs** (present in the snapshot, absent from the new file):
-     for each, company, title, and `apply_url` — likely filled or removed.
+   - **New jobs** (first seen in this run): for each, company, title, and `apply_url`.
+   - **Disappeared jobs** (active last run, inactive now): for each, company,
+     title, and `apply_url` — likely filled or removed.
    - **Top 10 by `overall_score`** from the new file: for each job, report
-     company, role (`title`), `overall_score`, pay range
-     (`salary_min_annual_eur`–`salary_max_annual_eur`), location
-     (`location_raw`), and URL (`apply_url`). Write "not listed" for an empty
-     pay field.
-   - Use exactly these CSV columns: `overall_score`, `company`, `title`,
-     `salary_min_annual_eur`, `salary_max_annual_eur`, `location_raw`,
-     `apply_url`.
+     company, role (`title`), `overall_score`, pay range (extract
+     `min_annual_eur`–`max_annual_eur` from the `salary` JSON — write "not
+     listed" when undisclosed), location (`location_raw`), and URL (`apply_url`).
 
-5. **Present the shortlist candidates and STOP.**
+4. **Present the shortlist candidates and STOP.**
    - **STOP and present to the human:** a compact report containing (a) the
      count of new jobs, (b) the new-jobs list, (c) the disappeared-jobs list,
      and (d) the top-10 table.
@@ -76,7 +80,7 @@ The agent never shortlists; it presents and stops.
      select jobs, add commentary ranking them, or proceed to any application
      work yourself.
 
-6. **Update nothing else.** The tracker (`tracker.csv`), application folders
+5. **Update nothing else.** The tracker (`tracker.csv`), application folders
    (`applications/`), resume (`resume/`), and all other repo files are out of
    scope for this skill.
 
@@ -87,20 +91,20 @@ The agent never shortlists; it presents and stops.
   the human. Do not retry endlessly, do not patch pipeline code, and do not
   improvise infrastructure (no ad-hoc scrapers, no hand-written fallback
   exports).
-- If the snapshot or the new `data/silver/jobs_ranked.csv` is missing or unreadable at diff
-  time, report it and ask the human how to proceed. Never fabricate a delta.
+- If `data/warehouse/jobs.db` or the gold views are missing or unreadable at
+  query time, report it and ask the human how to proceed. Never fabricate a
+  delta.
 
 ## Do not
 
 - Never auto-apply to a job and never shortlist on the human's behalf — the
   human decides.
 - Never touch `applications/`, `resume/`, `tracker.csv`, or any file other than
-  what the pipeline itself writes (`data/silver/jobs_ranked.csv`,
-  `data/silver/merged_jobs.json`) and the gitignored snapshot from step 2.
-- Never commit scraped outputs: `data/silver/jobs_ranked.csv`,
-  `data/silver/merged_jobs.json`, and the scraper outputs under `data/bronze/`
-  are gitignored — leave them untracked.
+  what the pipeline itself writes (`data/warehouse/jobs.db`, the bronze
+  snapshots, and the bridge exports under `data/silver/`).
+- Never commit scraped outputs: `data/warehouse/jobs.db`, everything under
+  `data/bronze/` and `data/silver/` are gitignored — leave them untracked.
 - Never write personal data anywhere except the gitignored paths (`resume/`,
-  `applications/`, `tracker.csv`); job-listing data is public, but the snapshot
-  stays gitignored (never committed) regardless.
+  `applications/`, `tracker.csv`); job-listing data is public, but warehouse
+  and bronze outputs stay gitignored (never committed) regardless.
 - Never modify pipeline code, schemas, or the Docker services from this skill.

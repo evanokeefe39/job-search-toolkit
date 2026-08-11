@@ -1,61 +1,73 @@
 # data/ — medallion layout
 
 The pipeline stores data in three layers, mirroring the classic medallion
-architecture:
+architecture. Jobs are never deleted: when a listing disappears from the
+boards it is marked inactive but stays queryable.
 
 ```
 data/
-├── bronze/   raw canonical records, one file per job board
-├── silver/   merged + enriched + scored canonical jobs
-└── gold/     DuckDB analytics database (views, not files)
+├── bronze/    immutable per-run snapshots of every scrape
+├── silver/    bridge exports materialized from the warehouse (consumer files)
+└── warehouse/ DuckDB database: silver.jobs table + gold.* analytics views
 ```
 
-## bronze/ — raw canonical per board
+## bronze/ — immutable raw ingest
 
-One JSON file per source board, in the normalized `CanonicalJob` shape
-(`src/job_search_toolkit/schemas.py`):
+One timestamped file per scrape, per board:
 
-- `data/bronze/freework_jobs.json`
-- `data/bronze/hiringcafe_jobs.json`
+- `data/bronze/freework/2026-08-10T200055Z.json`
+- `data/bronze/hiringcafe/2026-08-10T200055Z.json`
 
-Produced by `job-search-toolkit scrape freework|hiringcafe`.
+Produced by `job-search-toolkit pipeline run` (the `freework_jobs` /
+`hiringcafe_jobs` assets). File naming is the scraper start time (UTC, no
+colons — Windows-safe). A `data/bronze/runs.json` manifest records every
+run: `[{run_id, board, timestamp, file, job_count}]`. The bronze directory
+IS the history — the jd-refresh skill's old snapshot-then-diff dance is gone.
 
-## silver/ — merged + enriched + scored
+The flat live files (`freework_jobs.json`, `hiringcafe_jobs.json`) are still
+written for the scrapers' own CLI, but the pipeline ingests from the
+timestamped snapshots.
 
-- `data/silver/merged_jobs.json` — the deduplicated union of all bronze
-  boards, enriched (translation, tech extraction, company stats) and scored
-  (`scores`, `overall_score`, `recommendation_tier`).
-- `data/silver/jobs_ranked.csv` — the same dataset as a flat CSV ordered by
-  `overall_score` DESC, for quick spreadsheet review.
+## warehouse/ — DuckDB: silver + gold
 
-Produced by `job-search-toolkit pipeline run`.
+- `data/warehouse/jobs.db` — single DuckDB file with two schemas:
 
-## gold/ — DuckDB views for analytics
+  - `silver.jobs` — one row per unique `(id, source_board)`; all canonical
+    fields as columns (nested dicts/lists as JSON) plus lineage:
+    `first_seen_run`/`first_seen_at`, `last_seen_run`/`last_seen_at`,
+    `is_active`, `enriched_at`, `enrichment_version`, `created_at`,
+    `updated_at`. Upserted on every run with
+    `ON CONFLICT (id, source_board) DO UPDATE` — re-scrapes update
+    `last_seen`/`is_active` only, enrichment is preserved.
+  - `gold.*` — analytics views, `CREATE OR REPLACE` each run: `ranked_jobs`,
+    `by_sector`, `by_tier`, `job_history`, `weekly_snapshot`,
+    `new_this_run`, `disappeared_this_run`.
 
-- `data/gold/jobs.db` — a DuckDB database built from
-  `data/silver/merged_jobs.json` by `job-search-toolkit pipeline gold`
-  (`job_search_toolkit.pipelines.jd.gold.build_gold`).
+Enrichment is incremental: each stage queries only rows its gate selects
+(column nullability — see `src/job_search_toolkit/pipelines/jd/silver.py`)
+and writes results back with UPDATEs. `enriched_at = NULL` means pending;
+bumping `ENRICHMENT_VERSION` (config) forces re-enrichment.
 
-The `jobs` table flattens each job's top-level fields into columns; nested
-structures (`salary`, `company_info`, `scores`, `_source`, …) are kept as
-JSON strings. Three ready-made views:
+## silver/ — bridge exports (consumer files)
 
-| view          | contents                                             |
-|---------------|------------------------------------------------------|
-| `ranked_jobs` | scored jobs, ordered by `overall_score` DESC         |
-| `by_sector`   | job counts grouped by `end_client_sector`            |
-| `by_tier`     | job counts grouped by `recommendation_tier`          |
+The agent skills read files by path, so the pipeline materializes them from
+the warehouse on every run (`COPY ... TO ... (ARRAY true)`):
 
-Rebuilding is safe — `build_gold` (re)creates the table and views on every
-run.
+- `data/silver/jobs_ranked.csv` — active scored jobs, flattened, ordered by
+  `overall_score` DESC (jd-refresh / new-application input rows)
+- `data/silver/merged_jobs.json` — all active canonical records (new-application
+  primary lookup; superseded by direct DuckDB queries in the updated skill)
+- `data/silver/freework_jobs_enriched.json` — active freework-only records
+
+These are exports, not the source of truth — the warehouse is.
 
 Example:
 
 ```bash
 uv run python -c "
 import duckdb
-con = duckdb.connect('data/gold/jobs.db')
-print(con.sql('SELECT * FROM by_tier').df())
+con = duckdb.connect('data/warehouse/jobs.db')
+print(con.sql('SELECT * FROM gold.by_tier').df())
 "
 ```
 

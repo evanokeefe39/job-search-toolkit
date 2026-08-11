@@ -2,7 +2,9 @@
 
 All data paths resolve relative to the working directory (the repo root when
 run from a checkout; the user's project dir when pip-installed) into the
-medallion layout: data/bronze, data/silver, data/gold.
+medallion layout: data/bronze (immutable per-run snapshots), data/silver
+(file exports bridging to DuckDB), data/gold (legacy), data/warehouse (the
+DuckDB jobs.db holding the silver table + gold views).
 Set LLM_API_KEY and LLM_BASE_URL in the environment or a .env file.
 """
 
@@ -14,16 +16,17 @@ WORK_DIR = Path.cwd()
 # --- Medallion data layout (see data/README.md) ---
 BRONZE_DIR = WORK_DIR / "data" / "bronze"
 SILVER_DIR = WORK_DIR / "data" / "silver"
-GOLD_DIR = WORK_DIR / "data" / "gold"
+WAREHOUSE_DIR = WORK_DIR / "data" / "warehouse"
 
-# --- I/O paths ---
-RAW_JOBS = BRONZE_DIR / "freework_jobs.json"
-ENRICHED_JOBS = SILVER_DIR / "freework_jobs_enriched.json"
+# Bronze history: immutable per-run snapshots + manifest, and the DuckDB
+# warehouse (silver.jobs table + gold views live in this single file).
+BRONZE_RUNS = BRONZE_DIR / "runs.json"
+WAREHOUSE_DB = WAREHOUSE_DIR / "jobs.db"
 
 
 def ensure_data_dirs() -> None:
     """Create the medallion directories if missing (idempotent)."""
-    for d in (BRONZE_DIR, SILVER_DIR, GOLD_DIR):
+    for d in (BRONZE_DIR, SILVER_DIR, WAREHOUSE_DIR):
         d.mkdir(parents=True, exist_ok=True)
 
 # --- LLM configuration ---
@@ -47,6 +50,11 @@ _provider = _PROVIDERS.get(LLM_PROVIDER, _PROVIDERS["deepseek"])
 LLM_API_KEY = _provider["api_key"]
 LLM_BASE_URL = _provider["base_url"]
 LLM_MODEL = _provider["model"]
+
+# --- Rate limiting ---
+# Enrichment schema version — bump to force re-enrichment of all rows
+# (each enrichment asset resets its stage outputs for rows at older versions).
+ENRICHMENT_VERSION = int(os.getenv("ENRICHMENT_VERSION", "1"))
 
 # --- Rate limiting ---
 LLM_MAX_RPM = int(os.getenv("LLM_MAX_RPM", "30"))

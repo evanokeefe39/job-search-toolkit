@@ -312,3 +312,45 @@ artifact. I declared success. The user looked at the PDF and found it was
 - Before tailoring in Resume-Matcher via API: PATCH the master resume with
   real structured data. The alignment pass is a fabrication guard that will
   strip any content not present in the master.
+
+## 2026-08-11: medallion warehouse — Phase 2 burned cycles on tooling rework, not design
+
+**Problem:** The silver-layer implementation (silver.py + 5 asset modules + migration,
+~1200 LOC) took far longer than the code volume justifies. Roughly two-thirds of the
+wall-clock was self-inflicted rework: ~8 tooling failures (edit-tool file mangling ×6,
+stale kernel bytecode ×2, Dagster context-annotation rejection ×2 waves, wrong relative
+imports, a silent no-op bash replace, a pragma column-index bug). The genuine design
+work (mapping plan columns to real code fields, gate predicates against real data,
+ON CONFLICT vs INSERT OR REPLACE, composite PK, run-scoped gold views, migration
+ordering with the CSV backfill) was only ~a third of the time and went smoothly once
+the data was inspected.
+
+**Five Whys:**
+1. Phase 2 took long -> repeated tooling failures, each costing a debug-rewrite-verify cycle.
+2. Failures recurred -> each was patched as a one-off instance instead of recognizing the
+   failure class (e.g. the future-annotations issue hit 6 asset modules; fixed one at a time).
+3. Classes not recognized -> tight edit -> compile -> next loops, no pause to ask "same
+   failure as before?" — lessons.md already documented the edit-tool hazard (2026-08-06)
+   and was read at session start, but not reapplied when the first mangle recurred.
+4. Rapid-fire mode -> user signaled impatience; interpreted speed as more tool calls per
+   minute instead of fewer failed calls per change.
+5. **Root cause:** optimized for visible progress (tool calls, file writes) instead of
+   defect-free execution. Under pressure the right response is to compress the NUMBER of
+   edit-verify cycles (batch systemic fixes, full-file writes, verify tool contracts once),
+   not increase their frequency.
+
+**Rules (this session's, appended to existing):**
+- `edit` tool has now mangled files 6+ times on this machine. Default to full-file `write`
+  for Python modules; for targeted changes use exact-string replace scripts with fail-loud
+  asserts (`assert old in t` before `t.replace`), and verify with grep from a FRESH process.
+- The eval kernel caches module bytecode AND DuckDB connections per file path. After any
+  file edit, verify with `uv run python -c` fresh processes, not the kernel. Use unique
+  temp DB filenames (Windows file locking + duckdb connection cache).
+- Systemic-first: when a failure class repeats, read the library source once and batch-apply
+  (Dagster validates context annotations by identity — `from __future__ import annotations`
+  makes them strings, so drop the future-import in asset modules; relative-import depth is
+  a 30-second check of the package tree).
+- Pressure response: speed = fewer failure cycles, not more tool calls.
+- `dg.materialize([...])` runs only the selected assets (not the dep subtree) in this
+  Dagster version. `PRAGMA table_info` returns (cid, name, ...) — r[1] is the name; it
+  errors if the table doesn't exist — guard with information_schema first.

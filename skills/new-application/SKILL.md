@@ -1,8 +1,7 @@
 ---
 name: new-application
-description: Scaffold a new application workspace for a shortlisted job. Input is a row from jobs_ranked.csv or a job URL; locate the full canonical record in merged_jobs.json (fallback freework_jobs_enriched.json), write the JD and research the company — web_search for company and role, an ad-hoc yfinance check in an eval cell (ticker + price trend, pattern in pipelines/jd/_legacy/stage4_company_stats.py), and a MANUAL Crunchbase checkpoint where the human pastes facts or drops an export — then synthesize research.md from a fixed template and update tracker.csv. Use when starting a new application, preparing to apply, or researching a company before tailoring a CV.
+description: Scaffold a new application workspace for a shortlisted job. Input is a row from jobs_ranked.csv or a job URL; locate the full canonical record in the warehouse (silver.jobs, active rows), write the JD and research the company — web_search for company and role, an ad-hoc yfinance check in an eval cell (ticker + price trend, pattern in pipelines/jd/_legacy/stage4_company_stats.py), and a MANUAL Crunchbase checkpoint where the human pastes facts or drops an export — then synthesize research.md from a fixed template and update tracker.csv. Use when starting a new application, preparing to apply, or researching a company before tailoring a CV.
 ---
-
 ## Requirements
 
 Python 3.14+ and uv (package manager) are required. Install the toolkit with:
@@ -57,30 +56,41 @@ This skill researches and scaffolds only. It does NOT tailor the CV (see
 ### 1. Identify the job record
 
 Input is either a row from `data/silver/jobs_ranked.csv` or a job URL. Resolve it to the full
-canonical record:
-
-1. If input is a URL: the record is the one in `data/silver/merged_jobs.json` whose
-   `apply_url` (or `source_url`/`id`) equals the URL. URLs may differ by scheme
-   or trailing slash — normalize (`https://` prefix, no trailing slash) before
-   comparing.
-2. If input is a CSV row: match on the `apply_url` column.
-3. Load `data/silver/merged_jobs.json` in an eval cell and find the record:
+canonical record by querying the warehouse (all active jobs, both boards):
 
 ```python
-import json
-jobs = json.load(open("data/silver/merged_jobs.json", encoding="utf-8"))
+import duckdb, json
+con = duckdb.connect("data/warehouse/jobs.db")
+cur = con.execute("SELECT * FROM silver.jobs WHERE is_active")
+cols = [d[0] for d in cur.description]
+jobs = [dict(zip(cols, r)) for r in cur.fetchall()]
+# Nested fields come back as JSON strings — decode the ones this skill reads.
+for j in jobs:
+    for f in ("salary", "company_info", "scores", "contract_types",
+              "technologies", "competencies"):
+        if isinstance(j.get(f), str):
+            j[f] = json.loads(j[f])
 # jobs is a list of canonical records; each has id, source_board, source_url,
 # title, company, apply_url, location_raw, workplace_type, date_posted, salary,
 # contract_types, seniority_level, role_category, years_experience_min,
-# technologies, competencies, description_text (English).
+# technologies, competencies, description_text (English when enriched).
+```
+
+1. If input is a URL: find the record whose `apply_url` (or `source_url`/`id`)
+   equals the URL. URLs may differ by scheme or trailing slash — normalize
+   (`https://` prefix, no trailing slash) before comparing.
+2. If input is a CSV row: match on the `apply_url` column.
+3. Find the record in the `jobs` list loaded above:
+
+```python
 target_url = "https://..."  # from the CSV row or the given URL
 rec = next(j for j in jobs if (j.get("apply_url") or "").rstrip("/") == target_url.rstrip("/"))
 ```
 
-4. If no record matches in `data/silver/merged_jobs.json`, repeat against
-   `data/silver/freework_jobs_enriched.json` (the enriched board export; English description
-   is `description_en` there). If it is still not found, STOP and report to the
-   human — do not scrape a live page to reconstruct the JD.
+4. If no record matches, STOP and report to the human — do not scrape a live
+   page to reconstruct the JD and do not fall back to stale files. (If the
+   job is not in the warehouse's active rows it has expired or is outside the
+   current scrape.)
 
 ### 1b. Dealbreaker gate (preferences check)
 
@@ -124,8 +134,9 @@ before deciding.
      `salary.is_disclosed`)
    - Contract type(s), seniority level, role category, years experience min
    - Technologies, competencies (lists)
-   - Full English description (`description_text`; fallback `description_en`
-     when the record came from `data/silver/freework_jobs_enriched.json` — note the source)
+   - Full English description (`description_text`). If the record's
+     `description_language` is `"fr"`, it has not been translated yet — STOP
+     and report (the discovery pipeline has not finished enriching this job).
    - Date posted
 3. Do not edit or summarize the description; `jd.md` is the verbatim source that
    the `tailor-resume` skill feeds to Resume-Matcher.
@@ -141,8 +152,9 @@ URLs as you go — they feed research.md.
    recent news, and anything about the specific team or posting. Always keep the
    source URLs.
 2. **yfinance check (ad-hoc, in an eval cell).** Ticker comes from the
-   `company_stock_symbol` column of `data/silver/jobs_ranked.csv`, or from `company_stats`
-   in `data/silver/freework_jobs_enriched.json`, or from research. Pattern reference:
+   `company_stock_symbol` column of `data/silver/jobs_ranked.csv`, or from
+   `company_info.stock_symbol` in the warehouse record, or from research.
+   Pattern reference:
    `src/job_search_toolkit/pipelines/jd/_legacy/stage4_company_stats.py::_fetch_stock_perf` (already a project
    dependency — `yfinance>=0.2.66`). Run in an eval cell:
 
@@ -267,7 +279,7 @@ print(f"tracker.csv: {len(rows)} rows, status={row['status']}")
 
 ## Failure handling
 
-If any step fails — record not found in either JSON store, web_search returns
+If any step fails — record not found in the warehouse, web_search returns
 nothing usable, yfinance raises repeatedly, the human is unreachable for the
 Crunchbase checkpoint — STOP and report exactly what failed and what was tried.
 Do not improvise infrastructure: no live scraping of job boards, no Crunchbase

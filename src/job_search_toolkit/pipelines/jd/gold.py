@@ -1,155 +1,161 @@
-"""DuckDB gold layer for analytics over the merged canonical job dataset.
+"""DuckDB gold layer: analytics views over the silver.jobs warehouse table.
 
-Reads the silver dataset (``data/silver/merged_jobs.json`` — a JSON list of
-``CanonicalJob`` dicts) and loads it into a DuckDB database at
-``data/gold/jobs.db``.
+Views live in the ``gold`` schema of the warehouse database
+(``data/warehouse/jobs.db``) and are ``CREATE OR REPLACE`` on every run:
 
-Layout:
-- ``jobs``        — one row per job; top-level fields become columns, nested
-  dicts/lists (salary, company_info, scores, _source, ...) are stored as
-  JSON strings.
-- ``ranked_jobs`` — scored jobs (overall_score + scores present), ordered by
-  overall_score DESC.
-- ``by_sector``   — job counts grouped by end_client_sector.
-- ``by_tier``     — job counts grouped by recommendation_tier.
+- ``ranked_jobs``            — active, scored jobs ordered by overall_score DESC
+- ``by_sector`` / ``by_tier`` — active job counts grouped by sector / tier
+- ``job_history``            — full time-series: first/last seen, is_active, days active
+- ``weekly_snapshot``        — active job counts per ISO week (reconstructed from
+  the first/last_seen intervals)
+- ``new_this_run``           — jobs whose first_seen_run is the given run
+- ``disappeared_this_run``   — jobs that became inactive as of the previous run
 
-Idempotent: the table and all views are (re)created on every run, so calling
-``build_gold`` twice yields the same database.
+The two run-scoped views need a run id baked in as a literal (a view cannot
+take parameters). ``build_gold`` takes it explicitly; the ``gold_views``
+asset passes the current Dagster run id, the ``pipeline gold`` CLI resolves
+the most recent run by ``last_seen_at``.
 
 Usage:
     from job_search_toolkit.pipelines.jd.gold import build_gold
-    build_gold(Path("data/silver/merged_jobs.json"), Path("data/gold/jobs.db"))
+    build_gold(Path("data/warehouse/jobs.db"), run_id="run-xyz")
 """
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
-from typing import Any
 
 import duckdb
 
-# Columns that must exist for the analytics views, per the CanonicalJob schema.
-_SCORE_COL = "overall_score"
-_SCORES_JSON_COL = "scores"
-_SECTOR_COL = "end_client_sector"
-_TIER_COL = "recommendation_tier"
+from .silver import sql_literal
 
 
-def _infer_column_type(values: list[Any]) -> str:
-    """DuckDB type for a column, from the values observed across all rows."""
-    non_null = [v for v in values if v is not None]
-    if not non_null:
-        return "VARCHAR"
-    if all(isinstance(v, bool) for v in non_null):
-        return "BOOLEAN"
-    if all(isinstance(v, int) for v in non_null):
-        return "BIGINT"
-    if all(isinstance(v, (int, float)) for v in non_null):
-        return "DOUBLE"
-    return "VARCHAR"
+def latest_run(con: duckdb.DuckDBPyConnection) -> str | None:
+    """Run id of the most recent scrape (by last_seen_at), if any rows exist."""
+    row = con.execute(
+        """
+        SELECT last_seen_run FROM silver.jobs
+        WHERE last_seen_run IS NOT NULL
+        GROUP BY last_seen_run
+        ORDER BY MAX(last_seen_at) DESC
+        LIMIT 1
+        """
+    ).fetchone()
+    return row[0] if row else None
 
 
-def _cell(value: Any) -> Any:
-    """SQL cell value: nested containers become JSON strings, None stays NULL."""
-    if value is None or isinstance(value, (str, int, float, bool)):
-        return value
-    return json.dumps(value, ensure_ascii=False, default=str)
+def _previous_run(con: duckdb.DuckDBPyConnection, run_id: str) -> str | None:
+    """Run id that immediately precedes ``run_id`` (by last_seen_at)."""
+    row = con.execute(
+        f"""
+        SELECT last_seen_run FROM silver.jobs
+        WHERE last_seen_run IS NOT NULL AND last_seen_run <> {sql_literal(run_id)}
+        GROUP BY last_seen_run
+        ORDER BY MAX(last_seen_at) DESC
+        LIMIT 1
+        """
+    ).fetchone()
+    return row[0] if row else None
 
 
-def _sql_literal(value: Any) -> str:
-    """Render a Python scalar as a DuckDB SQL literal.
+def build_gold(db_path: Path, run_id: str | None = None) -> None:
+    """Create or replace the gold analytics views in the warehouse database.
 
-    Used instead of bound parameters (``?`` placeholders), which deadlock in
-    duckdb 1.5.5 on Windows/Python 3.14 (verified empirically). Strings are
-    single-quoted with embedded quotes doubled — safe for arbitrary text.
+    ``run_id`` is baked into ``gold.new_this_run`` and
+    ``gold.disappeared_this_run``; when omitted, the most recent run is used.
     """
-    if value is None:
-        return "NULL"
-    if isinstance(value, bool):
-        return "TRUE" if value else "FALSE"
-    if isinstance(value, int):
-        return str(value)
-    if isinstance(value, float):
-        return repr(value)
-    return "'" + str(value).replace("'", "''") + "'"
-
-
-def build_gold(silver_json: Path, db_path: Path) -> None:
-    """Load ``silver_json`` (list of CanonicalJob dicts) into a DuckDB gold DB.
-
-    Creates ``db_path`` and its parent directories if missing. Idempotent:
-    the ``jobs`` table and the ``ranked_jobs``/``by_sector``/``by_tier`` views
-    are replaced on every call.
-    """
-    silver_json = Path(silver_json)
     db_path = Path(db_path)
-
-    jobs = json.loads(silver_json.read_text(encoding="utf-8"))
-    if not isinstance(jobs, list):
-        raise ValueError(
-            f"{silver_json} must contain a JSON list of CanonicalJob dicts, "
-            f"got {type(jobs).__name__}"
-        )
-    if not jobs:
-        raise ValueError(f"{silver_json} contains no jobs; refusing to build an empty gold DB")
-
-    # Top-level fields, in first-seen order (stable across runs for a given file).
-    columns: list[str] = []
-    seen: set[str] = set()
-    for job in jobs:
-        for key in job:
-            if key not in seen:
-                seen.add(key)
-                columns.append(key)
-    if not columns:
-        raise ValueError(f"{silver_json} contains jobs without any top-level fields")
-
-    col_types = {
-        col: _infer_column_type([job.get(col) for job in jobs]) for col in columns
-    }
-    ddl = ", ".join(f'"{col}" {col_types[col]}' for col in columns)
-
-    rows = [
-        tuple(_cell(job.get(col)) for col in columns)
-        for job in jobs
-    ]
-    values_sql = ", ".join(
-        "(" + ", ".join(_sql_literal(v) for v in row) + ")" for row in rows
-    )
-
     db_path.parent.mkdir(parents=True, exist_ok=True)
     with duckdb.connect(str(db_path)) as con:
-        con.execute(f"CREATE OR REPLACE TABLE jobs ({ddl})")
-        con.execute(f"INSERT INTO jobs VALUES {values_sql}")
+        con.execute("CREATE SCHEMA IF NOT EXISTS gold")
+
+        con.execute(
+            """
+            CREATE OR REPLACE VIEW gold.ranked_jobs AS
+            SELECT *
+            FROM silver.jobs
+            WHERE is_active AND overall_score IS NOT NULL
+            ORDER BY overall_score DESC
+            """
+        )
+        con.execute(
+            """
+            CREATE OR REPLACE VIEW gold.by_sector AS
+            SELECT end_client_sector, COUNT(*) AS job_count
+            FROM silver.jobs
+            WHERE is_active
+            GROUP BY end_client_sector
+            ORDER BY job_count DESC, end_client_sector
+            """
+        )
+        con.execute(
+            """
+            CREATE OR REPLACE VIEW gold.by_tier AS
+            SELECT recommendation_tier, COUNT(*) AS job_count
+            FROM silver.jobs
+            WHERE is_active
+            GROUP BY recommendation_tier
+            ORDER BY job_count DESC, recommendation_tier
+            """
+        )
+        con.execute(
+            """
+            CREATE OR REPLACE VIEW gold.job_history AS
+            SELECT id, source_board, title, company, apply_url,
+                   first_seen_run, first_seen_at,
+                   last_seen_run, last_seen_at,
+                   is_active,
+                   CAST(DATEDIFF('day', first_seen_at, last_seen_at) AS INTEGER)
+                     AS days_active
+            FROM silver.jobs
+            """
+        )
+        con.execute(
+            """
+            CREATE OR REPLACE VIEW gold.weekly_snapshot AS
+            WITH weeks AS (
+                SELECT DISTINCT CAST(date_trunc('week', first_seen_at) AS DATE) AS week_start
+                FROM silver.jobs
+                UNION
+                SELECT DISTINCT CAST(date_trunc('week', last_seen_at) AS DATE)
+                FROM silver.jobs
+            )
+            SELECT w.week_start, COUNT(*) AS active_jobs
+            FROM weeks w
+            JOIN silver.jobs j
+              ON CAST(j.first_seen_at AS DATE) <= w.week_start + INTERVAL 6 DAY
+             AND (j.is_active OR CAST(j.last_seen_at AS DATE) >= w.week_start)
+            GROUP BY w.week_start
+            ORDER BY w.week_start
+            """
+        )
+
+        run = run_id or latest_run(con)
+        if run is None:
+            con.execute(
+                "CREATE OR REPLACE VIEW gold.new_this_run AS SELECT * FROM silver.jobs WHERE FALSE"
+            )
+            con.execute(
+                "CREATE OR REPLACE VIEW gold.disappeared_this_run AS SELECT * FROM silver.jobs WHERE FALSE"
+            )
+            return
 
         con.execute(
             f"""
-            CREATE OR REPLACE VIEW ranked_jobs AS
-            SELECT *
-            FROM jobs
-            WHERE "{_SCORES_JSON_COL}" IS NOT NULL
-              AND "{_SCORE_COL}" IS NOT NULL
-            ORDER BY "{_SCORE_COL}" DESC
+            CREATE OR REPLACE VIEW gold.new_this_run AS
+            SELECT * FROM silver.jobs WHERE first_seen_run = {sql_literal(run)}
             """
         )
-        con.execute(
-            f"""
-            CREATE OR REPLACE VIEW by_sector AS
-            SELECT "{_SECTOR_COL}" AS end_client_sector,
-                   COUNT(*) AS job_count
-            FROM jobs
-            GROUP BY "{_SECTOR_COL}"
-            ORDER BY job_count DESC, "{_SECTOR_COL}"
-            """
-        )
-        con.execute(
-            f"""
-            CREATE OR REPLACE VIEW by_tier AS
-            SELECT "{_TIER_COL}" AS recommendation_tier,
-                   COUNT(*) AS job_count
-            FROM jobs
-            GROUP BY "{_TIER_COL}"
-            ORDER BY job_count DESC, "{_TIER_COL}"
-            """
-        )
+        prev = _previous_run(con, run)
+        if prev is not None:
+            con.execute(
+                f"""
+                CREATE OR REPLACE VIEW gold.disappeared_this_run AS
+                SELECT * FROM silver.jobs
+                WHERE is_active = FALSE AND last_seen_run = {sql_literal(prev)}
+                """
+            )
+        else:
+            con.execute(
+                "CREATE OR REPLACE VIEW gold.disappeared_this_run AS SELECT * FROM silver.jobs WHERE FALSE"
+            )

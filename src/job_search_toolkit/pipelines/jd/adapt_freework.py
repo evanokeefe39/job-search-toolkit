@@ -121,8 +121,11 @@ def normalize_freework_job(raw: dict) -> CanonicalJob:
         size_employees=stats.get("employee_count"),
         year_founded=None,
         hq_country=None,
-        org_type=COMPANY_TYPE_MAP.get(
-            stats.get("company_type", ""), CompanyType.UNKNOWN
+        # NULL = not yet LLM-researched; 'unknown' is reserved for a real
+        # LLM result. The warehouse company gate selects on IS NULL.
+        org_type=(
+            COMPANY_TYPE_MAP.get(stats["company_type"])
+            if stats.get("company_type") else None
         ),
         stock_symbol=stats.get("stock_symbol"),
         stock_exchange=None,
@@ -152,6 +155,11 @@ def normalize_freework_job(raw: dict) -> CanonicalJob:
         "direct": EngagementType.DIRECT,
         "consulting": EngagementType.CONSULTING,
     }
+    # NULL = not yet LLM-classified (see org_type above).
+    engagement_value = (
+        engagement_map.get(engagement_raw)
+        if raw.get("engagement_type") else None
+    )
 
     # --- Scores ---
     scores = raw.get("scores")
@@ -185,7 +193,7 @@ def normalize_freework_job(raw: dict) -> CanonicalJob:
         "description_text": raw.get("description_en") or raw.get("description", ""),
         "description_language": "en" if raw.get("description_en") else "fr",
         "company_info": company_info,
-        "engagement_type": engagement_map.get(engagement_raw, EngagementType.UNKNOWN),
+        "engagement_type": engagement_value,
         "posting_company_type": raw.get("posting_company_type"),
         "end_client_name": raw.get("end_client_name"),
         "end_client_sector": raw.get("end_client_sector"),
