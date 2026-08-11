@@ -278,6 +278,35 @@ def extract_job(card: Tag) -> dict[str, object] | None:
     return job
 
 
+def fetch_job_description(client: httpx.Client, url: str) -> str | None:
+    """Fetch a job's detail page and return its JSON-LD description.
+
+    HelloWork search cards carry no description text (only title, company,
+    location, contract, salary, date), so each job's detail page is fetched
+    and the application/ld+json JobPosting block parsed for the full
+    description. Returns clean text (HTML stripped) or None when the block
+    is absent.
+    """
+    try:
+        resp = client.get(url, timeout=30)
+        resp.raise_for_status()
+    except httpx.HTTPError:
+        return None
+    detail_soup = BeautifulSoup(resp.text, "html.parser")
+    for script in detail_soup.find_all("script", type="application/ld+json"):
+        try:
+            data = json.loads(script.string or "null")
+        except json.JSONDecodeError:
+            continue
+        items = data if isinstance(data, list) else [data]
+        for item in items:
+            if isinstance(item, dict) and item.get("@type") == "JobPosting":
+                description = item.get("description")
+                if description:
+                    return BeautifulSoup(str(description), "html.parser").get_text(" ", strip=True)
+    return None
+
+
 def normalize_job(raw: dict) -> CanonicalJob:
     """Convert a raw HelloWork card record into a CanonicalJob."""
     job = new_canonical_job("hellowork")
@@ -300,9 +329,7 @@ def normalize_job(raw: dict) -> CanonicalJob:
             CONTRACT_NORM_MAP.get(str(contract_label), ContractType.FULL_TIME)
         ]
     job["contract_duration"] = raw.get("contract_duration")
-    job["description_text"] = raw.get("description") or (
-        f"{raw.get('title') or ''} chez {raw.get('company') or ''}".strip()
-    )
+    job["description_text"] = raw.get("description")
     job["description_language"] = "fr"
     job["_source"] = raw
     return job
@@ -370,9 +397,12 @@ def scrape(list_url: str, output: Path, max_pages: int | None, fmt: str) -> int:
             for card in cards:
                 raw = extract_job(card)
                 if raw and raw.get("title"):
+                    detail_url = raw.get("url")
+                    if detail_url:
+                        raw["description"] = fetch_job_description(client, detail_url)
                     all_jobs.append(normalize_job(raw))
                     page_jobs += 1
-            print(f"  Page {page}: {page_jobs} jobs")
+            print(f"  Page {page}: {page_jobs} jobs (1 detail fetch per job)")
     finally:
         client.close()
 
