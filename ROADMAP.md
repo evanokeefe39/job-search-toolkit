@@ -43,6 +43,7 @@ platforms and proactive signals.
 - [ ] **Company monitoring** — track company-level deltas across pipeline runs: new job postings count, estimated headcount change, new funding events. Output: `data/company_monitor.json`
 - [ ] **Lead scoring model** — separate from job scoring. Intent × Fit × (Access + Urgency) / 2. Combines job board scrapes, funding signals, and company monitoring into a unified `leads_ranked.csv`
 - [ ] **Freelance platform research** — manual/semi-automated Malt, Comet, Crème de la Crème review. Saved searches, rate benchmarks. Output: `data/malt_missions.json` (manual curation to start)
+- [ ] **Source ingestor plugin framework** — Python entry-point registry (`job_search_toolkit.sources`) so community users can add custom job-board ingestors. Extension contract: fetch raw → normalize to `CanonicalJob` → bronze layer; existing scrapers become reference implementations. Decision (2026-08-11): Python plugin architecture, NOT dlt as core — Dagster already orchestrates, DuckDB is the sink, and scrapers are framework-free (429 handling, buildId handshake, French parsing). Revisit dlt only if multi-destination loading (Postgres/BigQuery) becomes a goal
 
 ### Skills
 
