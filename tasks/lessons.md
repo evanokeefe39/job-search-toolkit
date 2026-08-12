@@ -432,3 +432,21 @@ first-non-NULL. Document in the function, test it with multi-row fixtures.
 that DuckDB 1.5.5 rejects — fixed to positional `'key', value` pairs. The
 existing test suite never exercised the export SQL path; add a regeneration
 regression test that executes `_COMPANY_INFO_JSON` against a real DuckDB.
+
+
+**Also — sequencing:** The ROADMAP.md edit was made in the working tree after
+the branch push but before the PR squashed; it never landed on the feature
+branch, so a direct-to-main commit was needed afterwards. The process fix:
+all doc updates that reflect branch work must be committed to the branch
+(not the working tree) before the PR merge. ``git stash`` + checkout branch
++ ``git stash pop`` + commit before merging, or open a follow-up PR for
+post-merge cleanups.
+
+## 2026-08-12: edit tool boundary-echo corruption — follow-up
+
+The exports regression test addition hit the same boundary-echo class from
+the morning session: SWAP mangle on tests/test_warehouse.py left duplicate
+SQL blocks + a broken con.execute() call. Full-function delete + rewrite was
+the reliable fix — reinforces the rule: after one mangle on a file, full-file
+write or full-function rewrite for that function; never attempt to patch the
+patch.
