@@ -4,6 +4,13 @@ Each stage is incremental: it queries only the rows its gate selects
 (column nullability/emptiness — see silver.py), processes those through the
 LLM, and UPDATEs the results back. No full-dataset JSON round-trip, no
 ``_enrichment`` flag checks.
+
+These assets are the deferred, optional LLM pass — none of them sits on the
+ranking path (``scored_jobs`` depends only on ``silver_upsert``). They are
+reachable via asset selection or ``pipeline run --enrich``.
+
+Company research is dimension-scoped: ``dim_company_enriched`` runs one LLM
+call per distinct company (``dim_company`` row), never per job.
 """
 
 import dagster as dg
@@ -11,8 +18,8 @@ from dagster import AssetExecutionContext
 
 from .merge import silver_upsert
 from ..silver import (
+    DIM_COMPANY_GATE,
     GATE_CLASSIFY,
-    GATE_COMPANY,
     GATE_TECH,
     GATE_TRANSLATE,
     connect,
@@ -22,6 +29,7 @@ from ..silver import (
     sql_json,
     sql_literal,
 )
+from ..config import ENRICHMENT_VERSION
 
 _DB_UPDATE_TAIL = " AND source_board = {}"
 
@@ -127,26 +135,38 @@ def vertical_classified(context: AssetExecutionContext) -> dg.MaterializeResult:
 
 
 @dg.asset(
-    deps=[vertical_classified],
+    deps=[silver_upsert],
     group_name="enrichment",
-    description="Research company stats using LLM (freework only; hiringcafe pre-enriched)",
+    description="Research company stats per distinct company (one LLM call per company)",
 )
-def company_stats(context: AssetExecutionContext) -> dg.MaterializeResult:
-    """Research company stats for freework rows whose org_type is unknown."""
-    from ..enrich_canonical import enrich_company_stats as do_research
+def dim_company_enriched(context: AssetExecutionContext) -> dg.MaterializeResult:
+    """Research org_type for distinct companies whose org_type is unknown.
+
+    Dimension-scoped: one LLM call per ``dim_company`` row, never per job
+    (4,381 rows → 1,624 companies today). Updates ``dim_company`` only — the
+    ranking path (``scored_jobs``) does not depend on this asset, so ranking
+    materializes without any LLM call.
+    """
+    from ..enrich_canonical import enrich_companies as do_research
 
     with connect() as con:
         reset_stale(con, "company")
-        rows = fetch_jobs(
-            con, ["id", "source_board", "company", "company_info", "end_client_sector"],
-            GATE_COMPANY, order="id",
-        )
-        do_research(rows)
+        rows = con.execute(
+            f"SELECT company_id, name FROM silver.dim_company "
+            f"WHERE {DIM_COMPANY_GATE} ORDER BY company_id"
+        ).fetchall()
+        companies = [{"company_id": r[0], "name": r[1]} for r in rows]
+        do_research(companies)
         updated = 0
-        for job in rows:
-            if not job.get("_enrichment", {}).get("company_researched"):
+        for c in companies:
+            if not c.get("org_type"):
                 continue
-            _update(con, job, f"company_info = {sql_json(job['company_info'])}")
+            con.execute(
+                f"UPDATE silver.dim_company SET "
+                f"org_type = {sql_literal(c['org_type'])}, "
+                f"enriched_at = NOW(), "
+                f"enrichment_version = {ENRICHMENT_VERSION} "
+                f"WHERE company_id = {sql_literal(c['company_id'])}"
+            )
             updated += 1
-        mark_enriched(con)
-    return dg.MaterializeResult(metadata={"researched": updated, "pending": len(rows)})
+    return dg.MaterializeResult(metadata={"researched": updated, "pending": len(companies)})

@@ -209,39 +209,32 @@ def classify_jobs(jobs: list[dict]) -> list[dict]:
     return jobs
 
 
-def enrich_company_stats(jobs: list[dict]) -> list[dict]:
-    """Research company stats. Concurrent."""
-    client = _get_client()
-    to_process = []
-    for job in jobs:
-        enrichment = job.setdefault("_enrichment", {})
-        if enrichment.get("company_researched", False):
-            continue
-        if job.get("source_board") == "hiringcafe":
-            enrichment["company_researched"] = True
-            continue
-        to_process.append(job)
+def enrich_companies(companies: list[dict]) -> list[dict]:
+    """Research org_type for distinct companies (one LLM call per company).
 
-    def _do(job: dict) -> None:
+    Each dict in ``companies`` carries ``company_id`` and ``name`` (a
+    ``dim_company`` row shape); on success the dict gains ``org_type``.
+    Dimension-scoped: called once per company, never once per job. Idempotent
+    per company — the caller selects only rows whose ``org_type`` is unknown.
+    """
+    client = _get_client()
+    to_process = [c for c in companies if not c.get("org_type")]
+
+    def _do(c: dict) -> None:
         try:
-            ci = job.get("company_info", {})
-            company = ci.get("name") or job.get("company", "")
-            sector = job.get("end_client_sector", "")
             result = client.chat.completions.create(
                 model=LLM_MODEL, response_model=CompanyResearchOutput,
                 messages=[{"role": "system", "content": RESEARCH_SYSTEM},
-                          {"role": "user", "content": f"Company: {company}\nSector: {sector}"}],
+                          {"role": "user", "content": f"Company: {c['name']}"}],
                 max_tokens=300,
             )
-            ci["org_type"] = _map_company_type(result.company_type)
-            ci["name"] = ci.get("name") or company
-            job["_enrichment"]["company_researched"] = True
+            c["org_type"] = _map_company_type(result.company_type)
         except Exception as e:
             logger.warning("Company research failed: %s", e)
 
     _process_pool(to_process, _do)
     logger.info("Researched %d companies", len(to_process))
-    return jobs
+    return companies
 
 
 def _map_company_type(raw: str) -> str:

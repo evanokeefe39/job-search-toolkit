@@ -1,10 +1,12 @@
 """Score and export assets: score pending jobs, export ranked CSV.
 
-Scoring is incremental: only rows with ``overall_score IS NULL`` are scored
-(they are either brand-new or were cleared by ``mark_enriched`` after their
-final enrichment stage completed). The ranked CSV export is a
-backward-compat bridge — it is materialized from ``silver.jobs`` on every
-run so the jd-refresh / new-application skills keep working unchanged.
+Scoring is incremental: only rows with ``overall_score IS NULL`` are scored.
+The score stage is decoupled from LLM enrichment — ``scored_jobs`` depends
+only on ``silver_upsert`` and reads purely tabular fields (company data via
+the ``dim_company`` join, which at scoring time contains only scraper-parsed
+values, never LLM research). The ranked CSV export is a backward-compat
+bridge — it is materialized from ``silver.jobs`` on every run so the
+jd-refresh / new-application skills keep working unchanged.
 """
 
 import csv
@@ -12,15 +14,17 @@ import csv
 import dagster as dg
 from dagster import AssetExecutionContext
 
-from .enrich import company_stats, tech_extracted, vertical_classified
+from .merge import silver_upsert
 from ..silver import GATE_SCORE, connect, fetch_jobs, reset_stale, sql_json, sql_literal
 
 # Every field score_engine.py reads (score_engine.py::score_jobs).
+# company_info is NOT fetched as a column — it is rebuilt from dim_company by
+# fetch_jobs(join_company=True).
 SCORE_COLUMNS = [
     "id", "source_board", "title", "description_text",
     "salary", "workplace_type", "contract_types", "contract_duration",
     "seniority_level", "role_category", "technologies",
-    "posting_company_type", "engagement_type", "company_info",
+    "posting_company_type", "engagement_type",
 ]
 
 
@@ -34,17 +38,21 @@ def _update(con, job: dict, sets: str) -> None:
 
 
 @dg.asset(
-    deps=[tech_extracted, vertical_classified, company_stats],
+    deps=[silver_upsert],
     group_name="scoring",
     description="Score pending jobs and assign recommendation tiers",
 )
 def scored_jobs(context: AssetExecutionContext) -> dg.MaterializeResult:
-    """Score all pending jobs using the canonical field-based scoring."""
+    """Score all pending jobs using the canonical field-based scoring.
+
+    Purely tabular: no LLM enrichment dependency. Company data comes from the
+    ``dim_company`` join (scraper-parsed fields only at this point).
+    """
     from ..score_engine import score_jobs as do_score
 
     with connect() as con:
         reset_stale(con, "score")
-        rows = fetch_jobs(con, SCORE_COLUMNS, GATE_SCORE, order="id")
+        rows = fetch_jobs(con, SCORE_COLUMNS, GATE_SCORE, order="id", join_company=True)
         do_score(rows)
         updated = 0
         for job in rows:
@@ -71,7 +79,7 @@ def ranked_csv(context: AssetExecutionContext) -> dg.MaterializeResult:
 
     with connect() as con:
         cols = [r[1] for r in con.execute("PRAGMA table_info('silver.jobs')").fetchall()]
-        jobs = fetch_jobs(con, cols, "is_active")
+        jobs = fetch_jobs(con, cols, "is_active", join_company=True)
 
     jobs_sorted = sorted(
         jobs, key=lambda j: j.get("overall_score") or 0, reverse=True

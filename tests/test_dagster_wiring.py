@@ -64,32 +64,36 @@ def test_gate_classify_selects_new_boards_excludes_hiringcafe(wh):
     assert ids == {"h1"}
 
 
-def test_gate_company_selects_new_boards_excludes_hiringcafe(wh):
+def test_dim_company_gate_selects_new_boards_excludes_hiringcafe(wh):
     con, _ = wh
     jobs = [
         {
             "id": "e1", "source_board": "englishjobs", "title": "Data Analyst",
             "description_text": "text", "description_language": "en",
-            "company_info": {"name": "Acme", "org_type": None},
+            "company": "Acme UK",
+            "company_info": {"name": "Acme UK", "org_type": None},
         },
         {
             "id": "hc1", "source_board": "hiringcafe", "title": "Data Analyst",
             "description_text": "text", "description_language": "en",
+            "company": "Hc",
             "company_info": {"name": "Hc", "org_type": "private"},
         },
     ]
     _upsert(con, "run1", jobs)
-    rows = S.fetch_jobs(con, ["id"], S.GATE_COMPANY)
-    ids = {r["id"] for r in rows}
-    assert ids == {"e1"}
+    rows = con.execute(
+        f"SELECT source_board FROM silver.dim_company WHERE {S.DIM_COMPANY_GATE}"
+    ).fetchall()
+    assert [r[0] for r in rows] == ["englishjobs"]
 
 
 def test_no_freework_hardcoding_in_gates():
     assert "source_board = 'freework'" not in S.GATE_CLASSIFY
-    assert "source_board = 'freework'" not in S.GATE_COMPANY
+    assert "source_board = 'freework'" not in S.DIM_COMPANY_GATE
 
 
 def _upsert(con, run_id: str, jobs: list[dict]):
+    S.ensure_dims(con)
     columns = S.ensure_jobs_table(con, jobs)
     S.upsert_run(con, run_id, jobs, columns)
 
@@ -102,3 +106,23 @@ def wh(tmp_path, monkeypatch):
     con = S.connect()
     yield con, db
     con.close()
+
+
+def test_scored_jobs_depends_only_on_silver_upsert():
+    """Ranking is decoupled from LLM enrichment — scored_jobs must not depend
+    on any enrichment asset."""
+    from job_search_toolkit.pipelines.jd.assets.score import scored_jobs
+
+    deps = {k.path[-1] for ks in scored_jobs.asset_deps.values() for k in ks}
+    assert deps == {"silver_upsert"}
+
+
+def test_full_pipeline_job_excludes_enrichment_assets():
+    from job_search_toolkit.pipelines.jd.definitions import ENRICH_ASSETS, RANKING_ASSETS
+
+    ranking_names = {a.key.path[-1] for a in RANKING_ASSETS}
+    enrich_names = {a.key.path[-1] for a in ENRICH_ASSETS}
+    assert ranking_names.isdisjoint(enrich_names)
+    assert {"scored_jobs", "ranked_csv", "silver_upsert"} <= ranking_names
+    assert {"translated", "tech_extracted", "vertical_classified",
+            "dim_company_enriched"} <= enrich_names

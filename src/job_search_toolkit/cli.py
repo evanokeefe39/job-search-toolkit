@@ -47,11 +47,19 @@ pipeline_app = typer.Typer(help="Enrichment pipeline: bronze -> silver.")
 
 
 @pipeline_app.command("run")
-def pipeline_run() -> None:
-    """Run the full DAG: scrape -> merge -> enrich -> score -> export."""
+def pipeline_run(
+    enrich: bool = typer.Option(
+        False, "--enrich",
+        help="Also run the optional LLM enrichment pass (deferred, dimension-scoped)",
+    ),
+) -> None:
+    """Run the ranking path (scrape -> merge -> score -> export), no LLM.
+
+    With --enrich, the optional LLM enrichment assets run afterwards.
+    """
     from job_search_toolkit.pipelines.jd.run import run_pipeline
 
-    ok = run_pipeline()
+    ok = run_pipeline(enrich=enrich)
     if not ok:
         raise typer.Exit(code=1)
 

@@ -22,7 +22,14 @@ from .scrape import (
     wwr_jobs,
 )
 from ..config import BRONZE_DIR
-from ..silver import connect, deactivate_not_seen, ensure_jobs_table, upsert_run
+from ..silver import (
+    connect,
+    deactivate_not_seen,
+    ensure_dims,
+    ensure_jobs_table,
+    refresh_dim_date,
+    upsert_run,
+)
 
 
 def _read_bronze_entries(run_id: str) -> list[dict]:
@@ -70,9 +77,13 @@ def silver_upsert(context: AssetExecutionContext) -> dg.MaterializeResult:
         jobs.extend(data)
 
     with connect() as con:
+        # Dims first: ensure_dims creates them and runs the one-time legacy
+        # company_info migration before upsert_run writes dim_company.
+        ensure_dims(con)
         columns = ensure_jobs_table(con, jobs)
         upsert_run(con, run_id, jobs, columns)
         deactivate_not_seen(con, run_id)
+        refresh_dim_date(con)
         total = con.execute("SELECT COUNT(*) FROM silver.jobs").fetchone()[0]
         active = con.execute(
             "SELECT COUNT(*) FROM silver.jobs WHERE is_active"

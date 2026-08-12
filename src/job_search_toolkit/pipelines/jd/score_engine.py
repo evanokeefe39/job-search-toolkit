@@ -196,20 +196,62 @@ def _score_tech_match(job: dict) -> float:
     return max(min(score + 0.5, 1.0), 0.0)
 
 
+# --- Company engagement heuristic (non-LLM) ----------------------------------
+# Replaces the LLM classify signal on the ranking path. This is a heuristic,
+# not LLM-grade: it will misclassify some postings (e.g. an ESN whose name
+# has no signal and whose description is English) and is expected to be tuned
+# from data. Engagement from the source (hiringcafe ships "direct") wins when
+# present; freework rows fall back to this detector until enriched.
+ESN_NAME_SIGNALS = (
+    "consulting", "conseil", "esn", "ssii", "recruitment", "staffing",
+    "groupe", "holding",
+)
+ESN_DESC_SIGNALS = (
+    "chez notre client", "mission chez", "en mission", "client final",
+)
+
+
+def detect_engagement(company_name: str, description: str) -> str:
+    """Tabular ESN/direct detection from name + description patterns.
+
+    Returns ``"consulting"`` when the company name or the posting text shows
+    ESN/consulting signals, else ``"direct"``.
+    """
+    name = (company_name or "").lower()
+    desc = (description or "").lower()
+    if any(s in name for s in ESN_NAME_SIGNALS):
+        return "consulting"
+    if any(s in desc for s in ESN_DESC_SIGNALS):
+        return "consulting"
+    return "direct"
+
+
 def _score_company_quality(job: dict) -> float:
-    """Score company quality: product company > consulting, known name > obscure."""
+    """Score company quality: product company > consulting, known name > obscure.
+
+    Consumes only tabular fields: ``engagement_type`` when the source
+    provides it (hiringcafe), otherwise the ``detect_engagement`` heuristic;
+    ``org_type`` / ``stock_symbol`` / funding come from the ``dim_company``
+    join (via ``company_info``). No LLM call on this path.
+    """
     score = 0.5  # baseline
 
     posting_type = (job.get("posting_company_type") or "").lower()
     engagement = (job.get("engagement_type") or "").lower()
     ci = job.get("company_info") or {}
 
+    if engagement not in ("direct", "consulting"):
+        # Source didn't classify (freework without enrich) — use the heuristic.
+        engagement = detect_engagement(
+            ci.get("name") or job.get("company") or "",
+            job.get("description_text") or "",
+        )
     if engagement == "direct":
         score += 0.2
     if posting_type == "esn":
         score -= 0.05
 
-    org_type = ci.get("org_type", "")
+    org_type = (ci.get("org_type") or "").lower()
     if org_type == "enterprise":
         score += 0.1
     if org_type == "consulting_firm":

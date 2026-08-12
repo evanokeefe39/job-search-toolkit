@@ -1,5 +1,84 @@
 # ISSUES.md — job_search_scraping
 
+
+## Open
+
+### OMP edit tool: silent file corruption via boundary-echo auto-repair (OPEN 2026-08-12)
+
+**Symptom:** The `edit` tool repeatedly mangles files during large or repeated
+edits — duplicate function/constant blocks, docstrings truncated mid-string,
+code inserted inside an unfinished `CREATE TABLE` call, and payload lines
+silently dropped. Each corruption required a read-repair cycle; one file
+(`silver.py`) was corrupted four times in a single session before switching to
+full-file `write`.
+
+**Observed failure modes (Kimball schema session, 2026-08-12):**
+- **Boundary-echo auto-repair drops payload lines.** Repeated warnings of the
+  form *"Auto-repaired a replacement boundary echo at line N: dropped M
+  trailing payload line(s) identical to the surviving line(s) just below the
+  range. The range was one line short of the content you retyped."* The guard
+  intends to catch off-by-one ranges that restate keepers — but it also dropped
+  genuinely new lines (`_LINEAGE_KEYS` reassignment, `dim_rows` init, a
+  `scored_jobs` export, docstring closers), silently changing file semantics.
+- **Narrow SWAP leaves the old block alive.** Replacing `ensure_jobs_table`
+  while including `upsert_run` in the payload left the *old* `upsert_run`
+  below the new one (duplicate def, Python takes the last). A later SWAP that
+  was intended to cover the old block only partially consumed it.
+- **Mid-construct anchoring.** The line-anchor format made it possible to
+  anchor an insertion *inside* an open `con.execute("CREATE TABLE ... ("`
+  call, producing syntactically broken code the LSP flagged only later.
+- **Stale-tag rejections are the good half.** The tool rejects hunks anchored
+  on ranges the model never displayed ("you must re-read first") — this is the
+  intended safety and worked; the failures came from *freshly re-read but
+  off-by-one* ranges, not stale ones.
+
+**Root cause analysis (Five Whys, from session):** the failures cluster on
+large multi-construct SWAPs where the model restates keeper lines (off-by-one
+range), and on re-editing a file after the first corruption instead of
+switching to full-file `write` (the repo's own `tasks/lessons.md` rule:
+*"for any file where an edit has landed wrong once, switch to full-file write
+for all subsequent changes"*). The model's behavior, not the tool's checks, was
+the primary defect — but the boundary-echo "repair" silently dropping payload
+lines turns a rejectable mistake into silent corruption, which is the
+harness-level gap.
+
+**Research — how the tool works (2026-08-12):**
+- OMP's "Hashline" edit format anchors edits to content hashes per line
+  (`[file#TAG]`), not line numbers — stable against line shifts and cheaper
+  than full-file str_replace (Bölük's "Harness Problem" benchmark: Grok Code
+  Fast 1 success 6.7% → 68.3%; ~61% fewer output tokens on Grok 4 Fast).
+  Sources: `blog.can.ac/2026/02/12/the-harness-problem/`, yuv.ai/blog
+  (oh-my-pi-omp-explained), betterstack.com/community/guides/ai/
+  oh-my-pi-ai-coding-agent/.
+- The "boundary echo" guard is the token-efficiency tradeoff: because payloads
+  are ranges, not full files, the harness cannot distinguish "model restated a
+  keeper (off-by-one)" from "model wants to keep that line" — so it guesses,
+  and guessing wrong silently deletes content.
+
+**Status: agent-side fixes implemented 2026-08-12; harness fix still open.**
+The agent-behavior and repo-habit fixes below are now codified in
+`tasks/lessons.md` (2026-08-12 entry) and applied for the remainder of the
+session — the live-warehouse migration and remaining edits used fresh
+subprocesses and full-file writes, with no further corruption. A related
+session hazard (eval kernel caching a stale module, causing a phantom
+`BinderException`) is also logged in that entry.
+
+**Possible fixes:**
+- **Agent behavior (implemented 2026-08-12):** one corruption → full-file
+  `write`; read the exact target range before every edit; never restate
+  keeper lines in a SWAP payload (keep ranges tight, use `INS.POST`/`DEL` for
+  pure additions/removals); verify with compile/tests after each edit.
+- **Harness (issue for OMP, still open):** boundary-echo repair should
+  **reject loudly** (or re-anchor) instead of silently dropping payload lines —
+  silent deletion is worse than a rejected hunk; surface the dropped-line
+  count in the result so the model can re-issue. Consider a `--dry-run` diff
+  preview for large SWAPs, and warning when a single edit spans multiple
+  top-level constructs.
+- **Repo (implemented 2026-08-12):** keep `tasks/lessons.md`'s full-file-write
+  rule; post-edit `git diff --stat` habit for large files (cheap corruption
+  detector); verify behavioral changes in fresh subprocesses, never the
+  persistent eval kernel.
+
 ## Closed
 
 ### Resume-Matcher: PDF parser drops work experience (RESOLVED 2026-08-08)

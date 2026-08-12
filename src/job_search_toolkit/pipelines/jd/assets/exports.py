@@ -4,6 +4,10 @@ The jd-refresh / new-application skills read files by path. Until their
 Phase 4 updates land (they land in the same branch), the pipeline must keep
 producing them — these assets are the backward-compat bridge: exports
 materialized from the warehouse on every run, never the source of truth.
+
+The fact table no longer stores a ``company_info`` JSON column — the bridge
+reconstructs it per row from ``dim_company`` (same CompanyInfo shape), so
+downstream consumers keep reading ``job["company_info"]`` unchanged.
 """
 
 import duckdb
@@ -12,6 +16,32 @@ from dagster import AssetExecutionContext
 
 from .score import scored_jobs
 from ..config import SILVER_DIR, WAREHOUSE_DB
+
+# Rebuild the legacy company_info JSON object from the dim_company join.
+# Field set matches schemas.py CompanyInfo; NULLs stay NULL inside the object.
+# NOTE: duckdb 1.5.5 json_object takes positional key/value pairs, not the
+# Postgres 'key': value form — verified empirically (Parser Error otherwise).
+_COMPANY_INFO_JSON = (
+    "json_object("
+    "'name', c.display_name, "
+    "'industry', COALESCE(c.industry, '[]'::JSON), "
+    "'size_employees', c.size_employees, "
+    "'year_founded', c.year_founded, "
+    "'hq_country', c.hq_country, "
+    "'org_type', c.org_type, "
+    "'stock_symbol', c.stock_symbol, "
+    "'stock_exchange', c.stock_exchange, "
+    "'latest_funding_type', c.latest_funding_type, "
+    "'latest_funding_amount_usd', c.latest_funding_amount_usd, "
+    "'homepage_url', c.homepage_url"
+    ") AS company_info"
+)
+
+_FACT_SELECT = (
+    f"SELECT j.*, {_COMPANY_INFO_JSON} "
+    f"FROM silver.jobs j LEFT JOIN silver.dim_company c "
+    f"ON j.company_id = c.company_id"
+)
 
 
 def _export_json(con, select_sql: str, path) -> None:
@@ -31,7 +61,7 @@ def merged_jobs_export(context: AssetExecutionContext) -> dg.MaterializeResult:
     with duckdb.connect(str(WAREHOUSE_DB)) as con:
         _export_json(
             con,
-            "SELECT * FROM silver.jobs WHERE is_active ORDER BY id, source_board",
+            f"{_FACT_SELECT} WHERE j.is_active ORDER BY j.id, j.source_board",
             path,
         )
     return dg.MaterializeResult(metadata={"path": str(path)})
@@ -48,8 +78,8 @@ def freework_enriched_export(context: AssetExecutionContext) -> dg.MaterializeRe
     with duckdb.connect(str(WAREHOUSE_DB)) as con:
         _export_json(
             con,
-            "SELECT * FROM silver.jobs WHERE is_active AND source_board = 'freework' "
-            "ORDER BY id",
+            f"{_FACT_SELECT} WHERE j.is_active AND j.source_board = 'freework' "
+            "ORDER BY j.id",
             path,
         )
     return dg.MaterializeResult(metadata={"path": str(path)})
