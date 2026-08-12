@@ -75,7 +75,7 @@ skills/                          # Plugin-standard agent skills (skills/<name>/S
 data/                            # Medallion layout (gitignored outputs)
 ├── bronze/                      # Immutable per-run snapshots: {board}/{iso_timestamp}.json + runs.json
 ├── silver/                      # Bridge exports materialized from DuckDB: merged_jobs.json, jobs_ranked.csv, freework_jobs_enriched.json
-└── warehouse/jobs.db            # DuckDB warehouse: silver.jobs table (canonical + lineage) + gold.* views
+└── warehouse/jobs.db            # DuckDB warehouse: Kimball star schema (silver.dim_board, silver.dim_company, silver.dim_date, silver.jobs fact) + gold.* views
                                 # (job-search-toolkit pipeline run builds it; pipeline gold rebuilds views)
 
 .claude-plugin/                  # Plugin manifest + marketplace catalog (Claude Code / OMP)
@@ -103,7 +103,7 @@ All operations go through one console script (installed with the package):
 ```bash
 job-search-toolkit scrape freework [--format json] [--output data/bronze/freework_jobs.json]
 job-search-toolkit scrape hiringcafe [--output data/bronze/hiringcafe_jobs]
-job-search-toolkit pipeline run        # full DAG: scrape -> upsert -> incremental enrich -> score -> exports -> gold views
+job-search-toolkit pipeline run        # ranking path only (scrape -> upsert -> score -> exports -> gold, zero LLM); --enrich runs optional company-research LLM pass
 job-search-toolkit pipeline gold       # rebuild gold views over silver.jobs (data/warehouse/jobs.db)
 job-search-toolkit tailor run --yaml resume/cv.yaml --jd applications/FOLDER/inputs/jd.md
 job-search-toolkit skills install --agent ompy|claude|codex
@@ -164,26 +164,39 @@ blocks carry the same instruction for external users.
 
 ### Silver warehouse schema (data/warehouse/jobs.db)
 
-`silver.jobs` holds one row per unique `(id, source_board)` — every job ever
-seen, never deleted. All canonical fields are columns (nested dicts/lists as
-JSON), plus lineage:
-- `first_seen_run`/`first_seen_at`, `last_seen_run`/`last_seen_at`, `is_active`
-- `enriched_at` (NULL = enrichment pending), `enrichment_version`, `created_at`, `updated_at`
+Kimball star schema (3 dims + 1 fact):
 
-Enrichment state is column nullability, not flags: `description_language='fr'`
-means needs translation; empty `technologies` means needs tech extraction;
-freework rows with `company_info.org_type='unknown'` need company research.
-Each stage processes only its gate's rows (LLM cost scales with new/changed
-jobs). `gold.*` views: `ranked_jobs`, `by_sector`, `by_tier`, `job_history`,
-`weekly_snapshot`, `new_this_run`, `disappeared_this_run`.
+- **silver.dim_board** — 8 rows, static: board_id, name, description_language, base_url
+- **silver.dim_company** — one row per (normalized name, source_board), 1,992 rows:
+  company_id (SHA-1 hash), name, display_name, source_board, industry, size_employees,
+  year_founded, hq_country, org_type, stock_symbol, stock_exchange, latest_funding_*,
+  homepage_url, enriched_at, enrichment_version. LLM research writes here (deferred,
+  once per company, never on the ranking path).
+- **silver.dim_date** — spine over date_posted: date_id, iso_week, month, quarter, year
+- **silver.jobs** — the fact table: one row per unique (id, source_board), never deleted.
+  All canonical fields are columns (nested dicts/lists as JSON), plus lineage:
+  first_seen_run/first_seen_at, last_seen_run/last_seen_at, is_active,
+  enriched_at, enrichment_version, created_at, updated_at, plus company_id FK
+  to dim_company. The legacy company_info JSON column is gone — bridges and
+  fetch_jobs(join_company=True) rebuild it from the dim join.
+
+Enrichment state is column nullability, not flags: ``description_language='fr'``
+means needs translation; empty ``technologies`` means needs tech extraction.
+Company research lives on ``dim_company`` (DIM_COMPANY_GATE: org_type IS NULL),
+never on per-row enrichment. ``gold.*`` views: ``ranked_jobs`` (joins dim_company),
+``by_sector``, ``by_tier``, ``job_history``, ``weekly_snapshot``, ``new_this_run``,
+``disappeared_this_run``.
 
 ### Data quality notes
 
 - Most posting companies are French ESN/consulting firms, not end clients
 - `end_client_sector` is extracted from descriptions, not company names
-- `company_stats.reputation_summary` entries with `info_quality: "medium"` are LLM inference — unverified unless `company_verified` is present
-- 10 companies have unverified stage-4 claims (SearXNG rate-limited during research)
-- Stock data via yfinance is deterministic and verified where present
+- ``dim_company.org_type`` (freework/hellowork/englishjobs/faruse/wwr/remoteok/
+  datasciencejobs) is LLM-researched (deferred, per-company); hiringcafe ships
+  org_type from the source. ``org_type='unknown'`` means researched and
+  inconclusive — not re-researched until the next run's fresh data triggers it.
+- 10 companies have unverified stage-4 claims (SearXNG rate-limited during
+  research) — these remain in dim_company as researched-once entries.
 
 ## Known sharp edges
 

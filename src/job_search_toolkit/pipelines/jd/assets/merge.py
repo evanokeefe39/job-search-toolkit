@@ -11,13 +11,29 @@ import dagster as dg
 from dagster import AssetExecutionContext
 
 from .common import BRONZE_RUNS
-from .scrape import freework_jobs, hiringcafe_jobs
+from .scrape import (
+    datasciencejobs_jobs,
+    englishjobs_jobs,
+    faruse_jobs,
+    freework_jobs,
+    hellowork_jobs,
+    hiringcafe_jobs,
+    remoteok_jobs,
+    wwr_jobs,
+)
 from ..config import BRONZE_DIR
-from ..silver import connect, deactivate_not_seen, ensure_jobs_table, upsert_run
+from ..silver import (
+    connect,
+    deactivate_not_seen,
+    ensure_dims,
+    ensure_jobs_table,
+    refresh_dim_date,
+    upsert_run,
+)
 
 
 def _read_bronze_entries(run_id: str) -> list[dict]:
-    """Manifest entries for this Dagster run (both boards, one run id)."""
+    """Manifest entries for this Dagster run (all boards, one run id)."""
     if not BRONZE_RUNS.exists():
         raise ValueError(
             f"bronze manifest {BRONZE_RUNS} missing — run the scrape assets first"
@@ -33,7 +49,16 @@ def _read_bronze_entries(run_id: str) -> list[dict]:
 
 
 @dg.asset(
-    deps=[freework_jobs, hiringcafe_jobs],
+    deps=[
+        freework_jobs,
+        hiringcafe_jobs,
+        hellowork_jobs,
+        englishjobs_jobs,
+        faruse_jobs,
+        wwr_jobs,
+        remoteok_jobs,
+        datasciencejobs_jobs,
+    ],
     group_name="processing",
     description="Upsert current-run bronze jobs into silver.jobs (DuckDB warehouse)",
 )
@@ -52,9 +77,13 @@ def silver_upsert(context: AssetExecutionContext) -> dg.MaterializeResult:
         jobs.extend(data)
 
     with connect() as con:
+        # Dims first: ensure_dims creates them and runs the one-time legacy
+        # company_info migration before upsert_run writes dim_company.
+        ensure_dims(con)
         columns = ensure_jobs_table(con, jobs)
         upsert_run(con, run_id, jobs, columns)
         deactivate_not_seen(con, run_id)
+        refresh_dim_date(con)
         total = con.execute("SELECT COUNT(*) FROM silver.jobs").fetchone()[0]
         active = con.execute(
             "SELECT COUNT(*) FROM silver.jobs WHERE is_active"

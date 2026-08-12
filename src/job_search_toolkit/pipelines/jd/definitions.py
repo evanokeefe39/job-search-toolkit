@@ -1,7 +1,14 @@
 """Dagster definitions for the JD pipeline.
 
-Assembles all assets into a single ``Definitions`` object. Import this from
-``job_search_toolkit.pipelines.jd.definitions`` (or the package root).
+Two jobs:
+- ``full_pipeline`` — the ranking path (scrape → upsert → score → export →
+  gold). Materializes with zero LLM calls.
+- ``enrich_job`` — the optional, deferred LLM enrichment pass (translate,
+  tech extraction, classify, dimension-scoped company research). Reachable
+  via ``pipeline run --enrich`` or explicit asset selection.
+
+``ALL_ASSETS`` is the full registry (both jobs' assets) and remains the
+single source for tests and tooling that enumerate assets.
 
 Usage:
     from job_search_toolkit.pipelines.jd.definitions import defs
@@ -13,13 +20,19 @@ from __future__ import annotations
 import dagster as dg
 
 from .assets import (
+    datasciencejobs_jobs,
+    englishjobs_jobs,
+    faruse_jobs,
     freework_jobs,
+    hellowork_jobs,
     hiringcafe_jobs,
+    remoteok_jobs,
+    wwr_jobs,
     silver_upsert,
     translated,
     tech_extracted,
     vertical_classified,
-    company_stats,
+    dim_company_enriched,
     scored_jobs,
     ranked_csv,
     gold_views,
@@ -27,14 +40,17 @@ from .assets import (
     freework_enriched_export,
 )
 
-ALL_ASSETS = [
+# Ranking path: scrape -> upsert -> score -> export -> gold. No LLM assets.
+RANKING_ASSETS = [
     freework_jobs,
     hiringcafe_jobs,
+    hellowork_jobs,
+    englishjobs_jobs,
+    faruse_jobs,
+    wwr_jobs,
+    remoteok_jobs,
+    datasciencejobs_jobs,
     silver_upsert,
-    translated,
-    tech_extracted,
-    vertical_classified,
-    company_stats,
     scored_jobs,
     ranked_csv,
     gold_views,
@@ -42,4 +58,26 @@ ALL_ASSETS = [
     freework_enriched_export,
 ]
 
-defs = dg.Definitions(assets=ALL_ASSETS)
+# Deferred LLM enrichment: optional, never on the ranking path.
+ENRICH_ASSETS = [
+    translated,
+    tech_extracted,
+    vertical_classified,
+    dim_company_enriched,
+]
+
+ALL_ASSETS = RANKING_ASSETS + ENRICH_ASSETS
+
+defs = dg.Definitions(
+    assets=ALL_ASSETS,
+    jobs=[
+        dg.define_asset_job(
+            "full_pipeline",
+            selection=dg.AssetSelection.assets(*RANKING_ASSETS),
+        ),
+        dg.define_asset_job(
+            "enrich_job",
+            selection=dg.AssetSelection.assets(*ENRICH_ASSETS),
+        ),
+    ],
+)

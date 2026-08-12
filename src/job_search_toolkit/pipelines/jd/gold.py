@@ -72,10 +72,13 @@ def build_gold(db_path: Path, run_id: str | None = None) -> None:
         con.execute(
             """
             CREATE OR REPLACE VIEW gold.ranked_jobs AS
-            SELECT *
-            FROM silver.jobs
-            WHERE is_active AND overall_score IS NOT NULL
-            ORDER BY overall_score DESC
+            SELECT j.*,
+                   c.org_type AS company_type,
+                   c.stock_symbol AS company_stock_symbol
+            FROM silver.jobs j
+            LEFT JOIN silver.dim_company c ON j.company_id = c.company_id
+            WHERE j.is_active AND j.overall_score IS NOT NULL
+            ORDER BY j.overall_score DESC
             """
         )
         con.execute(

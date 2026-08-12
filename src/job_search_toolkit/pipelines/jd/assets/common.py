@@ -11,11 +11,23 @@ from ..config import BRONZE_DIR, BRONZE_RUNS
 # Medallion paths for the JD pipeline assets.
 FREEWORK_RAW = BRONZE_DIR / "freework_jobs.json"
 HIRINGCAFE_RAW = BRONZE_DIR / "hiringcafe_jobs.json"
+HELLOWORK_RAW = BRONZE_DIR / "hellowork_jobs.json"
+ENGLISHJOBS_RAW = BRONZE_DIR / "englishjobs_jobs.json"
+FARUSE_RAW = BRONZE_DIR / "faruse_jobs.json"
+WWR_RAW = BRONZE_DIR / "wwr_jobs.json"
+REMOTEOK_RAW = BRONZE_DIR / "remoteok_jobs.json"
+DATASCIENCEJOBS_RAW = BRONZE_DIR / "datasciencejobs_jobs.json"
 
 # Per-board bronze history directories (immutable timestamped snapshots).
 BRONZE_BOARD_DIRS = {
     "freework": BRONZE_DIR / "freework",
     "hiringcafe": BRONZE_DIR / "hiringcafe",
+    "hellowork": BRONZE_DIR / "hellowork",
+    "englishjobs": BRONZE_DIR / "englishjobs",
+    "faruse": BRONZE_DIR / "faruse",
+    "wwr": BRONZE_DIR / "wwr",
+    "remoteok": BRONZE_DIR / "remoteok",
+    "datasciencejobs": BRONZE_DIR / "datasciencejobs",
 }
 
 

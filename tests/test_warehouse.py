@@ -86,6 +86,7 @@ def wh(tmp_path, monkeypatch):
 
 
 def _upsert(con, run_id: str, jobs: list[dict], full_replace: bool = False):
+    S.ensure_dims(con)
     columns = S.ensure_jobs_table(con, jobs)
     S.upsert_run(con, run_id, jobs, columns, full_replace=full_replace)
     return columns
@@ -167,16 +168,19 @@ def test_tech_gate_selects_null_only(wh):
     assert [r["id"] for r in rows] == ["null_tech"]
 
 
-def test_company_gate_freework_only(wh):
+def test_dim_company_gate_freework_only(wh):
     """hiringcafe company data comes from the source — never LLM-researched.
-    A freework row with 'unknown' org_type (an LLM result) is terminal."""
+    The dim gate selects only non-hiringcafe companies whose org_type is NULL
+    (one row per company, not per job)."""
     con, _ = wh
     _upsert(con, "run1", [
         make_job("fw", board="freework", org_type=None),
         make_job("hc", board="hiringcafe", org_type="unknown"),
     ])
-    rows = S.fetch_jobs(con, ["id", "source_board"], S.GATE_COMPANY)
-    assert [(r["id"], r["source_board"]) for r in rows] == [("fw", "freework")]
+    rows = con.execute(
+        f"SELECT source_board FROM silver.dim_company WHERE {S.DIM_COMPANY_GATE}"
+    ).fetchall()
+    assert [r[0] for r in rows] == ["freework"]
 
 
 def test_mark_enriched_when_all_gates_pass(wh):
@@ -192,13 +196,15 @@ def test_mark_enriched_when_all_gates_pass(wh):
     assert row == (True, None)
 
 
-def test_mark_enriched_keeps_pending_when_company_missing(wh):
+def test_mark_enriched_ignores_dim_company_research(wh):
+    """Company research is dimension-scoped — a freework row with org_type
+    NULL in dim_company is still row-enriched once translate/tech/classify
+    pass (company data no longer gates enriched_at)."""
     con, _ = wh
-    # Freework row with org_type NULL (the deferred company research case).
     _upsert(con, "run1", [make_job(board="freework", org_type=None, scored=True)])
     S.mark_enriched(con)
     row = con.execute("SELECT enriched_at IS NOT NULL, overall_score FROM silver.jobs").fetchone()
-    assert row == (False, 0.62)  # still pending, score preserved
+    assert row == (True, None)  # enriched; score cleared so score stage re-runs
 
 
 def test_gates_skip_inactive_rows(wh):
@@ -241,3 +247,208 @@ def test_gold_views_delta(tmp_path, monkeypatch):
         ("j3", "run2", "run2", True),
     ]
     con.close()
+
+
+# ---------------------------------------------------------------------------
+# Kimball dims
+# ---------------------------------------------------------------------------
+
+def test_ensure_dims_creates_tables_and_seeds_board(wh):
+    con, _ = wh
+    S.ensure_dims(con)
+    assert con.execute("SELECT COUNT(*) FROM silver.dim_board").fetchone()[0] == 8
+    for bid in S.BOARD_DIMENSIONS:
+        assert con.execute(
+            f"SELECT COUNT(*) FROM silver.dim_board WHERE board_id = '{bid}'"
+        ).fetchone()[0] == 1
+    # dim tables exist even before any upsert
+    assert con.execute("SELECT COUNT(*) FROM silver.dim_company").fetchone()[0] == 0
+    assert con.execute("SELECT COUNT(*) FROM silver.dim_date").fetchone()[0] == 0
+
+
+def test_dim_company_one_row_per_name_board(wh):
+    """Same normalized name on two boards = two dim rows (cross-board dedup
+    is out of scope); same board+name = one row."""
+    con, _ = wh
+    _upsert(con, "run1", [
+        make_job("j1", board="freework"),
+        make_job("j2", board="freework"),
+        make_job("j3", board="hiringcafe"),
+    ])
+    rows = con.execute(
+        "SELECT name, source_board FROM silver.dim_company ORDER BY source_board"
+    ).fetchall()
+    assert rows == [("acme", "freework"), ("acme", "hiringcafe")]
+
+
+def test_dim_company_id_stable_and_board_scoped():
+    assert S.company_id("Acme", "freework") == S.company_id("acme", "freework")
+    assert S.company_id("Acme", "freework") != S.company_id("Acme", "hiringcafe")
+    assert S.company_id("  Acme  Consulting ", "freework") == S.company_id(
+        "acme consulting", "freework"
+    )
+
+
+def test_dim_date_spine_from_date_posted(wh):
+    con, _ = wh
+    _upsert(con, "run1", [
+        make_job("j1"),
+        make_job("j2"),
+    ])
+    con.execute("UPDATE silver.jobs SET date_posted = '2026-07-01' WHERE id = 'j2'")
+    S.refresh_dim_date(con)
+    rows = con.execute(
+        "SELECT date_id, year, quarter FROM silver.dim_date ORDER BY date_id"
+    ).fetchall()
+    assert rows == [("2026-07-01", 2026, 3), ("2026-08-01", 2026, 3)]
+
+
+def test_join_company_rebuilds_company_info(wh):
+    con, _ = wh
+    _upsert(con, "run1", [make_job("j1", board="freework")])
+    con.execute(
+        "UPDATE silver.dim_company SET org_type = 'consulting_firm', "
+        "stock_symbol = 'ACME' WHERE source_board = 'freework'"
+    )
+    jobs = S.fetch_jobs(con, ["id", "company_id"], "is_active", join_company=True)
+    assert len(jobs) == 1
+    ci = jobs[0]["company_info"]
+    assert ci["name"] == "Acme"
+    assert ci["org_type"] == "consulting_firm"
+    assert ci["stock_symbol"] == "ACME"
+    assert ci["industry"] == []
+
+
+def test_migrate_company_info_drops_column_and_seeds_dim(wh):
+    """Legacy warehouse: company_info JSON column present. ensure_dims migrates
+    it into dim_company, sets company_id, and drops the column."""
+    con, _ = wh
+    _upsert(con, "run1", [make_job("j1", board="freework")])
+    # Simulate the legacy column existing with research data.
+    con.execute("ALTER TABLE silver.jobs ADD COLUMN company_info JSON")
+    con.execute(
+        "UPDATE silver.jobs SET company_info = "
+        "'{\"name\": \"Acme\", \"org_type\": \"consulting_firm\"}'::JSON"
+    )
+    # Rebuild the legacy shape: company_id column exists but is NULL now —
+    # the migration backfills it.
+    con.execute("UPDATE silver.jobs SET company_id = NULL")
+
+    S.ensure_dims(con)
+
+    cols = {r[1] for r in con.execute("PRAGMA table_info('silver.jobs')").fetchall()}
+    assert "company_info" not in cols
+    row = con.execute(
+        "SELECT org_type, stock_symbol FROM silver.dim_company WHERE source_board = 'freework'"
+    ).fetchone()
+    assert row == ("consulting_firm", None)
+    cid = con.execute("SELECT company_id FROM silver.jobs WHERE id = 'j1'").fetchone()[0]
+    assert cid == S.company_id("Acme", "freework")
+
+
+class TestMergeCompanyCI:
+    """Unit tests for _merge_company_ci — the per-company canonicalization rule."""
+
+    def test_picks_most_recent_non_null(self):
+        newer = ("2026-08-10", {"name": "Acme", "size_employees": 500})
+        older = ("2026-08-01", {"name": "Acme", "size_employees": 200, "hq_country": "FR"})
+        merged = S._merge_company_ci([newer, older])
+        assert merged == {"name": "Acme", "size_employees": 500, "hq_country": "FR"}
+
+    def test_null_last_seen_is_oldest(self):
+        with_null = (None, {"org_type": "private"})
+        with_date = ("2026-08-10", {"org_type": "public"})
+        merged = S._merge_company_ci([with_date, with_null])
+        assert merged["org_type"] == "public"
+
+    def test_null_value_does_not_block(self):
+        newer = ("2026-08-10", {"org_type": None})
+        older = ("2026-08-01", {"org_type": "public"})
+        merged = S._merge_company_ci([newer, older])
+        assert merged["org_type"] == "public"
+
+    def test_first_non_null_wins_no_data_gap(self):
+        a = ("2026-08-05", {"hq_country": "FR"})
+        b = ("2026-08-01", {"homepage_url": "acme.com"})
+        merged = S._merge_company_ci([a, b])
+        assert merged == {"hq_country": "FR", "homepage_url": "acme.com"}
+
+
+def test_migration_merge_picks_newer_research(wh):
+    """Two jobs of the same company with different research snapshots.
+
+    The migration must canonicalize per-company, preferring the most recent
+    row's values but never losing data (field-wise merge: an older row's value
+    survives when the newer row has NULL for that field).
+    """
+    con, _ = wh
+    j1 = make_job("j1", board="freework", title="Eng1", lang="en")
+    j2 = make_job("j2", board="freework", title="Eng2", lang="en")
+    _upsert(con, "run1", [j1, j2])
+
+    con.execute("UPDATE silver.jobs SET last_seen_at = '2026-08-01' WHERE id = 'j1'")
+    con.execute("UPDATE silver.jobs SET last_seen_at = '2026-08-10' WHERE id = 'j2'")
+
+    con.execute("ALTER TABLE silver.jobs ADD COLUMN company_info JSON")
+    con.execute(
+        "UPDATE silver.jobs SET company_info = "
+        "'{\"name\": \"Acme\", \"org_type\": \"private\", \"size_employees\": 200}'::JSON "
+        "WHERE id = 'j1'"
+    )
+    con.execute(
+        "UPDATE silver.jobs SET company_info = "
+        "'{\"name\": \"Acme\", \"org_type\": \"public\", \"homepage_url\": \"acme.com\"}'::JSON "
+        "WHERE id = 'j2'"
+    )
+    con.execute("UPDATE silver.jobs SET company_id = NULL")
+
+    S.ensure_dims(con)
+
+    cols = {r[1] for r in con.execute("PRAGMA table_info('silver.jobs')").fetchall()}
+    assert "company_info" not in cols
+    row = con.execute(
+        "SELECT org_type, size_employees, homepage_url "
+        "FROM silver.dim_company WHERE source_board = 'freework'"
+    ).fetchone()
+    assert row == ("public", 200, "acme.com")
+    for jid in ("j1", "j2"):
+        cid = con.execute(
+            f"SELECT company_id FROM silver.jobs WHERE id = '{jid}'"
+        ).fetchone()[0]
+        assert cid == S.company_id("Acme", "freework")
+
+
+
+def test_exports_company_info_json_regression(wh):
+    """The export bridges' _COMPANY_INFO_JSON constant must compile in duckdb 1.5.5.
+
+    Regression for the Postgres-style 'key': value syntax bug — DuckDB
+    requires positional 'key', value pairs. This test executes the actual
+    SQL constant against the warehouse so syntax errors are caught statically.
+    """
+    import json
+
+    from job_search_toolkit.pipelines.jd.assets.exports import _COMPANY_INFO_JSON
+
+    con, _ = wh
+    _upsert(con, "run1", [make_job("j1", board="freework")])
+    con.execute(
+        "UPDATE silver.dim_company SET org_type = 'private', "
+        "stock_symbol = 'ACME', size_employees = 500, homepage_url = 'acme.com'"
+    )
+    sql = (
+        "SELECT j.id, j.source_board, j.company_id, "
+        + _COMPANY_INFO_JSON
+        + " FROM silver.jobs j LEFT JOIN silver.dim_company c "
+        "ON j.company_id = c.company_id"
+    )
+    row = con.execute(sql).fetchone()
+    ci = row[3]
+    if isinstance(ci, str):
+        ci = json.loads(ci)
+    assert ci["name"] == "Acme"
+    assert ci["org_type"] == "private"
+    assert ci["stock_symbol"] == "ACME"
+    assert ci["size_employees"] == 500
+    assert ci["homepage_url"] == "acme.com"
+    assert ci["industry"] == []

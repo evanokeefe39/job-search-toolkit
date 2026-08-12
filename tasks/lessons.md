@@ -354,3 +354,81 @@ the data was inspected.
 - `dg.materialize([...])` runs only the selected assets (not the dep subtree) in this
   Dagster version. `PRAGMA table_info` returns (cid, name, ...) — r[1] is the name; it
   errors if the table doesn't exist — guard with information_schema first.
+
+## 2026-08-12: edit boundary-echo auto-repair silently drops lines + phantom module in eval kernel
+
+**Problem 1 — boundary-echo "auto-repair" corrupts files silently.** During the
+Kimball schema refactor, `edit` mangles recurred (silver.py ×4, merge.py,
+test_warehouse.py) despite the 2026-08-06/08-11 rules. The new mechanism: a
+`SWAP` whose payload restates a keeper line just past the range (an off-by-one
+range) triggers the tool's boundary-echo guard, which "repairs" the hunk by
+**dropping payload lines** — including genuinely new ones (`_LINEAGE_KEYS`
+reassignment, `dim_rows` init, a `scored_jobs` export, docstring closers).
+Result: the file compiles or runs with subtly wrong semantics, no loud error.
+Worse than a rejected hunk: a rejection forces a re-read; a silent drop ships.
+
+**Problem 2 — phantom module: eval kernel served a stale `silver`.** The live
+warehouse migration failed with `BinderException: company_id not found` even
+though `inspect.getsource` of the on-disk module showed the ALTER line present.
+The persistent eval kernel had imported `silver` BEFORE the ALTER fix and kept
+the cached module; a hand-written step-by-step repro "passed" because it never
+called the cached `_migrate_company_info`. The migration worked on a fresh
+subprocess (`uv run python -c`). ~4 debug cycles burned on a ghost.
+
+**Rules (extend the existing edit rules):**
+- **Never restate keeper lines in a SWAP payload.** Ranges are tight: touch
+  only lines whose content changes. Pure additions → `INS.POST`/`INS.PRE`;
+  pure removals → `DEL`. A payload that echoes a surviving line invites the
+  boundary-echo repair that silently drops it.
+- **Read the exact target range before every edit.** The edit tool rejects
+  hunks anchored on ranges never displayed (good); the failures came from
+  *freshly re-read but off-by-one* ranges — count the lines you actually
+  display and make the range match, or use `SWAP.BLK` for whole constructs.
+- **After any multi-hunk edit, verify with `git diff --stat` + a compile or
+  the targeted test from a fresh process.** Cheap corruption detector.
+- **After one mangle on a file, full-file `write` for every later change**
+  (2026-08-06 rule) — and stop using `edit` on that file entirely.
+- **When a repro contradicts the on-disk source, suspect the eval kernel's
+  cached module first.** Verify with `uv run python -c "import inspect;
+  print(inspect.getsource(mod.fn))"` in a fresh process. The eval kernel
+  caches modules AND DuckDB connections per file path (2026-08-11 rule) —
+  migrations and behavioral checks run in fresh subprocesses, never the kernel.
+- **Never run schema migrations against the live warehouse first.** Copy
+  `data/warehouse/jobs.db` to `data/_tmp_backup/`, migrate the copy, verify,
+  then apply to live (backup rule from the Kimball plan; ISSUES.md Open entry
+  documents the full failure taxonomy + harness-side fix proposal).
+
+
+## 2026-08-12: Kimball migration — first-wins merge loses legacy data
+
+**Problem:** The `_migrate_company_info` first-wins behavior (dim row = first job
+seen per company in heap order) produced 1,992 dim rows but silently dropped
+37 jobs' hq_country and homepage_url because the first-seen row for those
+companies was sparser than other rows.
+
+**Five Whys:**
+1. Equivalence check showed per-job company_info diffs → first-wins picked
+   arbitrary (heap-order) research snapshots.
+2. First-wins is order-dependent → DuckDB heap order favours oldest-inserted jobs,
+   whose research was earliest (potentially stalest).
+3. Legacy per-row research was inconsistent (2.6 jobs/company, different research
+   runs produced different field fills) → arbitrary single-row pick is wrong seed.
+4. The plan said "INSERT INTO dim_company SELECT DISTINCT" without specifying
+   canonicalization semantics → code defaulted to first-wins.
+5. **Root cause:** No merge rule was specified; first-wins is implicit and
+   fragile when the source data is heterogeneous.
+
+**Fix:** `_merge_company_ci()` — most-recent-last_seen first, then field-wise
+first-non-NULL merge. Deterministic (pure function of the row set), lossless
+(no value present in ANY row is dropped). Downgrade count: first-wins = 132
+field-level losses, merge = 16 (all org_type, where newest research says
+'unknown' and older said 'private' — intentional: newer research wins).
+
+**Rule:** When canonicalizing per-entity from heterogeneous per-row snapshots,
+make the merge rule explicit: order by recency (last_seen_at), merge field-wise
+first-non-NULL. Document in the function, test it with multi-row fixtures.
+
+**Also:** exports.py `json_object` used Postgres-style `'key': value` syntax
+that DuckDB 1.5.5 rejects — fixed to positional `'key', value` pairs. The
+existing test suite never exercised the export SQL path; add a regeneration
+regression test that executes `_COMPANY_INFO_JSON` against a real DuckDB.
