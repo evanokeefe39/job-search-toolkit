@@ -11,9 +11,16 @@ What's already built and working.
 
 ### Discovery
 
-- [x] **Job board scraping** — free-work.com (Typer/httpx/bs4) and hiringcafe.com (Next.js data route) → `merged_jobs.json`
-- [x] **Pipeline enrichment** — Dagster 9-asset graph: scrape → merge → translate → extract tech → classify → company stats → company research → score → export
-- [x] **Ranked export** — `jobs_ranked.csv` with scoring (pay, flexibility, responsibility, tech match, company quality)
+- [x] **Job board scraping** — 8 boards: free-work.com, hiringcafe.com, hellowork.com, englishjobs.fr,
+  faruse.com, weworkremotely.com, remoteok.com, datasciencejobs.com
+  (Typer/httpx/bs4 or Next.js data routes) → timestamped bronze snapshots
+- [x] **Pipeline enrichment** — Dagster Kimball star schema: scrape → upsert →
+  score → exports → gold views. Ranking is decoupled from LLM (pure tabular);
+  optional `--enrich` runs deferred, dimension-scoped company research
+  (1 LLM call per company, not per row)
+- [x] **Ranked export** — `jobs_ranked.csv` with five-dimension scoring
+  (pay, flexibility, responsibility, tech match, company quality);
+  company_quality uses tabular heuristics + dim_company join, zero LLM
 
 ### Application Workflow
 
