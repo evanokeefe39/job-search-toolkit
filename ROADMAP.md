@@ -27,7 +27,7 @@ What's already built and working.
 - [x] **jd-refresh skill** — run discovery, report delta, stop for shortlist
 - [x] **new-application skill** — scaffold application folder, company research (web_search, yfinance, Crunchbase checkpoint), dealbreaker gate, tracker entry
 - [x] **tailor-resume skill** — Resume-Matcher (Docker, deepseek-chat), diff log review, tailored RenderCV YAML, audit, PDF
-- [x] **application-tracker skill** — tracker.csv transitions, response-rate stats
+- [x] **application-tracker skill** — Twenty funnel transitions, response-rate stats
 
 ### Research & Docs
 

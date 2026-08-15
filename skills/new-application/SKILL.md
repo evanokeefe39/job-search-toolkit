@@ -12,7 +12,7 @@ Python 3.14+ and uv (package manager) are required. Install the toolkit with:
 
 Goal: turn one shortlisted job into a complete application workspace:
 `applications/YYYY-MM-DD_<company-slug>_<role-slug>/` with `inputs/jd.md` and `inputs/research.md`,
-plus a `tracker.csv` row — ending at a human go/no-go decision.
+plus a Twenty opportunity — ending at a human go/no-go decision.
 
 This skill researches and scaffolds only. It does NOT tailor the CV (see
 `tailor-resume`), does NOT run the discovery pipeline, and does NOT apply.
@@ -28,12 +28,12 @@ This skill researches and scaffolds only. It does NOT tailor the CV (see
   Example: company "Mon Consultant Indépendant" → `mon-consultant-independant`;
   title "Senior data analyst – CRM" → `senior-data-analyst-crm`.
   Folder: `applications/2026-08-06_mon-consultant-independant_senior-data-analyst-crm/`.
-- Tracker: `tracker.csv` (repo root, gitignored). Columns:
-  `date_added,company,role,source,url,status,folder,ats_score,applied_date,outcome,notes`.
-  Status values: `shortlisted, researching, tailoring, ready, applied, interview,
-  offer, rejected, withdrawn`.
+- Tracker: Twenty CRM (`Opportunity` object), written via `crm-bridge sync` in the
+  sibling repo `../crm`. Status values: `shortlisted, researching, tailoring, ready,
+  applied, interview, offer, rejected, withdrawn`.
 - This repo is PUBLIC on GitHub. Personal data goes ONLY in gitignored paths:
-  `resume/`, `applications/`, `tracker.csv`. Nothing else may contain personal data.
+  `resume/`, `applications/`. Application state lives privately in Twenty — never
+  reference the CRM API key or personal data in this repo.
 - Never run `job-search-toolkit pipeline run` from this skill; the discovery layer
   is read-only input here.
 
@@ -224,58 +224,24 @@ Rules: every factual claim carries a source; mark anything inferred or
 unverified as `[INFERENCE]` / `[UNVERIFIED]`; never invent a fact to fill a
 section.
 
-### 5. Human go/no-go, then tracker
+### 5. Human go/no-go, then Twenty
 
 1. STOP and present to the human: a one-screen summary — company, role, pay
    range, location/workplace, the red flags, and the questions to ask — and ask:
    "Proceed with this application (go) or skip (no-go)?" Do not tailor the CV,
    render PDFs, or apply until the human says go.
-2. If go: ensure a `tracker.csv` row exists for this job with status
-   `researching`. If a row already exists (match on `url`), update its
-   `status` to `researching` and fill `folder`; otherwise append one. Run in an
-   eval cell:
+2. If go: upsert the application into Twenty with status `researching` via the
+   bridge (keyed on `folder`; idempotent). Run:
 
-```python
-import csv
-from pathlib import Path
-
-path = Path("tracker.csv")
-row = {
-    "date_added": "2026-08-06",  # today
-    "company": "Company Name",
-    "role": "Role Title",
-    "source": "freework",
-    "url": "https://...",
-    "status": "researching",
-    "folder": "applications/2026-08-06_company-slug_role-slug/",
-    "ats_score": "", "applied_date": "", "outcome": "", "notes": "",
-}
-header = ["date_added","company","role","source","url","status","folder",
-          "ats_score","applied_date","outcome","notes"]
-rows = []
-if path.exists():
-    with open(path, "r", newline="", encoding="utf-8") as f:
-        rows = list(csv.DictReader(f))
-        fieldnames = rows[0].keys() if rows else header
-    for r in rows:
-        if r.get("url", "").rstrip("/") == row["url"].rstrip("/"):
-            r.update(row)  # keep ats_score/applied_date/outcome if already set
-            break
-    else:
-        rows.append(row)
-else:
-    fieldnames = header
-    rows.append(row)
-with open(path, "w", newline="", encoding="utf-8") as f:
-    w = csv.DictWriter(f, fieldnames=fieldnames)
-    w.writeheader()
-    w.writerows(rows)
-print(f"tracker.csv: {len(rows)} rows, status={row['status']}")
+```bash
+uv --directory ../crm run crm-bridge sync --json '{"company":"Company Name","role":"Role Title","source":"freework","url":"https://...","status":"researching","folder":"applications/YYYY-MM-DD_company-slug_role-slug/"}'
 ```
 
-3. If no-go: do not create or keep a tracker row for the job (or mark the
-   existing row `withdrawn` if one was already there), and report the decision
-   and reason back.
+   Substitute the actual company, role, source, url, and folder slug.
+
+3. If no-go: do not create a Twenty record for the job (or mark the existing
+   record `withdrawn` via the bridge if one was already there), and report the
+   decision and reason back.
 
 ## Failure handling
 
@@ -292,10 +258,10 @@ automation, no alternative research APIs, no pipeline runs.
 - Never automate Crunchbase (API, scraper, or browser automation) — it is a
   human-paste/export checkpoint by design.
 - Never write personal data outside the gitignored paths: `resume/`,
-  `applications/`, `tracker.csv`. This repo is PUBLIC.
+  `applications/`. This repo is PUBLIC.
 - Never auto-apply, auto-tailor, or auto-render: the go/no-go gate (step 5) and
   the `tailor-resume` skill own those.
 - Never run the discovery pipeline (`job-search-toolkit pipeline run`) — this
   skill only consumes its outputs.
-- Never modify anything outside the application folder and `tracker.csv`.
+- Never modify anything outside the application folder (application state is written to Twenty via the bridge).
 - Never edit or summarize the JD text in `jd.md` — it must stay verbatim.

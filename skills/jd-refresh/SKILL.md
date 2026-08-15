@@ -80,7 +80,7 @@ the agent never shortlists, it presents and stops.
      select jobs, add commentary ranking them, or proceed to any application
      work yourself.
 
-5. **Update nothing else.** The tracker (`tracker.csv`), application folders
+5. **Update nothing else.** The CRM (Twenty), application folders
    (`applications/`), resume (`resume/`), and all other repo files are out of
    scope for this skill.
 
@@ -99,12 +99,12 @@ the agent never shortlists, it presents and stops.
 
 - Never auto-apply to a job and never shortlist on the human's behalf — the
   human decides.
-- Never touch `applications/`, `resume/`, `tracker.csv`, or any file other than
+- Never touch `applications/`, `resume/`, or any file other than
   what the pipeline itself writes (`data/warehouse/jobs.db`, the bronze
   snapshots, and the bridge exports under `data/silver/`).
 - Never commit scraped outputs: `data/warehouse/jobs.db`, everything under
   `data/bronze/` and `data/silver/` are gitignored — leave them untracked.
 - Never write personal data anywhere except the gitignored paths (`resume/`,
-  `applications/`, `tracker.csv`); job-listing data is public, but warehouse
+  `applications/`); job-listing data is public, but warehouse
   and bronze outputs stay gitignored (never committed) regardless.
 - Never modify pipeline code, schemas, or the Docker services from this skill.

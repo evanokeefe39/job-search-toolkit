@@ -148,7 +148,7 @@ flowchart LR
         MASTER[resume/cv.yaml] --> TAILOR
         TAILOR --> AUDIT[fabrication audit]
         AUDIT --> PDF[cv_tailored.pdf]
-        PDF --> TRACK[tracker.csv]
+        PDF --> TWENTY[Twenty CRM]
     end
 ```
 
@@ -163,7 +163,7 @@ repo as a marketplace: `/marketplace add evanokeefe39/job_search_scraping`).
 | `jd-refresh` | `job-search-toolkit pipeline run`, report delta and top-ranked jobs | Shortlist selection |
 | `new-application` | Scaffold application folder, write `jd.md`, research company (web search, yfinance, manual Crunchbase checkpoint), write `research.md` | Go/no-go on applying |
 | `tailor-resume` | `job-search-toolkit tailor run`, present audit, apply approved changes to tailored YAML, render PDF | Every diff; final PDF |
-| `application-tracker` | `tracker.csv` transitions + response-rate stats | — |
+| `application-tracker` | Twenty funnel transitions + response-rate stats | — |
 | `market-research` | Multi-level job market trend analysis | Interpretation |
 | `cold-outreach` | Find contacts, draft outreach messages | Send approval |
 

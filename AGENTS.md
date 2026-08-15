@@ -19,8 +19,8 @@ with human review gates — no fully automated ATS pipeline.
 - Discovery code lives in the installable package `src/job_search_toolkit/` (scrapers, Dagster pipeline, automation). Entry: `job-search-toolkit pipeline run` (dev: `uv run python -m job_search_toolkit.pipelines.jd.run`); legacy `pipelines/jd/_legacy/stage*.py` scripts remain for reference only
 - No new dependencies without explicit justification
 - Per-application workflow is agent-driven via `skills/<name>/SKILL.md` playbooks (discovered from `skills/` via `.omp/config.yaml`; installed into other harnesses with `job-search-toolkit skills install`) — prose + commands with human gates, never pipeline code
-- Application folders: `applications/YYYY-MM-DD_<company>_<role>/` with `inputs/` (`jd.md`, `research.md`, `notes.md`) and `outputs/` (`cv_tailored.yaml`, `cv_tailored.pdf`, `rendercv_output/`); status lives in `tracker.csv` (11 columns — see the application-tracker skill)
-- PUBLIC repo: `resume/`, `applications/`, `tracker.csv`, `rendercv_output/` are gitignored — never commit personal data or target-company info; gitignore is not retroactive, so new personal paths must be ignored before the first commit
+- Application folders: `applications/YYYY-MM-DD_<company>_<role>/` with `inputs/` (`jd.md`, `research.md`, `notes.md`) and `outputs/` (`cv_tailored.yaml`, `cv_tailored.pdf`, `rendercv_output/`); status lives in Twenty CRM (Opportunity — see the application-tracker skill), written via the `crm-bridge` CLI in `../crm`
+- PUBLIC repo: `resume/`, `applications/`, `rendercv_output/` are gitignored — never commit personal data or target-company info; application state lives in the private `crm` repo (Twenty), never in this repo
 - Dates are `DD/MM/YYYY` (French locale from free-work.com)
 - **Resume tailoring is LLM-driven.** `job-search-toolkit tailor run` (CLI in
   `src/job_search_toolkit/cli_tailor.py`) takes `resume/cv.yaml` + a JD and
@@ -68,7 +68,7 @@ skills/                          # Plugin-standard agent skills (skills/<name>/S
 ├── jd-refresh/SKILL.md          # Refresh jobs, report delta, stop for shortlist
 ├── new-application/SKILL.md     # Scaffold application folder + company research
 ├── tailor-resume/SKILL.md       # `job-search-toolkit tailor run` + human review + RenderCV PDF
-├── application-tracker/SKILL.md # Tracker transitions + response-rate stats
+├── application-tracker/SKILL.md # Twenty funnel transitions + response-rate stats
 ├── market-research/SKILL.md     # Multi-level job market trend analysis
 └── cold-outreach/SKILL.md       # Find contacts, draft outreach messages
 
@@ -125,9 +125,9 @@ blocks carry the same instruction for external users.
 
 ```bash
 /skill:jd-refresh           # run discovery, report delta, stop for shortlist
-/skill:new-application      # scaffold + research + dealbreaker check + tracker
+/skill:new-application      # scaffold + research + dealbreaker check + Twenty entry
 /skill:tailor-resume        # LLM pipeline: cv.yaml + JD → cv_tailored.yaml → human review → PDF
-/skill:application-tracker  # tracker transitions and response-rate stats
+/skill:application-tracker  # Twenty transitions and response-rate stats
 ```
 
 **Supporting skills (run between applications, not instead of them):**
