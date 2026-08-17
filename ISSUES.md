@@ -81,6 +81,38 @@ session hazard (eval kernel caching a stale module, causing a phantom
 
 ## Closed
 
+### LinkedIn adapter: deterministic tech scan is a hardcoded list (RESOLVED 2026-08-17)
+
+**Symptom:** The planned LinkedIn source adapter (see
+`tasks/plans/linkedin-source-adapter.md`) extracts `technologies` from post/JD
+text with a deterministic keyword scan. The proof-of-concept used a hardcoded
+Python list of ~25 tokens (`Microsoft Fabric`, `PySpark`, `SQL`, `Azure`, …)
+matched with a `\b` regex against the extracted text.
+
+**Why it matters:** a hardcoded list can't follow the user's actual stack
+without code changes. The repo's convention is that user preferences live in
+`job_search_preferences.yaml` (gitignored), not in code.
+
+**Checklist before wiring the adapter:**
+- [x] Confirm the scan is a hardcoded regex/list (it is, as of the spike).
+- [x] Replace with a configurable source: a plain-text list (one technology per
+      line) referenced from `job_search_preferences.yaml`, loaded once at adapter
+      start.
+- [x] Match word-boundary, case-insensitive, multi-word tokens intact
+      (`Microsoft Fabric` must match as one token, not `Fabric` + `Microsoft`).
+- [x] Expand the base list into adjacent/fuzzy variants before compiling one
+      regex: multi-word aliases (`Spark` → `PySpark`, `Spark SQL`), case and
+      hyphen/space variants (`Power BI` → `power-bi`), plurals and abbreviations
+      (`Data Factory` → `ADF`). Sort alternation longest-first; emit the
+      canonical keyword, never the variant.
+- [x] Fall back to a small built-in default list when no file is provided.
+
+**Resolution:** `job_search_toolkit.linkedin.tech_scan.TechnologyScanner`
+implements the file-backed, fuzzy-expanding, word-boundary scanner above
+(built-in `DEFAULT_TECHNOLOGIES`/`DEFAULT_SYNONYMS` defaults, `from_file`
+synonym lines, longest-first alternation, canonical-only emission). Covered by
+`tests/test_tech_scan.py`.
+
 ### Resume-Matcher: PDF parser drops work experience (RESOLVED 2026-08-08)
 
 **Resolution:** Not a PDF parser issue. The matcher's refinement/alignment pass

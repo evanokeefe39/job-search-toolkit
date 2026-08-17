@@ -19,6 +19,7 @@ jobs_ranked.csv
 !.claude-plugin/plugin.json
 !.claude-plugin/marketplace.json
 !.omp-plugin/marketplace.json
+!tests/fixtures/*.json
 
 # OS
 .DS_Store
@@ -34,6 +35,7 @@ data/_tmp_*
 data/market_*
 data/outreach_*
 data/contacts*
+data/linkedin/
 # Node dependencies (vendored ATSFlow source)
 node_modules/
 

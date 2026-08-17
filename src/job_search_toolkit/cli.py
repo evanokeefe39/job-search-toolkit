@@ -88,6 +88,14 @@ from job_search_toolkit.cli_tailor import app as tailor_app  # noqa: E402
 app.add_typer(tailor_app, name="tailor", help="Resume tailoring automation.")
 
 # ---------------------------------------------------------------------------
+# linkedin
+# ---------------------------------------------------------------------------
+
+from job_search_toolkit.linkedin.cli import app as linkedin_app  # noqa: E402
+
+app.add_typer(linkedin_app, name="linkedin", help="Discover LinkedIn recruiter posts + job listings.")
+
+# ---------------------------------------------------------------------------
 # skills
 # ---------------------------------------------------------------------------
 

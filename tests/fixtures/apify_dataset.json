@@ -1,0 +1,127 @@
+[
+  {
+    "searchQuery": {
+      "term": "site:linkedin.com/jobs \"Microsoft Fabric\" France",
+      "url": "http://www.google.fr/search?q=site%3Alinkedin.com%2Fjobs+%22Microsoft+Fabric%22+France&hl=fr",
+      "device": "DESKTOP",
+      "page": 1,
+      "type": "SEARCH",
+      "domain": "google.fr",
+      "countryCode": "FR",
+      "languageCode": "fr",
+      "locationUule": null,
+      "resultsPerPage": 10
+    },
+    "organicResults": [
+      {
+        "title": "5000+ \"microsoft Fabric\" jobs in Worldwide",
+        "websiteTitle": "LinkedIn",
+        "url": "https://www.linkedin.com/jobs/search/?currentJobId=3860146138&geoId=92000000&keywords=%22microsoft%20fabric%22&location=Worldwide&origin=JOB_SEARCH_PAGE_LOCATION_AUTOCOMPLETE&refresh=true",
+        "displayedUrl": "https://www.linkedin.com › search",
+        "description": "Today's top 5000+ \"microsoft Fabric\" jobs in Worldwide. Leverage your professional network, and get hired. New \"microsoft Fabric\" jobs added daily.",
+        "date": "2026-08-17T12:02:59.521Z",
+        "emphasizedKeywords": [
+          "microsoft Fabric",
+          "microsoft Fabric"
+        ],
+        "siteLinks": [],
+        "productInfo": {},
+        "type": "organic",
+        "position": 1
+      },
+      {
+        "title": "Analytics Engineer - Microsoft Fabric - CDI - LILLE",
+        "websiteTitle": "LinkedIn",
+        "url": "https://fr.linkedin.com/jobs/view/analytics-engineer-microsoft-fabric-cdi-lille-at-logical-conseils-4436738979",
+        "displayedUrl": "https://fr.linkedin.com › ... › Offres d’emploi Scientifique",
+        "description": "Nous recherchons un(e) Analytics Engineer expérimenté(e), maîtrisant Microsoft Fabric, pour accompagner les équipes métier dans l'exploitation et la ...",
+        "emphasizedKeywords": [
+          "Microsoft Fabric"
+        ],
+        "siteLinks": [],
+        "productInfo": {},
+        "type": "organic",
+        "position": 2
+      },
+      {
+        "title": "Consultant Data - Microsoft Fabric",
+        "websiteTitle": "LinkedIn",
+        "url": "https://fr.linkedin.com/jobs/view/consultant-data-microsoft-fabric-at-klint-4419868263",
+        "displayedUrl": "https://fr.linkedin.com › jobs › view › consultant-data-mi...",
+        "description": "Expérience confirmée en Data Engineering ou Data Analytics, idéalement sur des projets Cloud. 2 ans d'expérience sur des outils Microsoft Fabric et des services ...",
+        "emphasizedKeywords": [
+          "Microsoft Fabric"
+        ],
+        "siteLinks": [],
+        "productInfo": {},
+        "type": "organic",
+        "position": 3
+      }
+    ],
+    "hasNextPage": true
+  },
+  {
+    "searchQuery": {
+      "term": "site:linkedin.com/jobs \"Microsoft Fabric\" contrat",
+      "url": "http://www.google.fr/search?q=site%3Alinkedin.com%2Fjobs+%22Microsoft+Fabric%22+contrat&hl=fr",
+      "device": "DESKTOP",
+      "page": 1,
+      "type": "SEARCH",
+      "domain": "google.fr",
+      "countryCode": "FR",
+      "languageCode": "fr",
+      "locationUule": null,
+      "resultsPerPage": 10
+    },
+    "organicResults": [
+      {
+        "title": "6 offres d'emploi Microsoft Consultant",
+        "websiteTitle": "LinkedIn",
+        "url": "https://mu.linkedin.com/jobs/microsoft-consultant-emplois",
+        "displayedUrl": "https://mu.linkedin.com › jobs › microsoft-consultant-em...",
+        "description": "Microsoft Fabric Consultant · Cloud & System Administrator · ServiceNow Administrator Consultant (M/F) · Administrateur Système - Contrat Local - Maurice (F/H).",
+        "emphasizedKeywords": [
+          "Microsoft Fabric",
+          "Contrat"
+        ],
+        "siteLinks": [],
+        "productInfo": {},
+        "type": "organic",
+        "position": 1
+      },
+      {
+        "title": "Azure / Fabric Data Engineer (Microsoft) - Levallois-Perret",
+        "websiteTitle": "LinkedIn",
+        "url": "https://fr.linkedin.com/jobs/view/azure-fabric-data-engineer-microsoft-at-devoteam-microsoft-partner-4390121866",
+        "displayedUrl": "https://fr.linkedin.com › jobs › view › azure-fabric-data-...",
+        "description": "En cas d'acceptation, le contrat de travail est formalisé. Le Groupe Devoteam ... Consultant·e Data Engineer Microsoft Fabric / Databricks confirmé·e F/H.",
+        "emphasizedKeywords": [
+          "contrat",
+          "Microsoft Fabric"
+        ],
+        "siteLinks": [],
+        "productInfo": {},
+        "type": "organic",
+        "position": 2
+      },
+      {
+        "title": "681 offres d'emploi Consultant Microsoft Azure Data F H",
+        "websiteTitle": "LinkedIn",
+        "url": "https://fr.linkedin.com/jobs/consultant-microsoft-azure-data-f-h-emplois",
+        "displayedUrl": "https://fr.linkedin.com › jobs › consultant-microsoft-azur...",
+        "description": "Type de contrat. Type de contrat. Temps plein (615). Temps partiel (2). Contrat ... Consultant Data – spécialiste Microsoft Fabric (F/H). Cellenza. Nantes et ...",
+        "emphasizedKeywords": [
+          "contrat",
+          "contrat",
+          "Contrat",
+          "Microsoft Fabric"
+        ],
+        "siteLinks": [],
+        "productInfo": {},
+        "type": "organic",
+        "position": 3
+      }
+    ],
+    "hasNextPage": true
+  }
+]
