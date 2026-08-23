@@ -138,6 +138,14 @@ def test_make_backend_unknown_name_raises() -> None:
 
 def test_apify_backend_requires_token(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("APIFY_TOKEN", raising=False)
+    monkeypatch.delenv("APIFY_API_TOKEN", raising=False)
 
     with pytest.raises(RuntimeError):
         ApifyBackend(token=None)
+
+
+def test_apify_backend_uses_api_token_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("APIFY_TOKEN", raising=False)
+    monkeypatch.setenv("APIFY_API_TOKEN", "api-token-123")
+    backend = ApifyBackend(token=None)
+    assert backend.token == "api-token-123"

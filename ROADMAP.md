@@ -21,6 +21,9 @@ What's already built and working.
 - [x] **Ranked export** — `jobs_ranked.csv` with five-dimension scoring
   (pay, flexibility, responsibility, tech match, company quality);
   company_quality uses tabular heuristics + dim_company join, zero LLM
+- [x] **LinkedIn source adapter** — recruiter posts + job listings (Apify/Tavily
+  discovery → JSON-LD parse → dedup → deterministic tech scan → candidate pool),
+  `job-search-toolkit linkedin run|parse` (2026-08-17)
 
 ### Application Workflow
 
@@ -149,6 +152,12 @@ learning.
 - [ ] **Identify key voices** in French/European data engineering: who writes about Fabric, Azure data, dbt, data platform architecture? Follow, engage, learn
 - [ ] **Potential collaborators** — creators whose audience overlaps with target customers. Joint webinars, guest posts, cross-promotion
 - [ ] **Mentor/advisors** — senior data engineers or freelance consultants in Paris who've done what we're trying to do. Coffee chats, not cold outreach
+- [ ] **LinkedIn peer discovery (deferred 2026-08-17)** — extend the LinkedIn
+      source adapter with a practitioner/peer pass: devs and data engineers in
+      Paris/Europe with shared interests (Fabric/Azure/dbt). Surfaces as Person
+      contacts (`contact_type=data_team`/`network`) into the silver people
+      contract. Deferred until the recruiter + job pipeline validates — not
+      dropped.
 
 ### Continuous Market Education
 

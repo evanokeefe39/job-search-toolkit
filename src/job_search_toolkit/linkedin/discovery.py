@@ -136,15 +136,22 @@ class ApifyBackend:
         timeout: float = 180.0,
         poll_interval: float = 5.0,
     ) -> None:
-        """Pre: ``token`` or ``APIFY_TOKEN`` must be set, else RuntimeError.
+        """Pre: ``token``, ``APIFY_TOKEN``, or ``APIFY_API_TOKEN`` must be set,
+        else RuntimeError.
 
         Post: a backend bound to the given actor (``actor_id``, defaulting to
         ``APIFY_ACTOR_ID`` then ``epctex/google-search-scraper``) and the
         given run-polling knobs.
         """
-        self.token = token or os.environ.get("APIFY_TOKEN")
+        self.token = (
+            token
+            or os.environ.get("APIFY_TOKEN")
+            or os.environ.get("APIFY_API_TOKEN")
+        )
         if not self.token:
-            raise RuntimeError("APIFY_TOKEN is not set: pass token= or export APIFY_TOKEN")
+            raise RuntimeError(
+                "Apify token not set: pass token= or export APIFY_TOKEN / APIFY_API_TOKEN"
+            )
         self.actor_id = actor_id or os.environ.get("APIFY_ACTOR_ID", _DEFAULT_ACTOR_ID)
         self.timeout = timeout
         self.poll_interval = poll_interval
