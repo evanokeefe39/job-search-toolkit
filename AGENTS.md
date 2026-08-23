@@ -166,7 +166,7 @@ blocks carry the same instruction for external users.
 
 Kimball star schema (3 dims + 1 fact):
 
-- **silver.dim_board** — 8 rows, static: board_id, name, description_language, base_url
+- **silver.dim_board** — 10 rows, static: board_id, name, description_language, base_url
 - **silver.dim_company** — one row per (normalized name, source_board), 1,992 rows:
   company_id (SHA-1 hash), name, display_name, source_board, industry, size_employees,
   year_founded, hq_country, org_type, stock_symbol, stock_exchange, latest_funding_*,

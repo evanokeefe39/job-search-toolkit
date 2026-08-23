@@ -26,6 +26,9 @@ from .assets import (
     freework_jobs,
     hellowork_jobs,
     hiringcafe_jobs,
+    linkedin_jobs,
+    linkedin_post_enriched,
+    linkedin_posts,
     remoteok_jobs,
     wwr_jobs,
     silver_upsert,
@@ -50,6 +53,8 @@ RANKING_ASSETS = [
     wwr_jobs,
     remoteok_jobs,
     datasciencejobs_jobs,
+    linkedin_jobs,
+    linkedin_posts,
     silver_upsert,
     scored_jobs,
     ranked_csv,
@@ -64,6 +69,7 @@ ENRICH_ASSETS = [
     tech_extracted,
     vertical_classified,
     dim_company_enriched,
+    linkedin_post_enriched,
 ]
 
 ALL_ASSETS = RANKING_ASSETS + ENRICH_ASSETS

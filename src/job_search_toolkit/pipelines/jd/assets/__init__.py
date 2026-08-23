@@ -7,11 +7,14 @@ from .scrape import (
     freework_jobs,
     hellowork_jobs,
     hiringcafe_jobs,
+    linkedin_jobs,
+    linkedin_posts,
     remoteok_jobs,
     wwr_jobs,
 )
 from .merge import silver_upsert
 from .enrich import translated, tech_extracted, vertical_classified, dim_company_enriched
+from .post_enrich import linkedin_post_enriched
 from .score import scored_jobs, ranked_csv
 from .gold import gold_views
 from .exports import merged_jobs_export, freework_enriched_export
@@ -24,6 +27,9 @@ __all__ = [
     "wwr_jobs",
     "remoteok_jobs",
     "datasciencejobs_jobs",
+    "linkedin_jobs",
+    "linkedin_posts",
+    "linkedin_post_enriched",
     "silver_upsert",
     "translated",
     "tech_extracted",

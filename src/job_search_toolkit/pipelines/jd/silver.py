@@ -65,6 +65,8 @@ BOARD_DIMENSIONS: dict[str, tuple[str, str, str]] = {
     "wwr": ("We Work Remotely", "en", "https://weworkremotely.com"),
     "remoteok": ("RemoteOK", "en", "https://remoteok.com"),
     "datasciencejobs": ("DataScienceJobs", "en", "https://datasciencejobs.com"),
+    "linkedin_jobs": ("LinkedIn Jobs", "en", "https://www.linkedin.com/jobs/"),
+    "linkedin_posts": ("LinkedIn Posts", "en", "https://www.linkedin.com/posts/"),
 }
 
 # dim_company columns mirroring the canonical CompanyInfo dict (schemas.py):
@@ -101,7 +103,12 @@ GATE_TRANSLATE = (
 # The freework adapter emits NULL for absent source data (see adapt_freework).
 GATE_TECH = "is_active AND technologies IS NULL"
 GATE_CLASSIFY = (
-    "is_active AND source_board <> 'hiringcafe' AND engagement_type IS NULL"
+    "is_active AND source_board NOT IN ('hiringcafe', 'linkedin_posts') "
+    "AND engagement_type IS NULL"
+)
+GATE_POST_ENRICH = (
+    "is_active AND source_board = 'linkedin_posts' "
+    "AND (title = '' OR location_raw = '')"
 )
 GATE_SCORE = "is_active AND overall_score IS NULL"
 

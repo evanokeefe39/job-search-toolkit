@@ -18,6 +18,8 @@ from .scrape import (
     freework_jobs,
     hellowork_jobs,
     hiringcafe_jobs,
+    linkedin_jobs,
+    linkedin_posts,
     remoteok_jobs,
     wwr_jobs,
 )
@@ -58,6 +60,8 @@ def _read_bronze_entries(run_id: str) -> list[dict]:
         wwr_jobs,
         remoteok_jobs,
         datasciencejobs_jobs,
+        linkedin_jobs,
+        linkedin_posts,
     ],
     group_name="processing",
     description="Upsert current-run bronze jobs into silver.jobs (DuckDB warehouse)",

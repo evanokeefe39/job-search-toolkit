@@ -15,6 +15,7 @@ import csv
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Literal, Sequence
 
 import httpx
 
@@ -144,17 +145,20 @@ def run_discovery(
     *,
     client: httpx.Client | None = None,
     scanner: TechnologyScanner | None = None,
+    kinds: Sequence[Literal["post", "job"]] = ("post", "job"),
 ) -> DiscoveryOutcome:
-    """Run the full adapter: discover, fetch, parse, dedup, and tech-scan.
+    """Run the adapter: discover, fetch, parse, dedup, and tech-scan.
 
-    ``backend``/``client``/``scanner`` may be injected for tests; when omitted
-    they are built from ``config`` and the environment.
+    ``kinds`` selects which artifact kinds to run; only the requested passes
+    (``"post"`` and/or ``"job"``) are executed. ``backend``/``client``/
+    ``scanner`` may be injected for tests; when omitted they are built from
+    ``config`` and the environment.
     """
     backend = backend or make_backend(config.backend)
     scanner = scanner or _make_scanner(config)
 
     outcome = DiscoveryOutcome()
-    if config.post_queries:
+    if "post" in kinds and config.post_queries:
         posts, stale, failed, cost, usage = _run_pass(
             config.post_queries, "post", config, backend, scanner, client
         )
@@ -165,7 +169,7 @@ def run_discovery(
         if cost is not None:
             outcome.cost_usd = cost
 
-    if config.job_queries:
+    if "job" in kinds and config.job_queries:
         jobs, stale, failed, cost, usage = _run_pass(
             config.job_queries, "job", config, backend, scanner, client
         )

@@ -11,9 +11,9 @@ What's already built and working.
 
 ### Discovery
 
-- [x] **Job board scraping** — 8 boards: free-work.com, hiringcafe.com, hellowork.com, englishjobs.fr,
-  faruse.com, weworkremotely.com, remoteok.com, datasciencejobs.com
-  (Typer/httpx/bs4 or Next.js data routes) → timestamped bronze snapshots
+- [x] **Job board scraping** — 10 boards: free-work.com, hiringcafe.com, hellowork.com, englishjobs.fr,
+  faruse.com, weworkremotely.com, remoteok.com, datasciencejobs.com, plus linkedin.com
+  (two sources: `linkedin_jobs` listings + `linkedin_posts` recruiter posts)
 - [x] **Pipeline enrichment** — Dagster Kimball star schema: scrape → upsert →
   score → exports → gold views. Ranking is decoupled from LLM (pure tabular);
   optional `--enrich` runs deferred, dimension-scoped company research
@@ -21,9 +21,10 @@ What's already built and working.
 - [x] **Ranked export** — `jobs_ranked.csv` with five-dimension scoring
   (pay, flexibility, responsibility, tech match, company quality);
   company_quality uses tabular heuristics + dim_company join, zero LLM
-- [x] **LinkedIn source adapter** — recruiter posts + job listings (Apify/Tavily
-  discovery → JSON-LD parse → dedup → deterministic tech scan → candidate pool),
-  `job-search-toolkit linkedin run|parse` (2026-08-17)
+- [x] **LinkedIn boards** — recruiter posts + job listings land in `silver.jobs` as
+  two boards (`linkedin_posts`, `linkedin_jobs`): Apify/Tavily discovery → JSON-LD
+  parse → dedup → deterministic tech scan + regex post→job extraction → bronze;
+  deferred `linkedin_post_enriched` LLM pass fills the regex gap (2026-08-23)
 
 ### Application Workflow
 

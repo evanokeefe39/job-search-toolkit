@@ -200,3 +200,68 @@ def datasciencejobs_jobs(context: AssetExecutionContext) -> dg.MaterializeResult
     canonical = json.loads(DATASCIENCEJOBS_RAW.read_text(encoding="utf-8"))
     _write_bronze_snapshot("datasciencejobs", context.run_id, canonical)
     return dg.MaterializeResult(metadata={"total": len(canonical)})
+
+
+def _has_discovery_key() -> bool:
+    """Return True when a LinkedIn discovery token is present in the env.
+
+    Post: True if any of APIFY_TOKEN / APIFY_API_TOKEN / TAVILY_API_KEY is
+    set (non-empty); otherwise False.
+    """
+    return any(os.getenv(key) for key in ("APIFY_TOKEN", "APIFY_API_TOKEN", "TAVILY_API_KEY"))
+
+
+@dg.asset(
+    group_name="sources",
+    description="LinkedIn job listings (/jobs/view/) discovered via the LinkedIn source adapter",
+)
+def linkedin_jobs(context: AssetExecutionContext) -> dg.MaterializeResult:
+    """Discover + normalize LinkedIn job listings into canonical format."""
+    from job_search_toolkit.linkedin.adapter import run_discovery
+    from job_search_toolkit.linkedin.config import LinkedInConfig
+    from ..adapt_linkedin import normalize_linkedin_job
+
+    if not _has_discovery_key():
+        context.log.warning(
+            "No LinkedIn discovery token (APIFY_TOKEN/APIFY_API_TOKEN/TAVILY_API_KEY); "
+            "writing empty linkedin_jobs snapshot."
+        )
+        _write_bronze_snapshot("linkedin_jobs", context.run_id, [])
+        return dg.MaterializeResult(metadata={"total": 0})
+
+    ensure_data_dirs()
+    config = LinkedInConfig.from_preferences()
+    outcome = run_discovery(config, kinds=["job"])
+    canonical = [normalize_linkedin_job(job) for job in outcome.jobs]
+    _write_bronze_snapshot("linkedin_jobs", context.run_id, canonical)
+    return dg.MaterializeResult(metadata={"total": len(canonical)})
+
+
+@dg.asset(
+    group_name="sources",
+    description="LinkedIn recruiter posts (/posts/) discovered via the LinkedIn source adapter",
+)
+def linkedin_posts(context: AssetExecutionContext) -> dg.MaterializeResult:
+    """Discover + normalize LinkedIn recruiter posts into canonical format."""
+    from job_search_toolkit.linkedin.adapter import run_discovery
+    from job_search_toolkit.linkedin.config import LinkedInConfig
+    from ..adapt_linkedin import normalize_linkedin_post
+
+    if not _has_discovery_key():
+        context.log.warning(
+            "No LinkedIn discovery token (APIFY_TOKEN/APIFY_API_TOKEN/TAVILY_API_KEY); "
+            "writing empty linkedin_posts snapshot."
+        )
+        _write_bronze_snapshot("linkedin_posts", context.run_id, [])
+        return dg.MaterializeResult(metadata={"total": 0})
+
+    ensure_data_dirs()
+    config = LinkedInConfig.from_preferences()
+    outcome = run_discovery(config, kinds=["post"])
+    canonical = [
+        job
+        for job in (normalize_linkedin_post(post) for post in outcome.posts)
+        if job is not None
+    ]
+    _write_bronze_snapshot("linkedin_posts", context.run_id, canonical)
+    return dg.MaterializeResult(metadata={"total": len(canonical)})
