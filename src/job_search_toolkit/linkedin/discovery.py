@@ -18,7 +18,7 @@ import httpx
 
 _APIFY_BASE = "https://api.apify.com"
 _TAVILY_ENDPOINT = "https://api.tavily.com/search"
-_DEFAULT_ACTOR_ID = "epctex/google-search-scraper"
+_DEFAULT_ACTOR_ID = "epctex~google-search-scraper"
 _TAVILY_RATE_LIMIT_SLEEP = 1.0
 _BODY_PREFIX_CHARS = 200
 _TERMINAL_STATUSES = frozenset({"SUCCEEDED", "FAILED", "TIMED-OUT", "ABORTED"})
@@ -140,7 +140,7 @@ class ApifyBackend:
         else RuntimeError.
 
         Post: a backend bound to the given actor (``actor_id``, defaulting to
-        ``APIFY_ACTOR_ID`` then ``epctex/google-search-scraper``) and the
+        ``APIFY_ACTOR_ID`` then ``epctex~google-search-scraper``) and the
         given run-polling knobs.
         """
         self.token = (
