@@ -450,3 +450,35 @@ SQL blocks + a broken con.execute() call. Full-function delete + rewrite was
 the reliable fix — reinforces the rule: after one mangle on a file, full-file
 write or full-function rewrite for that function; never attempt to patch the
 patch.
+
+## 2026-08-23: incremental gate "terminal" marker must be a persisted column value
+
+**Problem:** A subagent building the deferred `linkedin_post_enriched` LLM
+asset claimed its unfillable rows were "marked terminal via
+`_enrichment["post_enriched"]` so they are not retried". That flag lives in
+the `_enrichment` dict, which is in silver.py's `_SKIP_KEYS` and never becomes
+a warehouse column. The gate selects on `title = '' OR location_raw = ''`.
+So a post the LLM genuinely couldn't fill kept `title = ''` forever, the gate
+re-selected it every run, and the LLM was re-queried on the same unfillable
+post indefinitely. The subagent's 7 tests passed because they asserted the
+within-run flag, not the cross-run persistence that the gate actually depends
+on.
+
+**Root cause:** the "processed" sentinel was written to a transient,
+non-persisted dict instead of a persisted column the gate reads. A NULL/empty-
+based incremental gate can only be terminal if the sentinel is a real column
+value (or the gate checks a persisted flag).
+
+**Fix:** coerce unfillable `title`/`location_raw` to the non-empty sentinel
+`"unknown"` — consistent with the existing `org_type = 'unknown'` convention
+("researched, nothing found") — so the empty-based gate stops selecting the row.
+
+**Rule:** any "processed once, don't re-select" marker for a NULL/empty-based
+gate MUST be a persisted column value (or a persisted flag column the gate
+references). Transient `_enrichment`/`_source` dict flags are lost between
+runs and can never serve as a gate terminal marker.
+
+**Corollary (delegation):** subagent self-reports describe the HAPPY intent
+("marked terminal so not retried"), not the actual persistence semantics.
+Verify the gate's terminal condition against the warehouse schema (which keys
+are persisted) — not just the subagent's green tests — before accepting.
