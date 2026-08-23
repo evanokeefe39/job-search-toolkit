@@ -27,7 +27,7 @@ from job_search_toolkit.linkedin.discovery import (
 )
 
 _FIXTURES = Path(__file__).resolve().parent / "fixtures"
-_ACTOR = "epctex~google-search-scraper"
+_ACTOR = "apify~google-search-scraper"
 
 
 def _load_fixture(name: str) -> object:

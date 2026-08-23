@@ -18,7 +18,7 @@ import httpx
 
 _APIFY_BASE = "https://api.apify.com"
 _TAVILY_ENDPOINT = "https://api.tavily.com/search"
-_DEFAULT_ACTOR_ID = "epctex~google-search-scraper"
+_DEFAULT_ACTOR_ID = "apify~google-search-scraper"
 _TAVILY_RATE_LIMIT_SLEEP = 1.0
 _BODY_PREFIX_CHARS = 200
 _TERMINAL_STATUSES = frozenset({"SUCCEEDED", "FAILED", "TIMED-OUT", "ABORTED"})
@@ -99,8 +99,11 @@ def flatten_tavily_response(payload: dict) -> list[SearchResult]:
 
 
 def _check_response(resp: httpx.Response) -> None:
-    """Raise RuntimeError with status + body prefix unless ``resp`` is HTTP 200."""
-    if resp.status_code != 200:
+    """Raise RuntimeError with status + body prefix unless ``resp`` is 2xx.
+
+    The Apify run-start endpoint returns 201 Created; GET endpoints return 200.
+    """
+    if not 200 <= resp.status_code < 300:
         raise RuntimeError(
             f"HTTP {resp.status_code}: {resp.text[:_BODY_PREFIX_CHARS]}"
         )
@@ -140,7 +143,7 @@ class ApifyBackend:
         else RuntimeError.
 
         Post: a backend bound to the given actor (``actor_id``, defaulting to
-        ``APIFY_ACTOR_ID`` then ``epctex~google-search-scraper``) and the
+        ``APIFY_ACTOR_ID`` then ``apify~google-search-scraper``) and the
         given run-polling knobs.
         """
         self.token = (
@@ -195,12 +198,13 @@ class ApifyBackend:
     ) -> str:
         """POST the queries to the actor and return the new run id."""
         url = f"{_APIFY_BASE}/v2/acts/{self.actor_id}/runs"
-        payload = {
-            "queries": "\n".join(queries),
-            "countryCode": country_code or "",
-            "languageCode": language_code or "",
-            "maxPagesPerQuery": 1,
-        }
+        payload = {"queries": "\n".join(queries), "maxPagesPerQuery": 1}
+        # The official apify/google-search-scraper input uses country/language,
+        # not the epctex actor's countryCode/languageCode. Omit when unset.
+        if country_code:
+            payload["country"] = country_code
+        if language_code:
+            payload["language"] = language_code
         resp = _request(client, "POST", url, params={"token": self.token}, json=payload)
         return resp.json()["data"]["id"]
 
