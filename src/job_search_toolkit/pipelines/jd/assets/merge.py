@@ -12,7 +12,6 @@ from dagster import AssetExecutionContext
 
 from .common import BRONZE_RUNS
 from .scrape import (
-    datasciencejobs_jobs,
     englishjobs_jobs,
     faruse_jobs,
     freework_jobs,
@@ -59,7 +58,6 @@ def _read_bronze_entries(run_id: str) -> list[dict]:
         faruse_jobs,
         wwr_jobs,
         remoteok_jobs,
-        datasciencejobs_jobs,
         linkedin_jobs,
         linkedin_posts,
     ],

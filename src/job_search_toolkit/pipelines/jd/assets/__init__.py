@@ -1,7 +1,6 @@
 """JD pipeline assets — one module per pipeline stage."""
 
 from .scrape import (
-    datasciencejobs_jobs,
     englishjobs_jobs,
     faruse_jobs,
     freework_jobs,
@@ -26,7 +25,6 @@ __all__ = [
     "faruse_jobs",
     "wwr_jobs",
     "remoteok_jobs",
-    "datasciencejobs_jobs",
     "linkedin_jobs",
     "linkedin_posts",
     "linkedin_post_enriched",

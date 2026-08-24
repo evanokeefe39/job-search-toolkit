@@ -20,7 +20,6 @@ from __future__ import annotations
 import dagster as dg
 
 from .assets import (
-    datasciencejobs_jobs,
     englishjobs_jobs,
     faruse_jobs,
     freework_jobs,
@@ -52,7 +51,6 @@ RANKING_ASSETS = [
     faruse_jobs,
     wwr_jobs,
     remoteok_jobs,
-    datasciencejobs_jobs,
     linkedin_jobs,
     linkedin_posts,
     silver_upsert,

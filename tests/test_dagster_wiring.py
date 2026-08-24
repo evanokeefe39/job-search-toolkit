@@ -8,10 +8,11 @@ from __future__ import annotations
 import pytest
 
 from job_search_toolkit.pipelines.jd.assets import (
-    datasciencejobs_jobs,
     englishjobs_jobs,
     faruse_jobs,
     hellowork_jobs,
+    linkedin_jobs,
+    linkedin_posts,
     remoteok_jobs,
     wwr_jobs,
 )
@@ -25,7 +26,8 @@ NEW_BOARDS = {
     "faruse": faruse_jobs,
     "wwr": wwr_jobs,
     "remoteok": remoteok_jobs,
-    "datasciencejobs": datasciencejobs_jobs,
+    "linkedin_jobs": linkedin_jobs,
+    "linkedin_posts": linkedin_posts,
 }
 
 # dagster exposes upstream deps as `asset_deps`: {AssetKey: set[AssetKey]}.
@@ -33,15 +35,19 @@ SILVER_DEPS = {
     k.path[-1] for ks in silver_upsert.asset_deps.values() for k in ks
 }
 
-def test_all_assets_include_eight_boards():
+def test_all_assets_include_active_boards():
     names = {a.key.path[-1] for a in ALL_ASSETS}
-    for board in list(NEW_BOARDS) + ["freework", "hiringcafe"]:
-        assert f"{board}_jobs" in names
+    expected = {a.key.path[-1] for a in NEW_BOARDS.values()} | {
+        "freework_jobs", "hiringcafe_jobs"
+    }
+    assert expected <= names
 
 
-def test_silver_upsert_depends_on_all_eight_boards():
-    for board in list(NEW_BOARDS) + ["freework", "hiringcafe"]:
-        assert f"{board}_jobs" in SILVER_DEPS
+def test_silver_upsert_depends_on_all_active_boards():
+    expected = {a.key.path[-1] for a in NEW_BOARDS.values()} | {
+        "freework_jobs", "hiringcafe_jobs"
+    }
+    assert expected <= SILVER_DEPS
 
 
 def test_gate_classify_selects_new_boards_excludes_hiringcafe(wh):

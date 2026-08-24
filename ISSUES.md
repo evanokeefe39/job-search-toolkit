@@ -79,6 +79,28 @@ session hazard (eval kernel caching a stale module, causing a phantom
   detector); verify behavioral changes in fresh subprocesses, never the
   persistent eval kernel.
 
+### datasciencejobs scraper: long-running, DNS failure discards ~245 pages (OPEN 2026-08-24)
+
+**Symptom:** `datasciencejobs_jobs` is the bottleneck of the full `pipeline
+run`. On 2026-08-24 it ran ~2h16m (~345 pages, per-job detail fetch), then
+died at page 246 with `httpx.ConnectError: [Errno 11001] getaddrinfo failed`
+(DNS). Because the scraper writes results only after finishing the whole
+board, the failure threw away ~245 pages of already-fetched results. Worse,
+it runs *before* the LinkedIn boards in the graph, so the full run never
+reached LinkedIn — `silver.jobs` had 0 rows for `linkedin_jobs`/`linkedin_posts`.
+
+**Action taken:** removed `datasciencejobs_jobs` from the default pipeline
+(`RANKING_ASSETS` in `definitions.py`, `merge.py` deps, `assets/__init__.py`).
+The `scrape datasciencejobs` CLI and its `BOARD_DIMENSIONS` row are kept so it
+can be run manually; existing warehouse rows still resolve.
+
+**Fix (batching/streaming — deferred):** the scraper writes to a single
+landing file only at the end, so any mid-board failure is a total loss. Stream
+results to a per-page landing table (bronze) as they arrive so partial runs
+survive; then `silver_upsert` ingests whatever landed. Consider a `--max-pages`
+flag to bound runtime. Re-enable in the default pipeline only when resilience
+is in place.
+
 ## Closed
 
 ### LinkedIn adapter: deterministic tech scan is a hardcoded list (RESOLVED 2026-08-17)
