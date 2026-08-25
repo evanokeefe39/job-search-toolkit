@@ -226,6 +226,20 @@ Highest score first. Re-score quarterly.
 
 ---
 
+## Potential Enhancements (deferred)
+
+- **CLI robustness micro-fixes** (2026-08-25 design review, see
+  `tasks/plans/cli-source-selection.md`): make partial failures survivable in
+  one run (`raise_on_error=False` + surface failed step keys + recovery hint),
+  add `RetryPolicy` to scrape assets, and fix the freework `_max_pages()` leak.
+  Cheap wins; no new CLI surface.
+- **Per-board Dagster partitions** (future): if the pipeline becomes scheduled
+  or multi-user, model each board as a static partition for native selective
+  runs + backfill (see `docs/pipeline-streaming-research.md`). Requires a
+  persistent DagsterInstance. Deliberately NOT building now.
+
+---
+
 ## What's Out of Scope (for now)
 
 - **Automated application submission** — human review gate stays. No auto-apply.

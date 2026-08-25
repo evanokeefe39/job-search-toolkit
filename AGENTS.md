@@ -204,6 +204,17 @@ excludes stale jobs, exposes ``days_since_posted``/``days_since_seen``),
 
 ## Known sharp edges
 
+- **CLI source selection (potential enhancement, 2026-08-25):** the CLI is
+  intentionally minimal — `pipeline run [-b BOARD ...]` (default = 9 active
+  boards; datasciencejobs opt-in by name), `pipeline ingest --run-id <id>
+  [-b board]`, `pipeline list-runs`, `pipeline gold`. A design review
+  (3-expert panel) concluded NOT to add YAML config, per-board limit flags, or
+  a `--resume` flag. The deferred wins are three robustness micro-fixes
+  (`raise_on_error=False` + failed-step reporting, `RetryPolicy` on scrape
+  assets, freework `_max_pages()` leak) and, if the tool becomes scheduled or
+  multi-user, per-board Dagster partitions. See
+  `tasks/plans/cli-source-selection.md` + `ROADMAP.md` → "Potential
+  Enhancements". Don't expand the CLI without revisiting that decision.
 - **Reader-mode vs DOM text:** The `read` tool's reader-mode injects artificial "SVG Image" text nodes that don't exist in the BeautifulSoup parse tree. Always test parsers against real `httpx` + `bs4` output, not reader-mode.
 - **get_text() concatenation:** BeautifulSoup's `get_text(strip=True)` glues adjacent text nodes with no separators (e.g. `Start dateAs soon as possible`). The `parse_details` regex handles this; new parsers must account for it.
 - **Card container:** Job cards are `div.rounded-lg.shadow` containers. The scraper walks up from each `h2` (up to 6 parent levels) until it finds an ancestor whose class list contains both `rounded-lg` and `shadow`.

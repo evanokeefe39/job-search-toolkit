@@ -3,6 +3,47 @@
 
 ## Open
 
+### CLI source-selection design review — enhancement, not a bug (OPEN 2026-08-25)
+
+**Kind:** enhancement / design decision (no defect). A 3-expert review panel
+(CLI ergonomics, Dagster idiom, complexity audit) reviewed how the CLI selects
+sources, whether per-source limits are wanted, and whether a `--resume` /
+separate `ingest` command is the right recovery model.
+
+**Verdict (panel consensus):** the current CLI is already ~95% of minimal-
+viable shape and should NOT be expanded. `pipeline run` (default = 9 active
+boards; datasciencejobs opt-in by name via `-b datasciencejobs`), `pipeline
+ingest --run-id <id> [-b board]`, `pipeline list-runs`, `pipeline gold`.
+`-b/--boards` already accepts repeat/comma/space forms.
+
+**Deliberately NOT building (with reasons):** YAML source config (would be the
+repo's 4th config convention, no demand for a single-user tool); per-board
+limit flags on the pipeline (leaky — only 4/10 boards page; limits are pages,
+not jobs; `scrape <board> --max-pages N` and the `MAX_PAGES` env var already
+cover bounded runs); a `--resume <uuid>` flag (reinvents orchestration state-
+tracking; recovery is two explicit commands — `pipeline ingest --run-id <id>`
+to land what succeeded + `pipeline run -b <failed>` to retry a board); named
+presets; Dagster partitions/schedules now (requires a persistent
+DagsterInstance/daemon this repo doesn't run — documented future path in
+`docs/pipeline-streaming-research.md`).
+
+**Real gap + cheap wins (the "capitalize on Dagster" micro-fixes):**
+1. `run_pipeline` uses `raise_on_error=True` (Dagster default), so a single
+   failed board aborts the whole in-process run and `scored_jobs`/gold never
+   run for the boards that succeeded. Flip to `raise_on_error=False`, surface
+   `get_failed_step_keys()` (which boards failed), print a recovery hint, exit
+   non-zero. This makes partial failure survivable in one run.
+2. Add `retry_policy=dg.RetryPolicy(max_retries=1, delay=30)` to the
+   network-bound scrape assets (dominant failure class = transient HTTP/DNS;
+   zero RetryPolicy exists today).
+3. Fix a pre-existing leak: freework's scrape ignores `_max_pages()` (passes
+   `max_pages=None`), so the one limit knob doesn't apply to it.
+
+**When to revisit partitions:** if this becomes scheduled/multi-user or true
+streaming lands (see `docs/pipeline-streaming-research.md`), model each board
+as a static Dagster partition for native selective runs + backfill. Not YAML.
+Full discussion + conclusion in `tasks/plans/cli-source-selection.md`.
+
 ### OMP edit tool: silent file corruption via boundary-echo auto-repair (OPEN 2026-08-12)
 
 **Symptom:** The `edit` tool repeatedly mangles files during large or repeated
@@ -79,6 +120,8 @@ session hazard (eval kernel caching a stale module, causing a phantom
   detector); verify behavioral changes in fresh subprocesses, never the
   persistent eval kernel.
 
+## Closed
+
 ### datasciencejobs scraper: long-running, DNS failure discards ~245 pages (RESOLVED 2026-08-25)
 
 **Symptom:** `datasciencejobs_jobs` is the bottleneck of the full `pipeline
@@ -148,8 +191,6 @@ columns present in `silver.jobs` (so a fresh/partial warehouse scores instead
 of failing). Verified: live `pipeline ingest --run-id 4e28442a-a9aa-...`
 recovered 31 orphaned LinkedIn rows with zero new bronze/Apify calls. Plan:
 `tasks/plans/resume-from-bronze.md`.
-
-## Closed
 
 ### LinkedIn adapter: deterministic tech scan is a hardcoded list (RESOLVED 2026-08-17)
 
