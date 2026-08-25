@@ -388,46 +388,13 @@ def flatten_canonical(job: CanonicalJob) -> dict:
     }
 
 
-def scrape(list_url: str, output: Path, max_pages: int | None, fmt: str,
-           query: str) -> int:
-    """Core scraping logic. Returns number of jobs scraped."""
-    client = httpx.Client(headers=HEADERS, follow_redirects=True)
+def _write_output(output: Path, fmt: str, all_jobs: list[CanonicalJob]) -> None:
+    """Write the jobs array/CSV, truncating any stale partial from a prior run.
 
-    html = fetch_page(client, list_url)
-    soup = BeautifulSoup(html, "html.parser")
-    total_pages = find_page_count(soup)
-    if max_pages is not None:
-        total_pages = min(total_pages, max_pages)
-    print(f"Found {total_pages} pages")
-
-    all_jobs: list[CanonicalJob] = []
-    seen_ids: set[str] = set()
-
-    for page in range(1, total_pages + 1):
-        if page > 1:
-            url = f"{BASE_URL}/jobs/page/{page}/"
-            html = fetch_page(client, url)
-            soup = BeautifulSoup(html, "html.parser")
-
-        page_jobs = 0
-        for card in soup.select("div.card-grid-2"):
-            raw = extract_job(card)
-            if not raw or not raw.get("title"):
-                continue
-            if not title_matches(str(raw["title"]), query):
-                continue
-            job_id = raw.get("id")
-            if job_id in seen_ids:
-                continue
-            seen_ids.add(job_id)  # type: ignore[arg-type]
-            raw = fetch_detail(client, raw)
-            all_jobs.append(normalize_job(raw))
-            page_jobs += 1
-
-        print(f"  Page {page}: {page_jobs} jobs")
-
-    client.close()
-
+    Opens with ``"w"`` (never append) so a fresh run never mixes with prior
+    output. JSON keeps the canonical top-level array schema (silver readers
+    depend on it).
+    """
     if fmt == "json":
         with open(output, "w", encoding="utf-8") as f:
             json.dump(all_jobs, f, ensure_ascii=False, indent=2)
@@ -438,6 +405,77 @@ def scrape(list_url: str, output: Path, max_pages: int | None, fmt: str,
             writer = csv.DictWriter(f, fieldnames=fieldnames)
             writer.writeheader()
             writer.writerows(flat)
+
+
+def scrape(list_url: str, output: Path, max_pages: int | None, fmt: str,
+           query: str) -> int:
+    """Core scraping logic. Returns number of jobs scraped.
+
+    Resilient to mid-board failures: a single job's ``fetch_detail`` failure
+    skips just that job, and a page failure breaks the loop while keeping every
+    prior page. Whatever completed is written out before returning, so a
+    partial run is ingested rather than lost.
+    """
+    client = httpx.Client(headers=HEADERS, follow_redirects=True)
+
+    all_jobs: list[CanonicalJob] = []
+    seen_ids: set[str] = set()
+
+    try:
+        html = fetch_page(client, list_url)
+    except Exception as exc:
+        print(f"  Failed to load first page: {exc}")
+        html = ""
+    soup = BeautifulSoup(html, "html.parser")
+    total_pages = find_page_count(soup)
+    if not html.strip():
+        # First page failed to load -> clean partial of 0 pages, not a crash.
+        total_pages = 0
+    if max_pages is not None:
+        total_pages = min(total_pages, max_pages)
+    print(f"Found {total_pages} pages")
+
+    for page in range(1, total_pages + 1):
+        try:
+            if page > 1:
+                url = f"{BASE_URL}/jobs/page/{page}/"
+                html = fetch_page(client, url)
+                soup = BeautifulSoup(html, "html.parser")
+
+            page_jobs = 0
+            for card in soup.select("div.card-grid-2"):
+                raw = extract_job(card)
+                if not raw or not raw.get("title"):
+                    continue
+                if not title_matches(str(raw["title"]), query):
+                    continue
+                job_id = raw.get("id")
+                if job_id in seen_ids:
+                    continue
+                seen_ids.add(job_id)  # type: ignore[arg-type]
+                try:
+                    raw = fetch_detail(client, raw)
+                except Exception as exc:
+                    print(f"    Skipping job {job_id}: {exc}")
+                    continue
+                all_jobs.append(normalize_job(raw))
+                page_jobs += 1
+
+            print(f"  Page {page}: {page_jobs} jobs")
+
+            # Write-what-you-have after each completed page so even a hard
+            # process kill keeps the last fully-written page.
+            _write_output(output, fmt, all_jobs)
+        except Exception as exc:
+            print(f"  Page {page} failed: {exc}; keeping {len(all_jobs)} jobs from prior pages")
+            break
+
+    client.close()
+
+    # Final write reflects every completed page. When a mid-board failure broke
+    # the loop, this persists pages 1..N-1; on an empty/failed first page it
+    # persists ``[]``.
+    _write_output(output, fmt, all_jobs)
 
     print(f"\nWrote {len(all_jobs)} jobs to {output}")
     return len(all_jobs)
