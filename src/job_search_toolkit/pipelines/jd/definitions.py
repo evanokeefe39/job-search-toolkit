@@ -20,6 +20,7 @@ from __future__ import annotations
 import dagster as dg
 
 from .assets import (
+    datasciencejobs_jobs,
     englishjobs_jobs,
     faruse_jobs,
     freework_jobs,
@@ -53,6 +54,32 @@ RANKING_ASSETS = [
     remoteok_jobs,
     linkedin_jobs,
     linkedin_posts,
+    silver_upsert,
+    scored_jobs,
+    ranked_csv,
+    gold_views,
+    merged_jobs_export,
+    freework_enriched_export,
+]
+
+# CLI board name -> scrape asset, for `pipeline run --boards <name> ...`.
+# datasciencejobs is deliberately absent from RANKING_ASSETS (long-running,
+# brittle — see ISSUES.md) but reachable here as an explicit opt-in.
+BOARD_SCRAPE_ASSETS = {
+    "freework": freework_jobs,
+    "hiringcafe": hiringcafe_jobs,
+    "hellowork": hellowork_jobs,
+    "englishjobs": englishjobs_jobs,
+    "faruse": faruse_jobs,
+    "wwr": wwr_jobs,
+    "remoteok": remoteok_jobs,
+    "datasciencejobs": datasciencejobs_jobs,
+    "linkedin_jobs": linkedin_jobs,
+    "linkedin_posts": linkedin_posts,
+}
+
+# Non-source assets always materialized: merge + score + export + gold.
+PIPELINE_ASSETS = [
     silver_upsert,
     scored_jobs,
     ranked_csv,

@@ -103,12 +103,14 @@ browser search URL (the CLI `--url` override is the discovery mechanism).
 Required: scraper must verify the location filter actually applied
 (result set differs from unfiltered board) — fail fast or warn loudly.
 
-## Deactivation interaction (must-fix with source toggles)
+## Deactivation → staleness (resolved)
 
-`deactivate_not_seen` marks jobs inactive when absent from the latest run. If
-a board is toggled off, the next run would deactivate ALL of that board's
-warehouse rows. Deactivation must be board-aware: only deactivate boards that
-were actually scraped this run.
+The old `deactivate_not_seen` marked jobs inactive when absent from the latest
+run — a board toggled off would have ALL of its rows deactivated on the next
+run, forcing full-run-every-time. Resolved (2026-08-25): jobs are never
+deactivated. Staleness is inferred from `last_seen_at` (`STALE_AFTER_DAYS`);
+`gold.*` views rank/filter on it, and subset runs (`pipeline run --boards`)
+are safe because a board not scraped just stops refreshing `last_seen_at`.
 
 ## Territory coverage note
 

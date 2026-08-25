@@ -1,6 +1,7 @@
 """JD pipeline assets — one module per pipeline stage."""
 
 from .scrape import (
+    datasciencejobs_jobs,
     englishjobs_jobs,
     faruse_jobs,
     freework_jobs,
@@ -18,6 +19,7 @@ from .score import scored_jobs, ranked_csv
 from .gold import gold_views
 from .exports import merged_jobs_export, freework_enriched_export
 __all__ = [
+    "datasciencejobs_jobs",
     "freework_jobs",
     "hiringcafe_jobs",
     "hellowork_jobs",

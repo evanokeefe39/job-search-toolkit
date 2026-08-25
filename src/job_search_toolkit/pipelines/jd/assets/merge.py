@@ -25,7 +25,6 @@ from .scrape import (
 from ..config import BRONZE_DIR
 from ..silver import (
     connect,
-    deactivate_not_seen,
     ensure_dims,
     ensure_jobs_table,
     refresh_dim_date,
@@ -68,8 +67,10 @@ def silver_upsert(context: AssetExecutionContext) -> dg.MaterializeResult:
     """Ingest this run's scraped jobs into the warehouse.
 
     Reads the timestamped bronze files recorded in ``runs.json`` for the
-    current Dagster run, upserts them (preserving enrichment on re-scrape),
-    then deactivates jobs that were not seen in this run.
+    current Dagster run and upserts them (preserving enrichment on re-scrape).
+    Jobs are never deactivated: a subset run (``--boards``) safely ingests
+    only the boards it scraped, and staleness is inferred downstream from
+    ``last_seen_at`` rather than a global is_active flip.
     """
     run_id = context.run_id
     jobs: list[dict] = []
@@ -84,16 +85,11 @@ def silver_upsert(context: AssetExecutionContext) -> dg.MaterializeResult:
         ensure_dims(con)
         columns = ensure_jobs_table(con, jobs)
         upsert_run(con, run_id, jobs, columns)
-        deactivate_not_seen(con, run_id)
         refresh_dim_date(con)
         total = con.execute("SELECT COUNT(*) FROM silver.jobs").fetchone()[0]
-        active = con.execute(
-            "SELECT COUNT(*) FROM silver.jobs WHERE is_active"
-        ).fetchone()[0]
 
     return dg.MaterializeResult(metadata={
         "ingested": len(jobs),
         "warehouse_total": total,
-        "active": active,
         "run_id": run_id,
     })

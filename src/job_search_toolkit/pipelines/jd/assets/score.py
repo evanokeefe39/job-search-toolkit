@@ -25,6 +25,7 @@ SCORE_COLUMNS = [
     "salary", "workplace_type", "contract_types", "contract_duration",
     "seniority_level", "role_category", "technologies",
     "posting_company_type", "engagement_type",
+    "date_posted", "last_seen_at",
 ]
 
 

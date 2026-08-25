@@ -132,3 +132,17 @@ def test_full_pipeline_job_excludes_enrichment_assets():
     assert {"scored_jobs", "ranked_csv", "silver_upsert"} <= ranking_names
     assert {"translated", "tech_extracted", "vertical_classified",
             "dim_company_enriched"} <= enrich_names
+
+
+def test_datasciencejobs_is_opt_in_not_default():
+    from job_search_toolkit.pipelines.jd.definitions import (
+        BOARD_SCRAPE_ASSETS,
+        RANKING_ASSETS,
+    )
+
+    ranking_names = {a.key.path[-1] for a in RANKING_ASSETS}
+    # Not on the default ranking path (long-running/brittle — see ISSUES.md)…
+    assert "datasciencejobs_jobs" not in ranking_names
+    # …but reachable as an explicit `--boards datasciencejobs` opt-in.
+    assert "datasciencejobs" in BOARD_SCRAPE_ASSETS
+    assert BOARD_SCRAPE_ASSETS["datasciencejobs"].key.path[-1] == "datasciencejobs_jobs"

@@ -52,14 +52,24 @@ def pipeline_run(
         False, "--enrich",
         help="Also run the optional LLM enrichment pass (deferred, dimension-scoped)",
     ),
+    boards: list[str] = typer.Option(
+        None, "--boards", "-b",
+        help="Only run these boards' scrape+ingest (repeatable). Defaults to all active boards.",
+    ),
 ) -> None:
     """Run the ranking path (scrape -> merge -> score -> export), no LLM.
 
     With --enrich, the optional LLM enrichment assets run afterwards.
+    With --boards (e.g. `--boards linkedin_jobs --boards linkedin_posts`),
+    only those boards are scraped and ingested — merge/score/export/gold still
+    run on the subset, so a single source can be iterated without re-scraping
+    the whole set.
     """
     from job_search_toolkit.pipelines.jd.run import run_pipeline
 
-    ok = run_pipeline(enrich=enrich)
+    # Accept `--boards "a b"` or `--boards a --boards b` (split on ws/comma).
+    flat = [b for item in (boards or []) for b in item.replace(",", " ").split()]
+    ok = run_pipeline(enrich=enrich, boards=flat or None)
     if not ok:
         raise typer.Exit(code=1)
 

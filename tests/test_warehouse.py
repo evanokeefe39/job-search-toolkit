@@ -136,13 +136,13 @@ def test_full_replace_adopts_content_keeps_first_seen(wh):
     assert row == ("prior", "migration", "real description", "Spark")
 
 
-def test_deactivate_not_seen(wh):
+def test_upsert_does_not_deactivate_unseen_jobs(wh):
+    """Subset runs must not deactivate boards outside the run (staleness model)."""
     con, _ = wh
     _upsert(con, "run1", [make_job("j1"), make_job("j2")])
-    _upsert(con, "run2", [make_job("j2")])
-    S.deactivate_not_seen(con, "run2")
+    _upsert(con, "run2", [make_job("j2")])  # j1 not in this run
     rows = con.execute("SELECT id, is_active FROM silver.jobs ORDER BY id").fetchall()
-    assert rows == [("j1", False), ("j2", True)]
+    assert rows == [("j1", True), ("j2", True)]  # nothing deactivated
 
 
 # ---------------------------------------------------------------------------
@@ -220,29 +220,33 @@ def test_gates_skip_inactive_rows(wh):
 # ---------------------------------------------------------------------------
 
 def test_gold_views_delta(tmp_path, monkeypatch):
-    """Two runs: new_this_run / disappeared_this_run / ranked_jobs behave."""
+    """new_this_run / disappeared_this_run / ranked_jobs reflect staleness."""
     db = tmp_path / "jobs.db"
     monkeypatch.setattr(S, "WAREHOUSE_DB", db)
     con = S.connect()
-    # Run 1: j1 + j2. Run 2: only j2 (j1 disappears). j3 is brand new in run 2.
+    # Run 1: j1 + j2. Run 2: only j2 (j1 stops being seen). j3 new in run 2.
     _upsert(con, "run1", [make_job("j1"), make_job("j2")])
     _upsert(con, "run2", [make_job("j2"), make_job("j3")])
-    S.deactivate_not_seen(con, "run2")
+    # j1 is now stale: it was never re-scraped, so age its last_seen beyond the
+    # staleness horizon. Nothing is deactivated (is_active stays TRUE).
+    con.execute(
+        "UPDATE silver.jobs SET last_seen_at = NOW() - INTERVAL 90 DAY WHERE id = 'j1'"
+    )
 
     build_gold(db, run_id="run2")
 
     new = con.execute("SELECT id FROM gold.new_this_run ORDER BY id").fetchall()
     assert [r[0] for r in new] == ["j3"]
     gone = con.execute("SELECT id FROM gold.disappeared_this_run ORDER BY id").fetchall()
-    assert [r[0] for r in gone] == ["j1"]
+    assert [r[0] for r in gone] == ["j1"]  # stale, not deactivated
     ranked = con.execute("SELECT id FROM gold.ranked_jobs ORDER BY id").fetchall()
-    assert [r[0] for r in ranked] == ["j2", "j3"]  # active + scored only
+    assert [r[0] for r in ranked] == ["j2", "j3"]  # scored + non-stale only
     history = con.execute(
         "SELECT id, first_seen_run, last_seen_run, is_active FROM gold.job_history "
         "ORDER BY id"
     ).fetchall()
     assert history == [
-        ("j1", "run1", "run1", False),
+        ("j1", "run1", "run1", True),
         ("j2", "run1", "run2", True),
         ("j3", "run2", "run2", True),
     ]

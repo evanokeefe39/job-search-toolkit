@@ -173,19 +173,23 @@ Kimball star schema (3 dims + 1 fact):
   homepage_url, enriched_at, enrichment_version. LLM research writes here (deferred,
   once per company, never on the ranking path).
 - **silver.dim_date** — spine over date_posted: date_id, iso_week, month, quarter, year
-- **silver.jobs** — the fact table: one row per unique (id, source_board), never deleted.
-  All canonical fields are columns (nested dicts/lists as JSON), plus lineage:
-  first_seen_run/first_seen_at, last_seen_run/last_seen_at, is_active,
+- **silver.jobs** — the fact table: one row per unique (id, source_board), never
+  deleted. All canonical fields are columns (nested dicts/lists as JSON), plus
+  lineage: first_seen_run/first_seen_at, last_seen_run/last_seen_at, is_active,
   enriched_at, enrichment_version, created_at, updated_at, plus company_id FK
-  to dim_company. The legacy company_info JSON column is gone — bridges and
-  fetch_jobs(join_company=True) rebuild it from the dim join.
+  to dim_company. Jobs are never deactivated: ``is_active`` stays TRUE once
+  seen, and staleness is inferred from ``last_seen_at`` (see ``STALE_AFTER_DAYS``)
+  so subset (``--boards``) runs are safe. The legacy company_info JSON column
+  is gone — bridges and fetch_jobs(join_company=True) rebuild it from the dim
+  join.
 
 Enrichment state is column nullability, not flags: ``description_language='fr'``
 means needs translation; empty ``technologies`` means needs tech extraction.
 Company research lives on ``dim_company`` (DIM_COMPANY_GATE: org_type IS NULL),
-never on per-row enrichment. ``gold.*`` views: ``ranked_jobs`` (joins dim_company),
+never on per-row enrichment. ``gold.*`` views: ``ranked_jobs`` (joins dim_company,
+excludes stale jobs, exposes ``days_since_posted``/``days_since_seen``),
 ``by_sector``, ``by_tier``, ``job_history``, ``weekly_snapshot``, ``new_this_run``,
-``disappeared_this_run``.
+``disappeared_this_run`` (jobs not seen within the staleness horizon).
 
 ### Data quality notes
 

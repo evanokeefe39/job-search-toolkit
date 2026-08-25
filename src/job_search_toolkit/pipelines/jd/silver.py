@@ -94,6 +94,11 @@ DIM_COMPANY_COLUMNS: list[tuple[str, str]] = [
 # Each gate selects rows the stage still has to process. Column nullability /
 # emptiness is the source of truth — there is no _enrichment flag anymore.
 
+# Staleness horizon: a job whose last_seen_at is older than this many days is
+# treated as likely filled/expired. Jobs are never deactivated — staleness is
+# inferred from time since last seen (see gold.py, score_engine.py).
+STALE_AFTER_DAYS = 60
+
 GATE_TRANSLATE = (
     "is_active AND description_language = 'fr' AND TRIM(description_text) <> ''"
 )
@@ -529,14 +534,6 @@ def upsert_run(
         ON CONFLICT ("id", "source_board") DO UPDATE SET
             {conflict_set}
         """
-    )
-
-
-def deactivate_not_seen(con: duckdb.DuckDBPyConnection, run_id: str) -> None:
-    """Mark inactive every job not seen in ``run_id`` (the scrape of this run)."""
-    con.execute(
-        f'UPDATE silver.jobs SET is_active = FALSE, updated_at = NOW() '
-        f'WHERE is_active AND last_seen_run <> {sql_literal(run_id)}'
     )
 
 
