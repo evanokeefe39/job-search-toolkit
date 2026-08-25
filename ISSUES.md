@@ -99,7 +99,45 @@ landing file only at the end, so any mid-board failure is a total loss. Stream
 results to a per-page landing table (bronze) as they arrive so partial runs
 survive; then `silver_upsert` ingests whatever landed. Consider a `--max-pages`
 flag to bound runtime. Re-enable in the default pipeline only when resilience
-is in place.
+is in place. Plan: `tasks/plans/datasciencejobs-streaming-landing.md`.
+
+### Pipeline: all-or-nothing ingest — one board's scrape failure blocks all silver/gold (OPEN 2026-08-25)
+
+**Symptom:** `silver_upsert` lists every board scrape asset as a `deps`
+dependency, so it never runs until *all* boards scrape successfully. A single
+board failure (e.g. `datasciencejobs` DNS at page 246) aborts the run before
+any ingest — no board reaches `silver.jobs`/`gold.*`, and the retry re-scrapes
+*all* bronze even though only one board failed. The 2026-08-24 failure left
+both LinkedIn boards empty (0 rows) purely because they ran after the failing
+board in the graph.
+
+**Root cause:** the merge step is a single all-board asset. It should be one
+asset per board so each source flows bronze → silver independently; a failed
+board then blocks only its own row, and other boards reach silver/gold.
+
+**Fix:** split `silver_upsert` into per-board assets (`silver_<board>`), each
+ingesting only its own board's bronze, feeding a shared `scored_jobs`/gold.
+Update `--boards` selection to target the per-board silver asset. Plan:
+`tasks/plans/per-board-silver-upsert.md`.
+
+### Pipeline: no resume-from-bronze — orphaned bronze forces re-scrape to ingest (OPEN 2026-08-25)
+
+**Symptom:** `silver_upsert` reads bronze entries keyed to `context.run_id`.
+If a run dies *after* scraping but *before* ingest, the landed bronze is
+orphaned (keyed to a dead run) and there is no CLI to ingest it — recovery
+means re-scraping (re-burning Apify credits). Observed 2026-08-25: a LinkedIn
+subset run scraped 20 jobs + 45 posts into bronze (run `4e28442a`) then hung
+on the DBeaver write lock; recovery re-ran the pipeline and re-scraped LinkedIn
+(run `ec3f038b`, 22 + 39), leaving `4e28442a`'s bronze unused in
+`data/bronze/` + `runs.json`.
+
+**Root cause:** no way to run `silver_upsert` + downstream against an existing
+bronze snapshot under a chosen run id.
+
+**Fix:** add `job-search-toolkit pipeline ingest --run-id <id> [--board <b>]`
+(plus `--list-runs`) that materializes silver ingest + score/export/gold from
+existing bronze without scraping. Plan:
+`tasks/plans/resume-from-bronze.md`.
 
 ## Closed
 
