@@ -2,11 +2,11 @@
 
 Scoring is incremental: only rows with ``overall_score IS NULL`` are scored.
 The score stage is decoupled from LLM enrichment — ``scored_jobs`` depends
-only on ``silver_upsert`` and reads purely tabular fields (company data via
-the ``dim_company`` join, which at scoring time contains only scraper-parsed
-values, never LLM research). The ranked CSV export is a backward-compat
-bridge — it is materialized from ``silver.jobs`` on every run so the
-jd-refresh / new-application skills keep working unchanged.
+only on the per-board silver assets and reads purely tabular fields (company
+data via the ``dim_company`` join, which at scoring time contains only
+scraper-parsed values, never LLM research). The ranked CSV export is a
+backward-compat bridge — it is materialized from ``silver.jobs`` on every run
+so the jd-refresh / new-application skills keep working unchanged.
 """
 
 import csv
@@ -14,7 +14,7 @@ import csv
 import dagster as dg
 from dagster import AssetExecutionContext
 
-from .merge import silver_upsert
+from .merge import SILVER_BOARD_ASSETS
 from ..silver import GATE_SCORE, connect, fetch_jobs, reset_stale, sql_json, sql_literal
 
 # Every field score_engine.py reads (score_engine.py::score_jobs).
@@ -39,7 +39,7 @@ def _update(con, job: dict, sets: str) -> None:
 
 
 @dg.asset(
-    deps=[silver_upsert],
+    deps=list(SILVER_BOARD_ASSETS.values()),
     group_name="scoring",
     description="Score pending jobs and assign recommendation tiers",
 )

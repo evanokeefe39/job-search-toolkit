@@ -13,8 +13,12 @@ Covers the impact/JD-relevance ranking introduced 2026-08-10:
 Run: uv run python -m tests.test_merge
 """
 
+import json
 import sys
 from pathlib import Path
+
+import dagster as dg
+import pytest
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
@@ -214,6 +218,205 @@ def test_merge_content_skills_are_merged():
     }
     merged = merge_content(original, content, None, merge_low_value=False)
     assert merged["cv"]["sections"]["skills"] == [{"label": "B", "details": "new skill"}]
+
+
+# ---------------------------------------------------------------------------
+# Per-board silver asset factory (assets/merge.py)
+#
+# Each test materializes a ``silver_<board>`` asset built by the factory
+# against a throwaway bronze manifest + DuckDB warehouse, with a fixed run id
+# matching the manifest entries. ``_read_board_bronze`` must return [] (not
+# raise) when a board is absent from the run, and the upsert must stay
+# idempotent + enrichment-preserving.
+# ---------------------------------------------------------------------------
+
+def _sjob(jid: str, board: str) -> dict:
+    """A minimal canonical job row (enough for ensure_jobs_table/upsert_run)."""
+    return {
+        "id": jid,
+        "source_board": board,
+        "title": "Data Engineer",
+        "description_text": "text",
+        "description_language": "en",
+        "technologies": ["Python"],
+        "company": "Acme",
+        "company_info": {"name": "Acme", "org_type": None},
+        "apply_url": f"https://x/{jid}",
+        "date_posted": "2026-08-01",
+        "salary": {
+            "min_annual_eur": 60000.0, "max_annual_eur": 80000.0,
+            "currency_original": "EUR", "frequency_original": "yearly",
+            "is_disclosed": True,
+        },
+        "workplace_type": "remote",
+        "contract_types": ["contract"],
+        "contract_duration": None,
+        "location_raw": "Paris",
+        "engagement_type": "consulting",
+        "posting_company_type": "end_client",
+        "end_client_name": None,
+        "end_client_sector": None,
+        "views": 10,
+        "applications": 2,
+        "is_expired": False,
+        "years_experience_min": 3,
+    }
+
+
+@pytest.fixture
+def bronze_wh(tmp_path, monkeypatch):
+    """A throwaway bronze manifest + DuckDB warehouse for the factory tests."""
+    from job_search_toolkit.pipelines.jd import silver as S
+    from job_search_toolkit.pipelines.jd.assets import merge as M
+
+    bronze = tmp_path / "bronze"
+    bronze.mkdir()
+    db = tmp_path / "jobs.db"
+    monkeypatch.setattr(M, "BRONZE_DIR", bronze)
+    monkeypatch.setattr(M, "BRONZE_RUNS", bronze / "runs.json")
+    monkeypatch.setattr(S, "WAREHOUSE_DB", db)
+    yield bronze, db
+
+
+def _add_bronze(bronze, run_id: str, board: str, jobs: list[dict]) -> dict:
+    """Write a bronze snapshot for (run_id, board); return its manifest entry."""
+    file = f"{board}/{run_id}.json"
+    path = bronze / file
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(jobs), encoding="utf-8")
+    return {"run_id": run_id, "board": board, "timestamp": "T",
+            "file": file, "job_count": len(jobs)}
+
+
+def _write_runs(bronze, entries: list[dict]) -> None:
+    (bronze / "runs.json").write_text(json.dumps(entries), encoding="utf-8")
+
+
+RUN_1 = "11111111-1111-1111-1111-111111111111"
+RUN_2 = "22222222-2222-2222-2222-222222222222"
+
+
+def _run_silver(board: str, run_id: str) -> None:
+    """Materialize ``silver_<board>`` (with a stub scrape) for a fixed run id.
+
+    ``run_id`` must be a UUID (dagster requires one on execute_in_process).
+    """
+    from job_search_toolkit.pipelines.jd.assets import merge as M
+
+    @dg.asset
+    def _stub_scrape() -> None:
+        """No-op stand-in for the board's real scrape asset."""
+
+    silver = M.make_silver_asset(board, _stub_scrape)
+    job = dg.define_asset_job(
+        f"run_{board}", selection=dg.AssetSelection.assets(silver)
+    )
+    defs = dg.Definitions(assets=[_stub_scrape, silver], jobs=[job])
+    defs.get_job_def(f"run_{board}").execute_in_process(
+        run_id=run_id, instance=dg.DagsterInstance.ephemeral()
+    )
+
+
+def _silver_rows(bronze_wh) -> list[tuple]:
+    from job_search_toolkit.pipelines.jd import silver as S
+
+    _, db = bronze_wh
+    con = S.connect()
+    try:
+        # An empty-bronze (or absent-board) run never creates silver.jobs, so
+        # guard on existence and on the id column before querying.
+        exists = con.execute(
+            "SELECT COUNT(*) FROM information_schema.tables "
+            "WHERE table_schema = 'silver' AND table_name = 'jobs'"
+        ).fetchone()[0]
+        if not exists:
+            return []
+        cols = {r[1] for r in con.execute("PRAGMA table_info('silver.jobs')").fetchall()}
+        if "id" not in cols:
+            return []
+        return con.execute(
+            "SELECT id, source_board FROM silver.jobs ORDER BY id"
+        ).fetchall()
+    finally:
+        con.close()
+
+
+def test_silver_asset_ingests_only_its_board(bronze_wh):
+    """silver_X upserts exactly X's bronze rows; Y's rows are untouched even
+    though both share the same run."""
+    bronze, _ = bronze_wh
+    _write_runs(bronze, [
+        _add_bronze(bronze, RUN_1, "freework", [_sjob("x1", "freework")]),
+        _add_bronze(bronze, RUN_1, "hellowork", [_sjob("y1", "hellowork")]),
+    ])
+    _run_silver("freework", RUN_1)
+    assert _silver_rows(bronze_wh) == [("x1", "freework")]
+
+
+def test_silver_asset_empty_bronze_noops(bronze_wh):
+    """A board that scraped 0 jobs (empty bronze entry) upserts nothing and
+    does not error."""
+    bronze, _ = bronze_wh
+    _write_runs(bronze, [_add_bronze(bronze, RUN_1, "freework", [])])
+    _run_silver("freework", RUN_1)  # must not raise
+    assert _silver_rows(bronze_wh) == []
+
+
+def test_silver_asset_board_absent_noops(bronze_wh):
+    """When a board has no bronze entry for the run, silver_X returns [] and
+    touches no rows (no raise)."""
+    from job_search_toolkit.pipelines.jd.assets import merge as M
+
+    bronze, _ = bronze_wh
+    _write_runs(bronze, [
+        _add_bronze(bronze, RUN_1, "freework", [_sjob("x1", "freework")]),
+    ])
+    assert M._read_board_bronze(RUN_1, "hellowork") == []
+    _run_silver("hellowork", RUN_1)  # hellowork absent from the manifest
+    assert _silver_rows(bronze_wh) == []
+
+
+def test_read_board_bronze_filters_by_run_and_board(bronze_wh):
+    from job_search_toolkit.pipelines.jd.assets import merge as M
+
+    bronze, _ = bronze_wh
+    _write_runs(bronze, [
+        _add_bronze(bronze, RUN_1, "freework", [_sjob("x1", "freework")]),
+        _add_bronze(bronze, RUN_2, "freework", [_sjob("x2", "freework")]),
+    ])
+    assert [j["id"] for j in M._read_board_bronze(RUN_1, "freework")] == ["x1"]
+
+
+def test_silver_asset_reupsert_preserves_enrichment(bronze_wh):
+    """Re-ingesting an already-seen board must not clobber enrichment columns."""
+    from job_search_toolkit.pipelines.jd import silver as S
+
+    bronze, _ = bronze_wh
+    _write_runs(bronze, [
+        _add_bronze(bronze, RUN_1, "freework", [_sjob("x1", "freework")]),
+    ])
+    _run_silver("freework", RUN_1)
+
+    con = S.connect()
+    con.execute(
+        "UPDATE silver.jobs SET technologies='[\"Spark\"]'::JSON, "
+        "enriched_at=NOW() WHERE id='x1'"
+    )
+    con.close()
+
+    _write_runs(bronze, [
+        _add_bronze(bronze, RUN_2, "freework", [_sjob("x1", "freework")]),
+    ])
+    _run_silver("freework", RUN_2)
+
+    con = S.connect()
+    row = con.execute(
+        "SELECT first_seen_run, last_seen_run, is_active, "
+        "enriched_at IS NOT NULL, json_extract_string(technologies, '$[0]') "
+        "FROM silver.jobs WHERE id='x1'"
+    ).fetchone()
+    con.close()
+    assert row == (RUN_1, RUN_2, True, True, "Spark")
 
 
 if __name__ == "__main__":

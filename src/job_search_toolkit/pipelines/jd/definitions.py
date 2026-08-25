@@ -7,8 +7,9 @@ Two jobs:
   tech extraction, classify, dimension-scoped company research). Reachable
   via ``pipeline run --enrich`` or explicit asset selection.
 
-``ALL_ASSETS`` is the full registry (both jobs' assets) and remains the
-single source for tests and tooling that enumerate assets.
+``ALL_ASSETS`` is the full registry (both jobs' assets plus the opt-in
+``datasciencejobs`` board) and remains the single source for tests and
+tooling that enumerate assets.
 
 Usage:
     from job_search_toolkit.pipelines.jd.definitions import defs
@@ -20,18 +21,7 @@ from __future__ import annotations
 import dagster as dg
 
 from .assets import (
-    datasciencejobs_jobs,
-    englishjobs_jobs,
-    faruse_jobs,
-    freework_jobs,
-    hellowork_jobs,
-    hiringcafe_jobs,
-    linkedin_jobs,
     linkedin_post_enriched,
-    linkedin_posts,
-    remoteok_jobs,
-    wwr_jobs,
-    silver_upsert,
     translated,
     tech_extracted,
     vertical_classified,
@@ -42,51 +32,27 @@ from .assets import (
     merged_jobs_export,
     freework_enriched_export,
 )
+from .assets.scrape import BOARD_SCRAPE_ASSETS
+from .assets.merge import SILVER_BOARD_ASSETS
+
+# Boards on the default ranking path. datasciencejobs is deliberately excluded
+# (long-running, brittle — see ISSUES.md) but reachable as an explicit opt-in
+# via `--boards datasciencejobs`.
+RANKING_BOARDS = tuple(b for b in BOARD_SCRAPE_ASSETS if b != "datasciencejobs")
 
 # Ranking path: scrape -> upsert -> score -> export -> gold. No LLM assets.
-RANKING_ASSETS = [
-    freework_jobs,
-    hiringcafe_jobs,
-    hellowork_jobs,
-    englishjobs_jobs,
-    faruse_jobs,
-    wwr_jobs,
-    remoteok_jobs,
-    linkedin_jobs,
-    linkedin_posts,
-    silver_upsert,
-    scored_jobs,
-    ranked_csv,
-    gold_views,
-    merged_jobs_export,
-    freework_enriched_export,
-]
+RANKING_ASSETS = (
+    [BOARD_SCRAPE_ASSETS[b] for b in RANKING_BOARDS]
+    + [SILVER_BOARD_ASSETS[b] for b in RANKING_BOARDS]
+    + [scored_jobs, ranked_csv, gold_views, merged_jobs_export, freework_enriched_export]
+)
 
-# CLI board name -> scrape asset, for `pipeline run --boards <name> ...`.
-# datasciencejobs is deliberately absent from RANKING_ASSETS (long-running,
-# brittle — see ISSUES.md) but reachable here as an explicit opt-in.
-BOARD_SCRAPE_ASSETS = {
-    "freework": freework_jobs,
-    "hiringcafe": hiringcafe_jobs,
-    "hellowork": hellowork_jobs,
-    "englishjobs": englishjobs_jobs,
-    "faruse": faruse_jobs,
-    "wwr": wwr_jobs,
-    "remoteok": remoteok_jobs,
-    "datasciencejobs": datasciencejobs_jobs,
-    "linkedin_jobs": linkedin_jobs,
-    "linkedin_posts": linkedin_posts,
-}
-
-# Non-source assets always materialized: merge + score + export + gold.
-PIPELINE_ASSETS = [
-    silver_upsert,
-    scored_jobs,
-    ranked_csv,
-    gold_views,
-    merged_jobs_export,
-    freework_enriched_export,
-]
+# Per-board silver assets (scored_jobs/gold/export depend on them), used by
+# `pipeline run --boards <name>` to select the subset's ingest + downstream.
+PIPELINE_ASSETS = (
+    [SILVER_BOARD_ASSETS[b] for b in RANKING_BOARDS]
+    + [scored_jobs, ranked_csv, gold_views, merged_jobs_export, freework_enriched_export]
+)
 
 # Deferred LLM enrichment: optional, never on the ranking path.
 ENRICH_ASSETS = [
@@ -97,7 +63,14 @@ ENRICH_ASSETS = [
     linkedin_post_enriched,
 ]
 
-ALL_ASSETS = RANKING_ASSETS + ENRICH_ASSETS
+# datasciencejobs is in the registry (so `--boards datasciencejobs` can select
+# its scrape + silver asset) but is not part of either named job, keeping it
+# off the default pipeline.
+ALL_ASSETS = (
+    RANKING_ASSETS
+    + [BOARD_SCRAPE_ASSETS["datasciencejobs"], SILVER_BOARD_ASSETS["datasciencejobs"]]
+    + ENRICH_ASSETS
+)
 
 defs = dg.Definitions(
     assets=ALL_ASSETS,

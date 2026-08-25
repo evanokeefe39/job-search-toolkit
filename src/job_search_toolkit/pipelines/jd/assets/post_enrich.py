@@ -14,7 +14,7 @@ import asyncio
 import dagster as dg
 from dagster import AssetExecutionContext
 
-from .merge import silver_upsert
+from .merge import SILVER_BOARD_ASSETS
 from ..silver import (
     GATE_POST_ENRICH,
     connect,
@@ -35,7 +35,7 @@ def _update(con, job: dict, sets: str) -> None:
 
 
 @dg.asset(
-    deps=[silver_upsert],
+    deps=list(SILVER_BOARD_ASSETS.values()),
     group_name="enrichment",
     description="Fill title/location for queued linkedin_posts via LLM",
 )

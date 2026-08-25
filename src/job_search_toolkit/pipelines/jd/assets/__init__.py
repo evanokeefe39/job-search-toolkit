@@ -11,8 +11,9 @@ from .scrape import (
     linkedin_posts,
     remoteok_jobs,
     wwr_jobs,
+    BOARD_SCRAPE_ASSETS,
 )
-from .merge import silver_upsert
+from .merge import SILVER_BOARD_ASSETS
 from .enrich import translated, tech_extracted, vertical_classified, dim_company_enriched
 from .post_enrich import linkedin_post_enriched
 from .score import scored_jobs, ranked_csv
@@ -30,7 +31,8 @@ __all__ = [
     "linkedin_jobs",
     "linkedin_posts",
     "linkedin_post_enriched",
-    "silver_upsert",
+    "BOARD_SCRAPE_ASSETS",
+    "SILVER_BOARD_ASSETS",
     "translated",
     "tech_extracted",
     "dim_company_enriched",
