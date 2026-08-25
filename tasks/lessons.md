@@ -520,3 +520,43 @@ is open in DBeaver (or any reader), `pipeline run`'s `silver_upsert` hangs on
 times out *after* the scrape assets have already written bronze. The scraped
 data is not lost (bronze + runs.json), so a re-run after releasing the lock
 ingests it. Close the DBeaver connection before any pipeline run.
+
+## 2026-08-25: partial-run fixes surfaced two scoring-robustness bugs + a worktree edit gotcha
+
+**Problem:** adding a `pipeline ingest` recovery path (ingest an orphaned
+bronze run_id without re-scraping) surfaced two latent bugs in `scored_jobs`
+that the normal full run never hit because the real warehouse always had every
+column:
+
+1. `reset_stale`/`_update` write `overall_score`/`scores`/`recommendation_tier`,
+   but `silver.jobs` is created from incoming bronze columns, which don't
+   include scoring outputs. On a fresh or partial warehouse those columns don't
+   exist and scoring fails (`Binder Error: Referenced update column
+   overall_score not found`). Fix: `scored_jobs` calls `_ensure_scoring_columns`
+   (idempotent `ALTER TABLE ADD COLUMN`) before reset/write.
+2. `fetch_jobs(SCORE_COLUMNS, GATE_SCORE, ...)` referenced canonical columns
+   (e.g. `seniority_level`) that a partial bronze doesn't create
+   (`Referenced column seniority_level not found`). Fix: fetch only the
+   `SCORE_COLUMNS` that exist in `silver.jobs` (score_engine tolerates missing
+   fields as neutral).
+
+**Root cause:** the scoring asset assumed the warehouse always has its input
+and output columns because a full scrape run always created them. Any path that
+scores a partial/fresh table (ingest recovery, or a first run on a fresh DB)
+breaks. An asset must guarantee its own output columns and tolerate a subset of
+input columns.
+
+**Rule:** an asset that writes columns must ensure they exist (idempotent
+`ADD COLUMN`), and an asset that reads a column set must intersect it with what
+actually exists in the table. Never assume the table has every canonical
+column — a partial ingest only creates the columns its records carry.
+
+**Worktree edit gotcha:** while implementing in a git worktree, the `edit` and
+`write` tools resolve relative paths against the SESSION cwd (the main
+checkout), not the worktree path in `cd`. Two "successful" `edit`/`write` calls
+to `src/.../score.py` actually modified the MAIN checkout's file and left the
+worktree untouched (verified by `grep` on the worktree showing no change) —
+costing a confusing false-failure loop. Fix: for worktree edits, use full
+absolute worktree paths with the tools, or write the file via `bash` heredoc
+with an explicit `cd` to the worktree. Verify edits with `grep`/`git diff` on
+the exact worktree path afterward.
