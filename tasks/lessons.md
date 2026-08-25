@@ -482,3 +482,41 @@ runs and can never serve as a gate terminal marker.
 ("marked terminal so not retried"), not the actual persistence semantics.
 Verify the gate's terminal condition against the warehouse schema (which keys
 are persisted) — not just the subagent's green tests — before accepting.
+
+## 2026-08-25: global deactivation made subset runs unsafe — replaced with time-based staleness
+
+**Problem:** `deactivate_not_seen` ran in `silver_upsert` and flipped
+`is_active = FALSE` for every job whose `last_seen_run != current_run`. That
+is correct for a full multi-board run, but any *subset* run (e.g. LinkedIn
+only) deactivated ALL of the other boards' rows — so the pipeline was forced
+to always run every board. When `datasciencejobs` (the long-running bottleneck)
+failed mid-run, the full run never reached LinkedIn, leaving both LinkedIn
+boards empty in the warehouse, and the only fix was to keep running everything.
+
+**Root cause:** "likely gone" was modeled as a binary, run-relative state
+(`is_active` computed against the latest run's board membership) instead of as
+a time-based signal that is independent of which boards a given run scraped.
+
+**Fix:** jobs are never deactivated. `is_active` stays TRUE once seen, and
+staleness is inferred from `last_seen_at` against a `STALE_AFTER_DAYS` horizon
+(60). Gold views (`ranked_jobs`, `by_sector`, `by_tier`) filter on
+`days_since_seen <= horizon` and expose `days_since_posted`/`days_since_seen`
+live; `disappeared_this_run` = not seen within the horizon. A `freshness`
+decay factor was added to `score_engine.py` (penalizes old posts and stale
+last-seen, applied multiplicatively so the five tuned quality weights are
+untouched). With deactivation gone, subset runs are safe — a board not scraped
+simply stops refreshing `last_seen_at` and eventually falls out of the gold
+views. Added `pipeline run --boards <board>...` (uses Dagster `materialize(
+assets, selection=...)`, which materializes only the selection — upstream
+assets are loaded, not re-run).
+
+**Rule:** don't model "gone" as a run-relative binary state when sources are
+scraped on independent schedules. Prefer a time-based staleness signal computed
+at read/rank time; it makes subset runs safe and folds naturally into ranking.
+
+**Windows/DuckDB sharp edge:** DuckDB is single-writer. If the warehouse file
+is open in DBeaver (or any reader), `pipeline run`'s `silver_upsert` hangs on
+`connect()` (`IOException: file is being used by another process`) and the run
+times out *after* the scrape assets have already written bronze. The scraped
+data is not lost (bronze + runs.json), so a re-run after releasing the lock
+ingests it. Close the DBeaver connection before any pipeline run.
