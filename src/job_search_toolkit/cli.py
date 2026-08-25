@@ -74,6 +74,56 @@ def pipeline_run(
         raise typer.Exit(code=1)
 
 
+@pipeline_app.command("ingest")
+def pipeline_ingest(
+    run_id: str = typer.Option(
+        ..., "--run-id",
+        help="Bronze run id (from runs.json) to ingest without re-scraping",
+    ),
+    board: str = typer.Option(
+        None, "--board", "-b",
+        help="Only ingest this board's bronze from the run (default: all boards)",
+    ),
+) -> None:
+    """Recover an orphaned bronze snapshot: ingest run_id -> score -> export -> gold.
+
+    Reads the given run's bronze from ``data/bronze/runs.json`` and upserts it
+    into ``silver.jobs``, then runs the score/export/gold assets downstream —
+    with NO scrape asset (fully offline). Unknown run ids/boards error listing
+    the available ones. See also ``pipeline list-runs``.
+    """
+    from job_search_toolkit.pipelines.jd.run import run_ingest
+
+    try:
+        ok = run_ingest(run_id, board)
+    except ValueError as e:
+        raise typer.Exit(str(e))
+    if not ok:
+        raise typer.Exit(code=1)
+
+
+@pipeline_app.command("list-runs")
+def pipeline_list_runs() -> None:
+    """List available bronze runs + per-board job counts from runs.json."""
+    from job_search_toolkit.pipelines.jd.assets.merge import list_runs
+
+    entries = list_runs()
+    if not entries:
+        print(
+            "No bronze runs found — run `job-search-toolkit pipeline run` "
+            "or a scrape first."
+        )
+        return
+    by_run: dict[str, list[tuple[str, int]]] = {}
+    for e in entries:
+        by_run.setdefault(e.get("run_id", ""), []).append(
+            (e.get("board", ""), e.get("job_count", 0))
+        )
+    for run_id in sorted(by_run):
+        boards = ", ".join(f"{b}={n}" for b, n in sorted(by_run[run_id]))
+        print(f"{run_id}: {boards}")
+
+
 @pipeline_app.command("gold")
 def pipeline_gold() -> None:
     """Create gold analytics views over the silver warehouse table."""

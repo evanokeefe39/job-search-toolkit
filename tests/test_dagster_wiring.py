@@ -81,12 +81,14 @@ def test_no_composite_silver_upsert():
 
 
 def test_scored_jobs_depends_on_all_per_board_silver():
-    """scored_jobs consumes every board's silver; it must not depend on any
-    enrichment asset (ranking is decoupled from the LLM pass)."""
+    """scored_jobs consumes every board's silver plus the resume-from-bronze
+    silver_ingest asset (so the ingest job can order score/export/gold after
+    it); it must not depend on any enrichment asset (ranking is decoupled from
+    the LLM pass)."""
     from job_search_toolkit.pipelines.jd.assets.score import scored_jobs
 
     deps = {k.path[-1] for ks in scored_jobs.asset_deps.values() for k in ks}
-    assert deps == {f"silver_{b}" for b in SILVER_BOARD_ASSETS}
+    assert deps == {f"silver_{b}" for b in SILVER_BOARD_ASSETS} | {"silver_ingest"}
 
 
 def test_full_pipeline_job_excludes_enrichment_assets():
@@ -112,6 +114,45 @@ def test_datasciencejobs_is_opt_in_not_default():
     assert "datasciencejobs" in BOARD_SCRAPE_ASSETS
     assert BOARD_SCRAPE_ASSETS["datasciencejobs"].key.path[-1] == "datasciencejobs_jobs"
     assert "datasciencejobs" in SILVER_BOARD_ASSETS
+
+
+def test_silver_ingest_registered_in_all_assets():
+    """silver_ingest (resume-from-bronze recovery) is in the registry."""
+    from job_search_toolkit.pipelines.jd.assets.merge import silver_ingest
+
+    names = {a.key.path[-1] for a in ALL_ASSETS}
+    assert "silver_ingest" in names
+    assert silver_ingest.key.path[-1] == "silver_ingest"
+
+
+def test_ingest_assets_are_offline_recovery_path():
+    """INGEST_ASSETS = silver_ingest + score/export/gold only — never a scrape
+    or per-board silver, so `pipeline ingest` recovers bronze offline."""
+    from job_search_toolkit.pipelines.jd.definitions import INGEST_ASSETS
+
+    names = {a.key.path[-1] for a in INGEST_ASSETS}
+    assert names == {
+        "silver_ingest", "scored_jobs", "ranked_csv", "gold_views",
+        "merged_jobs_export", "freework_enriched_export",
+    }
+
+
+def test_ingest_job_defined():
+    """A named `ingest_job` exists selecting exactly the ingest assets."""
+    from job_search_toolkit.pipelines.jd.definitions import INGEST_ASSETS, defs
+
+    job = defs.get_job_def("ingest_job")
+    sel = job.asset_layer.selected_asset_keys
+    assert {k.path[-1] for k in sel} == {a.key.path[-1] for a in INGEST_ASSETS}
+
+
+def test_silver_ingest_has_ingest_resource():
+    """silver_ingest declares the `ingest` resource so the CLI can inject an
+    explicit run_id via run_config; the default (no config) is a no-op."""
+    from job_search_toolkit.pipelines.jd.assets.merge import silver_ingest
+
+    req = silver_ingest.resource_defs
+    assert "ingest" in req
 
 
 def test_boards_selection_excludes_other_boards():

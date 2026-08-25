@@ -18,6 +18,7 @@ from .definitions import (
     ALL_ASSETS,
     BOARD_SCRAPE_ASSETS,
     ENRICH_ASSETS,
+    INGEST_ASSETS,
     RANKING_ASSETS,
     SILVER_BOARD_ASSETS,
 )
@@ -63,6 +64,37 @@ def _boards_selection(boards: list[str], enrich: bool = False) -> dg.AssetSelect
     if enrich:
         selection = selection | dg.AssetSelection.assets(*ENRICH_ASSETS)
     return selection
+
+
+def run_ingest(run_id: str, board: str | None = None) -> bool:
+    """Materialize the ingest recovery path for an explicit bronze run id.
+
+    Runs ``silver_ingest`` (+ score/export/gold) against the given ``run_id``
+    (optionally narrowed to one ``board``), reading the orphaned bronze from
+    ``runs.json`` and upserting it — WITHOUT any scrape asset running. The
+    selection materializes exactly ``INGEST_ASSETS``, so no board scrape or
+    per-board silver is pulled in (``dg.materialize`` with an explicit
+    selection does not expand the upstream closure). Raises ``ValueError``
+    with the available runs/boards on an unknown run id / board.
+    """
+    from .assets.merge import ingest_bronze
+    from .config import ensure_data_dirs
+    from .silver import connect
+
+    # Validate up front for a clean CLI error, before a (failed) Dagster run.
+    ensure_data_dirs()
+    with connect() as con:
+        ingest_bronze(con, run_id, board)
+
+    selection = dg.AssetSelection.assets(*INGEST_ASSETS)
+    run_config = {
+        "resources": {
+            "ingest": {"config": {"run_id": run_id, "board": board or ""}}
+        }
+    }
+    result = dg.materialize(ALL_ASSETS, selection=selection, run_config=run_config)
+    print(f"SUCCESS: {result.success}")
+    return result.success
 
 
 def run_pipeline(

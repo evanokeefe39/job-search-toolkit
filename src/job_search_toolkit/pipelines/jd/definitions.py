@@ -33,7 +33,7 @@ from .assets import (
     freework_enriched_export,
 )
 from .assets.scrape import BOARD_SCRAPE_ASSETS
-from .assets.merge import SILVER_BOARD_ASSETS
+from .assets.merge import SILVER_BOARD_ASSETS, silver_ingest
 
 # Boards on the default ranking path. datasciencejobs is deliberately excluded
 # (long-running, brittle — see ISSUES.md) but reachable as an explicit opt-in
@@ -63,12 +63,22 @@ ENRICH_ASSETS = [
     linkedin_post_enriched,
 ]
 
+# Ingest-only recovery path: silver_ingest (explicit run_id) + the downstream
+# score/export/gold assets. Selecting these with `dg.materialize` runs exactly
+# this set (no scrape, no per-board silver), so `pipeline ingest --run-id R`
+# recovers an orphaned bronze snapshot offline.
+INGEST_ASSETS = (
+    [silver_ingest]
+    + [scored_jobs, ranked_csv, gold_views, merged_jobs_export, freework_enriched_export]
+)
+
 # datasciencejobs is in the registry (so `--boards datasciencejobs` can select
 # its scrape + silver asset) but is not part of either named job, keeping it
 # off the default pipeline.
 ALL_ASSETS = (
     RANKING_ASSETS
     + [BOARD_SCRAPE_ASSETS["datasciencejobs"], SILVER_BOARD_ASSETS["datasciencejobs"]]
+    + [silver_ingest]
     + ENRICH_ASSETS
 )
 
@@ -82,6 +92,10 @@ defs = dg.Definitions(
         dg.define_asset_job(
             "enrich_job",
             selection=dg.AssetSelection.assets(*ENRICH_ASSETS),
+        ),
+        dg.define_asset_job(
+            "ingest_job",
+            selection=dg.AssetSelection.assets(*INGEST_ASSETS),
         ),
     ],
 )

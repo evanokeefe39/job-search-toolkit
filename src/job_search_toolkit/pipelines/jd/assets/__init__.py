@@ -13,7 +13,14 @@ from .scrape import (
     wwr_jobs,
     BOARD_SCRAPE_ASSETS,
 )
-from .merge import SILVER_BOARD_ASSETS
+from .merge import (
+    SILVER_BOARD_ASSETS,
+    silver_ingest,
+    ingest_bronze,
+    list_runs,
+    IngestConfig,
+    ingest_config,
+)
 from .enrich import translated, tech_extracted, vertical_classified, dim_company_enriched
 from .post_enrich import linkedin_post_enriched
 from .score import scored_jobs, ranked_csv
@@ -33,6 +40,11 @@ __all__ = [
     "linkedin_post_enriched",
     "BOARD_SCRAPE_ASSETS",
     "SILVER_BOARD_ASSETS",
+    "silver_ingest",
+    "ingest_bronze",
+    "list_runs",
+    "IngestConfig",
+    "ingest_config",
     "translated",
     "tech_extracted",
     "dim_company_enriched",
