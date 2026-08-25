@@ -265,3 +265,24 @@ def linkedin_posts(context: AssetExecutionContext) -> dg.MaterializeResult:
     ]
     _write_bronze_snapshot("linkedin_posts", context.run_id, canonical)
     return dg.MaterializeResult(metadata={"total": len(canonical)})
+
+
+# CLI board name -> scrape asset, for `pipeline run --boards <name> ...`.
+# The board name doubles as the bronze ``board`` field each asset writes (e.g.
+# board ``linkedin_jobs`` -> bronze ``board=linkedin_jobs``), so the per-board
+# silver reader (merge.py) can match a scrape to its bronze entry by name.
+# datasciencejobs is deliberately excluded from the default ranking path
+# (long-running, brittle — see ISSUES.md) but reachable as an explicit opt-in
+# via `--boards datasciencejobs`.
+BOARD_SCRAPE_ASSETS: dict[str, dg.AssetsDefinition] = {
+    "freework": freework_jobs,
+    "hiringcafe": hiringcafe_jobs,
+    "hellowork": hellowork_jobs,
+    "englishjobs": englishjobs_jobs,
+    "faruse": faruse_jobs,
+    "wwr": wwr_jobs,
+    "remoteok": remoteok_jobs,
+    "datasciencejobs": datasciencejobs_jobs,
+    "linkedin_jobs": linkedin_jobs,
+    "linkedin_posts": linkedin_posts,
+}

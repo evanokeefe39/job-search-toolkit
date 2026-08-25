@@ -6,8 +6,8 @@ LLM, and UPDATEs the results back. No full-dataset JSON round-trip, no
 ``_enrichment`` flag checks.
 
 These assets are the deferred, optional LLM pass — none of them sits on the
-ranking path (``scored_jobs`` depends only on ``silver_upsert``). They are
-reachable via asset selection or ``pipeline run --enrich``.
+ranking path (``scored_jobs`` depends only on the per-board silver assets).
+They are reachable via asset selection or ``pipeline run --enrich``.
 
 Company research is dimension-scoped: ``dim_company_enriched`` runs one LLM
 call per distinct company (``dim_company`` row), never per job.
@@ -16,7 +16,7 @@ call per distinct company (``dim_company`` row), never per job.
 import dagster as dg
 from dagster import AssetExecutionContext
 
-from .merge import silver_upsert
+from .merge import SILVER_BOARD_ASSETS
 from ..silver import (
     DIM_COMPANY_GATE,
     GATE_CLASSIFY,
@@ -44,7 +44,7 @@ def _update(con, job: dict, sets: str) -> None:
 
 
 @dg.asset(
-    deps=[silver_upsert],
+    deps=list(SILVER_BOARD_ASSETS.values()),
     group_name="enrichment",
     description="Translate French descriptions to English (no-op for hiringcafe)",
 )
@@ -135,7 +135,7 @@ def vertical_classified(context: AssetExecutionContext) -> dg.MaterializeResult:
 
 
 @dg.asset(
-    deps=[silver_upsert],
+    deps=list(SILVER_BOARD_ASSETS.values()),
     group_name="enrichment",
     description="Research company stats per distinct company (one LLM call per company)",
 )
