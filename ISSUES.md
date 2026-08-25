@@ -79,7 +79,7 @@ session hazard (eval kernel caching a stale module, causing a phantom
   detector); verify behavioral changes in fresh subprocesses, never the
   persistent eval kernel.
 
-### datasciencejobs scraper: long-running, DNS failure discards ~245 pages (OPEN 2026-08-24)
+### datasciencejobs scraper: long-running, DNS failure discards ~245 pages (RESOLVED 2026-08-25)
 
 **Symptom:** `datasciencejobs_jobs` is the bottleneck of the full `pipeline
 run`. On 2026-08-24 it ran ~2h16m (~345 pages, per-job detail fetch), then
@@ -89,19 +89,21 @@ board, the failure threw away ~245 pages of already-fetched results. Worse,
 it runs *before* the LinkedIn boards in the graph, so the full run never
 reached LinkedIn — `silver.jobs` had 0 rows for `linkedin_jobs`/`linkedin_posts`.
 
-**Action taken:** removed `datasciencejobs_jobs` from the default pipeline
-(`RANKING_ASSETS` in `definitions.py`, `merge.py` deps, `assets/__init__.py`).
-The `scrape datasciencejobs` CLI and its `BOARD_DIMENSIONS` row are kept so it
-can be run manually; existing warehouse rows still resolve.
+**Action taken (2026-08-24):** removed `datasciencejobs_jobs` from the default
+pipeline (`RANKING_ASSETS` in `definitions.py`, `merge.py` deps,
+`assets/__init__.py`). The `scrape datasciencejobs` CLI and its
+`BOARD_DIMENSIONS` row are kept so it can be run manually; existing warehouse
+rows still resolve.
 
-**Fix (batching/streaming — deferred):** the scraper writes to a single
-landing file only at the end, so any mid-board failure is a total loss. Stream
-results to a per-page landing table (bronze) as they arrive so partial runs
-survive; then `silver_upsert` ingests whatever landed. Consider a `--max-pages`
-flag to bound runtime. Re-enable in the default pipeline only when resilience
-is in place. Plan: `tasks/plans/datasciencejobs-streaming-landing.md`.
+**Fix (implemented, branch `feat/linkedin-source-adapter`):** the scraper now
+writes per-page results as it goes (per-job `fetch_detail` failures skip just
+that job; a page failure logs and breaks keeping prior pages; a first-page
+failure yields `[]`) and finalizes whatever completed before returning — so a
+partial run survives into bronze instead of being a total loss. 6 tests. Plan:
+`tasks/plans/datasciencejobs-streaming-landing.md`. Re-enable in the default
+pipeline only once resilience is confirmed end-to-end (bounded `--max-pages`).
 
-### Pipeline: all-or-nothing ingest — one board's scrape failure blocks all silver/gold (OPEN 2026-08-25)
+### Pipeline: all-or-nothing ingest — one board's scrape failure blocks all silver/gold (RESOLVED 2026-08-25)
 
 **Symptom:** `silver_upsert` lists every board scrape asset as a `deps`
 dependency, so it never runs until *all* boards scrape successfully. A single
@@ -115,12 +117,15 @@ board in the graph.
 asset per board so each source flows bronze → silver independently; a failed
 board then blocks only its own row, and other boards reach silver/gold.
 
-**Fix:** split `silver_upsert` into per-board assets (`silver_<board>`), each
-ingesting only its own board's bronze, feeding a shared `scored_jobs`/gold.
-Update `--boards` selection to target the per-board silver asset. Plan:
-`tasks/plans/per-board-silver-upsert.md`.
+**Fix (implemented, branch `feat/linkedin-source-adapter`):** split
+`silver_upsert` into per-board assets (`silver_<board>`, via
+`make_silver_asset`), each depending only on its own scrape and ingesting only
+its own bronze, feeding a shared `scored_jobs`/gold. `--boards` now targets the
+per-board silver assets. datasciencejobs stays opt-in only. Verified: 235
+tests, fault-isolation + `--boards`-exclusion tests, and a live LinkedIn subset
+run. Plan: `tasks/plans/per-board-silver-upsert.md`.
 
-### Pipeline: no resume-from-bronze — orphaned bronze forces re-scrape to ingest (OPEN 2026-08-25)
+### Pipeline: no resume-from-bronze — orphaned bronze forces re-scrape to ingest (RESOLVED 2026-08-25)
 
 **Symptom:** `silver_upsert` reads bronze entries keyed to `context.run_id`.
 If a run dies *after* scraping but *before* ingest, the landed bronze is
@@ -134,9 +139,14 @@ on the DBeaver write lock; recovery re-ran the pipeline and re-scraped LinkedIn
 **Root cause:** no way to run `silver_upsert` + downstream against an existing
 bronze snapshot under a chosen run id.
 
-**Fix:** add `job-search-toolkit pipeline ingest --run-id <id> [--board <b>]`
-(plus `--list-runs`) that materializes silver ingest + score/export/gold from
-existing bronze without scraping. Plan:
+**Fix (implemented, branch `feat/linkedin-source-adapter`):** added
+`job-search-toolkit pipeline ingest --run-id <id> [--board <b>]` (plus
+`pipeline list-runs`), which materializes `silver_ingest` + score/export/gold
+from existing bronze without scraping. Also fixed two robustness bugs it
+surfaced: `scored_jobs` now ensures its output columns exist and fetches only
+columns present in `silver.jobs` (so a fresh/partial warehouse scores instead
+of failing). Verified: live `pipeline ingest --run-id 4e28442a-a9aa-...`
+recovered 31 orphaned LinkedIn rows with zero new bronze/Apify calls. Plan:
 `tasks/plans/resume-from-bronze.md`.
 
 ## Closed
