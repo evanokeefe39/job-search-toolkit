@@ -3,6 +3,45 @@
 
 ## Open
 
+### LinkedIn discovery: France-relevant yield too low — 3/92 jobs (BLOCKER 2026-08-25)
+
+**Status:** BLOCKER for completing the LinkedIn feature (decide before closing
+the `feat/linkedin-source-adapter` branch).
+
+**Symptom:** the LinkedIn integration ingests end-to-end, but the discovery
+returns very few France-relevant jobs for a France-based job search. Of 92
+LinkedIn rows in `silver.jobs`:
+- `linkedin_jobs` (listings): 34 rows, 12 with a parsed location, only **3 in
+  France** (all Paris-area: Senior Analytics Engineer; Workday Integration &
+  Analytics Engineer; Analytics Engineer). The other 31 are worldwide (Sydney,
+  Atlanta, London, Mumbai, Bengaluru, Melbourne, Halifax, Pune, …).
+- `linkedin_posts` (recruiter posts): 58 rows, 55 with no location at all
+  (posts carry no structured location), 3 with one (none France).
+
+**Root cause:** the Apify/TAVILY discovery query is broad (not France-scoped),
+so it surfaces a global mix; the location parser itself works (it correctly
+picked up the Paris rows). Recruiter posts are inherently location-less.
+
+**Why it blocks completion:** the feature's purpose is France-relevant leads,
+but as-is it delivers ~3 France job listings from a full discovery — not enough
+to justify the pipeline surface (two boards + discovery cost). Closing the
+branch without resolving this ships a feature with negligible France value.
+
+**Resolution options (pick one before closing):**
+1. **Scope discovery to France** — add France/Paris (+ maybe `remote` France)
+   constraints to the Apify `apify~google-search-scraper` input (the `query` /
+   `country` fields) and/or the TAVILY query so hits are France-located. Low
+   effort; the parser already handles France locations.
+2. **Accept the low yield and close** — keep LinkedIn as a broad/global
+   secondary source and note it's not the France pipeline. Document expected
+   low France hit-rate.
+3. **Drop the LinkedIn boards** from the default pipeline (keep the adapter)
+   until discovery is France-scoped.
+
+See `tasks/plans/linkedin-source-adapter.md` for the adapter design and the
+discovery query source.
+
+
 ### CLI source-selection design review — enhancement, not a bug (OPEN 2026-08-25)
 
 **Kind:** enhancement / design decision (no defect). A 3-expert review panel
