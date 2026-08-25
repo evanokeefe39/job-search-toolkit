@@ -8,10 +8,12 @@ from pathlib import Path
 import httpx
 
 from job_search_toolkit.linkedin.adapter import (
+    FRENCH_LOCALITIES,
     DiscoveryOutcome,
     _dedup_jobs,
     _dedup_posts,
     _filter,
+    _is_france_job,
     run_discovery,
     write_candidate_pool,
 )
@@ -164,3 +166,75 @@ def test_write_candidate_pool(tmp_path):
     assert data[0]["activity_id"] == "1"
     assert set(paths) == {"posts", "jobs", "posts_csv", "jobs_csv"}
     assert paths["jobs"].suffix == ".json"
+
+
+# ---------------------------------------------------------------------------
+# Deterministic France filter
+# ---------------------------------------------------------------------------
+
+
+def _job_with_location(country, locality):
+    job = _job("1", "u1")
+    job["location"] = {"country": country, "locality": locality}
+    return job
+
+
+def test_france_filter_keeps_fr_country():
+    assert _is_france_job(_job_with_location("FR", "Paris"))
+    # country_code comparison is case-insensitive
+    assert _is_france_job(_job_with_location("fr", "Lyon"))
+
+
+def test_france_filter_drops_non_fr_country():
+    for cc, locality in (("AU", "Sydney"), ("IN", "Mumbai"), ("US", "Atlanta")):
+        assert _is_france_job(_job_with_location(cc, locality)) is False
+
+
+def test_france_filter_drops_unknown_country_without_french_locality():
+    assert _is_france_job(_job_with_location(None, "Atlanta")) is False
+    assert _is_france_job(_job_with_location(None, None)) is False
+    assert _is_france_job(_job_with_location(None, "")) is False
+
+
+def test_france_filter_keeps_unknown_country_with_french_locality():
+    assert _is_france_job(_job_with_location(None, "Paris et périphérie"))
+    assert _is_france_job(_job_with_location(None, "Lille et périphérie"))
+    assert _is_france_job(_job_with_location(None, "  Montpellier  "))
+
+
+def test_france_filter_respects_country_code_param():
+    assert _is_france_job(_job_with_location("BE", "Brussels"), "be") is True
+    assert _is_france_job(_job_with_location("FR", "Paris"), "be") is False
+
+
+def test_french_localities_set_known_cities():
+    assert FRENCH_LOCALITIES >= {
+        "paris",
+        "lyon",
+        "lille",
+        "marseille",
+        "bordeaux",
+        "toulouse",
+        "nantes",
+        "strasbourg",
+        "rennes",
+        "montpellier",
+    }
+
+
+def test_posts_are_not_country_filtered():
+    backend = StubBackend([SearchResult(url=POST_URL, title="post", snippet="")])
+    outcome = run_discovery(
+        _config(),
+        backend=backend,
+        client=_mock_client(),
+        scanner=TechnologyScanner.from_defaults(),
+        kinds=["post"],
+    )
+    assert len(outcome.posts) == 1
+    assert outcome.posts[0]["activity_id"] == "7488545218842"
+
+
+def test_config_country_code_defaults_to_fr():
+    assert LinkedInConfig().country_code == "fr"
+    assert LinkedInConfig.from_preferences("does-not-exist.yaml").country_code == "fr"

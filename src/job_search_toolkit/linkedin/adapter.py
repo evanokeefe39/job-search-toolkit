@@ -98,6 +98,47 @@ def _dedup_jobs(jobs: list[JobRecord]) -> list[JobRecord]:
     return out
 
 
+# Recognized French cities (lowercase, no accents). Partial/login-wall job
+# records carry ``country is None``; a locality naming one of these (optionally
+# with a "et périphérie" / "et ses environs" suffix) keeps the job France.
+FRENCH_LOCALITIES = frozenset(
+    {
+        "paris",
+        "lyon",
+        "lille",
+        "marseille",
+        "bordeaux",
+        "toulouse",
+        "nantes",
+        "strasbourg",
+        "rennes",
+        "montpellier",
+    }
+)
+
+
+def _is_france_job(job: JobRecord, country_code: str = "fr") -> bool:
+    """Return True when ``job`` is confirmed to be located in France.
+
+    A job is kept when its ``location.country`` matches the configured
+    ``country_code`` (case-insensitive), or — for partial/login-wall records
+    whose country is unknown — when its ``location.locality`` names a
+    recognized French city. Returns False for a confirmed non-FR country and
+    for unknown-country jobs with no French locality. Posts are never passed
+    through this filter (they carry no location).
+    """
+    country = (job["location"]["country"] or "").strip()
+    if country:
+        return country.upper() == country_code.upper()
+
+    locality = (job["location"]["locality"] or "").strip().lower()
+    if not locality:
+        return False
+    return any(
+        locality == city or locality.startswith(city + " ") for city in FRENCH_LOCALITIES
+    )
+
+
 def _run_pass(
     queries: tuple[str, ...],
     kind: str,
@@ -133,6 +174,8 @@ def _run_pass(
             rec["technologies"] = scanner.scan(rec["text"])
         else:
             rec = parse_job(html, url)
+            if not _is_france_job(rec, config.country_code):
+                continue
             rec["technologies"] = scanner.scan(rec["description"])
         records.append(rec)
 
