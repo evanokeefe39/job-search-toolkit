@@ -200,6 +200,7 @@ def test_parse_guest_cards_against_fixture():
     assert cards[0]["url"] == "https://www.linkedin.com/jobs/view/4454183821/"
     assert cards[0]["title"] == "Data Engineer"
     assert "Acme" in cards[0]["snippet"] and "Paris" in cards[0]["snippet"]
+    assert cards[0]["location"] == "Paris, Île-de-France, France"
     assert cards[1]["url"] == "https://www.linkedin.com/jobs/view/4455012345/"
 
 
@@ -264,3 +265,45 @@ def test_run_info_dict_shared_location_works_on_plain_dict():
         "status": "SUCCEEDED",
         "defaultDatasetId": "d1",
     }
+
+
+def test_france_location_from_card_france_variants():
+    from job_search_toolkit.scrapers.linkedin.adapter import _france_location_from_card
+
+    assert _france_location_from_card("Lille, Hauts-de-France, France") == {
+        "country": "FR",
+        "locality": "Lille",
+    }
+    assert _france_location_from_card("Paris, Île-de-France, France") == {
+        "country": "FR",
+        "locality": "Paris",
+    }
+    # Bare "France" (no city) -> country only, locality None.
+    assert _france_location_from_card("France") == {"country": "FR", "locality": None}
+
+
+def test_france_location_from_card_non_france_is_none():
+    from job_search_toolkit.scrapers.linkedin.adapter import _france_location_from_card
+
+    assert _france_location_from_card("Mumbai, Maharashtra, India") is None
+    assert _france_location_from_card("Atlanta, GA, United States") is None
+    assert _france_location_from_card("Remote") is None
+    assert _france_location_from_card("") is None
+    assert _france_location_from_card(None) is None
+
+
+def test_partial_job_kept_when_card_location_is_france():
+    """Login-walled job pages yield partial JobRecords with no JSON-LD location.
+    The guest-card location must rescue them through the France filter."""
+    from job_search_toolkit.scrapers.linkedin.adapter import (
+        _france_location_from_card,
+        _is_france_job,
+    )
+
+    partial = {"location": {"country": None, "locality": None}}
+    # Fails the filter as-is (no location anywhere).
+    assert _is_france_job(partial) is False
+    filled = _france_location_from_card("Lyon, Auvergne-Rhône-Alpes, France")
+    assert filled is not None
+    partial["location"] = filled
+    assert _is_france_job(partial) is True

@@ -29,7 +29,7 @@ from job_search_toolkit.scrapers.linkedin.discovery import (
     make_backend,
 )
 from job_search_toolkit.scrapers.linkedin.fetch import FetchError, fetch_page
-from job_search_toolkit.scrapers.linkedin.models import JobRecord, PostRecord
+from job_search_toolkit.scrapers.linkedin.models import JobRecord, Location, PostRecord
 from job_search_toolkit.scrapers.linkedin.parse import parse_job, parse_post
 from job_search_toolkit.scrapers.linkedin.tech_scan import TechnologyScanner
 from job_search_toolkit.scrapers.linkedin.urls import classify_url
@@ -141,6 +141,25 @@ def _is_france_job(job: JobRecord, country_code: str = "fr") -> bool:
     )
 
 
+def _france_location_from_card(location_text: str | None) -> Location | None:
+    """Map a guest-job-card location string to a France ``Location`` or None.
+
+    The guest search card's ``job-search-card__location`` text is authoritative
+    for the office location (e.g. ``"Lille, Hauts-de-France, France"``), which
+    login-walled job pages do not expose via JSON-LD. When the text names
+    France, return ``{"country": "FR", "locality": <leading city>}`` so the
+    France filter can keep the job; otherwise (unknown / foreign / remote)
+    return None. ``country`` is the ISO code "FR" to match the JSON-LD
+    convention ``_is_france_job`` compares against.
+    """
+    text = (location_text or "").strip()
+    if not text or "france" not in text.lower():
+        return None
+    parts = [p.strip() for p in text.split(",")]
+    locality = parts[0] if len(parts) > 1 and parts[0] else None
+    return {"country": "FR", "locality": locality}
+
+
 def _run_pass(
     queries: tuple[str, ...],
     kind: str,
@@ -177,7 +196,15 @@ def _run_pass(
         else:
             rec = parse_job(html, url)
             if not _is_france_job(rec, config.country_code):
-                continue
+                # Login-walled job pages yield partial records with no JSON-LD
+                # location, so they fail the France filter. The guest search
+                # card carries the authoritative office location — fill it in
+                # and re-check before dropping the job.
+                filled = _france_location_from_card(result.get("location"))
+                if filled is not None:
+                    rec["location"] = filled
+                if not _is_france_job(rec, config.country_code):
+                    continue
             rec["technologies"] = scanner.scan(rec["description"])
         records.append(rec)
 

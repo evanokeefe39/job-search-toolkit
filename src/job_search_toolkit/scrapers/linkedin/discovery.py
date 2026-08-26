@@ -14,7 +14,7 @@ import re
 import time
 from collections.abc import Sequence
 from datetime import timedelta
-from typing import Protocol, TypedDict
+from typing import NotRequired, Protocol, TypedDict
 from urllib.parse import quote
 
 import httpx
@@ -46,11 +46,16 @@ _QUOTED_RE = re.compile(r'"([^"]+)"')
 
 
 class SearchResult(TypedDict):
-    """One raw search hit: landing URL, page title, and snippet text."""
+    """One raw search hit: landing URL, page title, and snippet text.
+
+    ``location`` is set only by the guest-jobs backend (the search card carries
+    an authoritative office-location string); search backends omit it.
+    """
 
     url: str
     title: str
     snippet: str
+    location: NotRequired[str]
 
 
 class DiscoveryRun(TypedDict):
@@ -449,6 +454,7 @@ def _parse_guest_cards(html_text: str) -> list[SearchResult]:
                 url=f"https://www.linkedin.com/jobs/view/{job_id}/",
                 title=title,
                 snippet=f"{company} — {location}".strip(" —"),
+                location=location,
             )
         )
     return out
