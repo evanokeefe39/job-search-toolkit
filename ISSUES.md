@@ -227,6 +227,39 @@ streaming lands (see `docs/pipeline-streaming-research.md`), model each board
 as a static Dagster partition for native selective runs + backfill. Not YAML.
 Full discussion + conclusion in `tasks/plans/cli-source-selection.md`.
 
+### Scraper test/maintainability conventions: object-reference patching, stale-path guard (ENHANCEMENT 2026-08-26, deferred)
+
+**Kind:** enhancement / convention. **Deferred** — post-close-out of the
+`feat/linkedin-source-adapter` branch. Finding from the 3-expert review panel
+during the `scrapers/` relocation.
+
+**Context:** the point of grep for a maintainer is that it is authoritative.
+That breaks two ways: (a) stringly-typed module paths that refactor tools
+cannot follow, and (b) duplicated helpers that surface as N copies to reconcile
+by hand. The repo is mostly clean on both; two concrete gaps:
+
+**Gap 1 — string-path monkeypatching (one holdout).**
+`tests/test_datasciencejobs_streaming.py:87` patches by string path:
+`monkeypatch.setattr("job_search_toolkit.scrapers.datasciencejobs.fetch_detail", identity)`.
+A string path is invisible to LSP rename / `ast_edit`; if the module drifts it
+silently patches nothing and the test passes as a no-op. Every other test
+patches by object reference (`import … as adapter` then
+`monkeypatch.setattr(adapter, …)`). **Fix:** convert the holdout to the object
+form; adopt the rule "patch by object reference, never by string path" for all
+tests. (The LinkedIn relocation was safe only because its tests already used
+the object form.)
+
+**Gap 2 — optional pre-push stale-path guard.** The pre-push hook blocks PII
+but not stale module paths. A grep-based check (fail the push if a known-old
+module path, or a string-path `setattr("job_search_toolkit…`, remains) would
+have made the relocation self-verifying and catches the next one automatically.
+Cheap and additive.
+
+**Related (already tracked):** `_run_info_dict` is duplicated in
+`scrapers/linkedin/discovery.py` and `scrapers/linkedin/profile.py` — two
+copies of the same helper means grep finds both and a maintainer reconciles by
+hand. Consolidate into one shared module under the deferred config-cleanup work.
+
 ### OMP edit tool: silent file corruption via boundary-echo auto-repair (OPEN 2026-08-12)
 
 **Symptom:** The `edit` tool repeatedly mangles files during large or repeated
