@@ -238,3 +238,65 @@ def test_posts_are_not_country_filtered():
 def test_config_country_code_defaults_to_fr():
     assert LinkedInConfig().country_code == "fr"
     assert LinkedInConfig.from_preferences("does-not-exist.yaml").country_code == "fr"
+
+
+# --- guest_jobs backend routing + config ---
+
+def _noop_backend(name):
+    class _NB:
+        def __init__(self):
+            self.name = name
+        def search(self, queries, *, country_code=None, language_code=None):
+            return DiscoveryRun(backend=name, results=[], cost_usd=None, usage={})
+    return _NB()
+
+
+def test_job_discovery_routes_through_guest_backend_when_enabled(monkeypatch):
+    """guest_jobs=True and no injected backend => jobs use LinkedInGuestBackend,
+    posts use make_backend(config.backend)."""
+    import job_search_toolkit.linkedin.adapter as adapter
+    seen = {"post": None, "job": None}
+    class FakeGuest:
+        name = "linkedin_guest"
+        def __init__(self): seen["job"] = "linkedin_guest"
+        def search(self, queries, **kw): return DiscoveryRun(backend="linkedin_guest", results=[], cost_usd=None, usage={})
+    def fake_make_backend(name):
+        seen["post"] = name
+        return _noop_backend(name)
+    monkeypatch.setattr(adapter, "LinkedInGuestBackend", FakeGuest)
+    monkeypatch.setattr(adapter, "make_backend", fake_make_backend)
+    cfg = LinkedInConfig(post_queries=("p",), job_queries=("j",), guest_jobs=True)
+    out = run_discovery(cfg)
+    assert out.jobs == [] and out.posts == []
+    assert seen["job"] == "linkedin_guest"
+    assert seen["post"] == "apify"  # posts keep the configured backend
+
+
+def test_job_discovery_uses_configured_backend_when_guest_disabled(monkeypatch):
+    """guest_jobs=False => jobs use make_backend(config.backend), not the guest API."""
+    import job_search_toolkit.linkedin.adapter as adapter
+    seen = []
+    class FakeGuest:
+        name = "linkedin_guest"
+        def __init__(self): seen.append("guest_constructed")
+    monkeypatch.setattr(adapter, "LinkedInGuestBackend", FakeGuest)
+    monkeypatch.setattr(adapter, "make_backend", lambda name: _noop_backend(name))
+    cfg = LinkedInConfig(post_queries=(), job_queries=("j",), guest_jobs=False)
+    out = run_discovery(cfg)
+    assert out.jobs == []
+    assert "guest_constructed" not in seen
+
+
+def test_injected_backend_bypasses_guest_routing(monkeypatch):
+    """An injected backend (test seam) is used for both kinds regardless of guest_jobs."""
+    import job_search_toolkit.linkedin.adapter as adapter
+    monkeypatch.setattr(adapter, "LinkedInGuestBackend", lambda: (_ for _ in ()).throw(AssertionError("guest used")))
+    monkeypatch.setattr(adapter, "make_backend", lambda name: (_ for _ in ()).throw(AssertionError("make_backend used")))
+    cfg = LinkedInConfig(post_queries=("p",), job_queries=("j",), guest_jobs=True)
+    out = run_discovery(cfg, backend=_noop_backend("stub"))
+    assert out.jobs == [] and out.posts == []
+
+
+def test_config_guest_jobs_defaults_true():
+    assert LinkedInConfig().guest_jobs is True
+    assert LinkedInConfig(guest_jobs=False).guest_jobs is False

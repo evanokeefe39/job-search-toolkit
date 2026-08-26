@@ -4,7 +4,8 @@ Config lives in the gitignored ``job_search_preferences.yaml`` under a
 ``linkedin:`` section:
 
     linkedin:
-      backend: apify            # "apify" | "tavily"
+      backend: apify            # posts backend: "apify" | "tavily"
+      guest_jobs: true          # true => jobs via the free LinkedIn guest API
       country_code: fr          # search locale (ISO 3166-1 alpha-2, lowercase)
       language_code: fr         # search language (ISO 639-1, lowercase)
       technology_list: null     # optional path to a keyword file; null = built-in
@@ -27,7 +28,8 @@ import yaml
 
 @dataclass(frozen=True)
 class LinkedInConfig:
-    backend: str = "apify"
+    backend: str = "apify"            # posts backend: "apify" | "tavily"
+    guest_jobs: bool = True           # jobs via LinkedIn guest API when True
     country_code: str = "fr"
     language_code: str = "fr"
     technology_list: str | None = None
@@ -54,6 +56,7 @@ class LinkedInConfig:
         tech_list = section.get("technology_list")
         return cls(
             backend=str(section.get("backend", "apify")).lower(),
+            guest_jobs=bool(section.get("guest_jobs", True)),
             country_code=str(section.get("country_code", "fr")).lower(),
             language_code=str(section.get("language_code", "fr")).lower(),
             technology_list=str(tech_list) if tech_list else None,

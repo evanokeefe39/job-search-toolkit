@@ -215,14 +215,19 @@ excludes stale jobs, exposes ``days_since_posted``/``days_since_seen``),
   multi-user, per-board Dagster partitions. See
   `tasks/plans/cli-source-selection.md` + `ROADMAP.md` → "Potential
   Enhancements". Don't expand the CLI without revisiting that decision.
-- **LinkedIn jobs discovery under-harvests (2026-08-25):** `site:linkedin.com/jobs`
-  queries return ~120 results/run; only ~53 are individual `/jobs/view/` URLs.
-  The other ~64 are LinkedIn SEO landing pages (`/jobs/<keyword>-<location>`)
-  that `classify_url` marks "drop" — but each embeds ~60 individual
-  `/jobs/view/` links. Discarding them loses the richest France job-link source.
-  `classify_url`'s "drop" for `/jobs/<slug>` pages is a deliberate guard
-  (they aren't JobPosting pages) — don't relax it blindly; the fix is to
-  *harvest* those pages' links, not treat them as jobs. See ISSUES.md blocker.
+- **LinkedIn jobs discovery — guest API (2026-08-25):** `linkedin_jobs` now
+  discovers via LinkedIn's **public guest jobs API**
+  (`linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search`) when
+  `guest_jobs: true` in `job_search_preferences.yaml` (default; see
+  `linkedin/discovery.py` `LinkedInGuestBackend`). It is **free, no auth, and
+  yields hundreds of France-scoped job IDs** (location in the card), replacing
+  the under-harvesting `apify~google-search-scraper` route for jobs (which now
+  only serves `linkedin_posts` + a jobs fallback). **FRAGILE:** the guest API is
+  an undocumented public endpoint — LinkedIn can change or block it without
+  notice. If it breaks, see **`docs/linkedin-source-spike.md`** for the source
+  analysis and quick-fix options (dedicated Apify actors need a purchasable
+  actor; google-scraper is the fallback). The France filter
+  (`_is_france_job`) still guarantees only `country=FR` jobs enter silver.
 - **LinkedIn posts → jobs (2026-08-25):** `post_extract.py:extract_from_post`
   is the regex verdict gate (`land`/`queue`/`drop`); `queue` rows are reserved
   for an LLM enrichment pass that must be verified to cover `linkedin_posts`.

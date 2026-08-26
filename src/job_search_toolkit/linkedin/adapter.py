@@ -22,6 +22,7 @@ import httpx
 from job_search_toolkit.linkedin.config import LinkedInConfig
 from job_search_toolkit.linkedin.discovery import (
     DiscoveryBackend,
+    LinkedInGuestBackend,
     SearchResult,
     discover,
     make_backend,
@@ -197,13 +198,20 @@ def run_discovery(
     ``scanner`` may be injected for tests; when omitted they are built from
     ``config`` and the environment.
     """
-    backend = backend or make_backend(config.backend)
+    # Posts are recruiter posts (no structured job search); they always use the
+    # configured search backend (apify/tavily). Jobs use the free LinkedIn guest
+    # API by default (``guest_jobs``) — unless a backend was injected (test
+    # seam), in which case both kinds use it. See docs/linkedin-source-spike.md.
+    post_backend = backend or make_backend(config.backend)
+    job_backend = (
+        LinkedInGuestBackend() if (config.guest_jobs and backend is None) else post_backend
+    )
     scanner = scanner or _make_scanner(config)
 
     outcome = DiscoveryOutcome()
     if "post" in kinds and config.post_queries:
         posts, stale, failed, cost, usage = _run_pass(
-            config.post_queries, "post", config, backend, scanner, client
+            config.post_queries, "post", config, post_backend, scanner, client
         )
         outcome.posts = _dedup_posts(posts)
         outcome.stale_urls.extend(stale)
@@ -214,7 +222,7 @@ def run_discovery(
 
     if "job" in kinds and config.job_queries:
         jobs, stale, failed, cost, usage = _run_pass(
-            config.job_queries, "job", config, backend, scanner, client
+            config.job_queries, "job", config, job_backend, scanner, client
         )
         outcome.jobs = _dedup_jobs(jobs)
         outcome.stale_urls.extend(stale)

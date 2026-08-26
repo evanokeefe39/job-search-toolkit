@@ -10,9 +10,11 @@ here. API tokens come from the environment (``APIFY_TOKEN`` /
 from __future__ import annotations
 
 import os
+import re
 import time
 from collections.abc import Sequence
 from typing import Protocol, TypedDict
+from urllib.parse import quote
 
 import httpx
 
@@ -23,6 +25,23 @@ _TAVILY_RATE_LIMIT_SLEEP = 1.0
 _BODY_PREFIX_CHARS = 200
 _TERMINAL_STATUSES = frozenset({"SUCCEEDED", "FAILED", "TIMED-OUT", "ABORTED"})
 _FAILED_STATUSES = frozenset({"FAILED", "TIMED-OUT", "ABORTED"})
+
+# LinkedIn public guest jobs search endpoint (no auth). Returns 10 job cards
+# per page as HTML fragments; paginate with start=0,25,50,...
+_GUEST_JOBS_ENDPOINT = "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search"
+_GUEST_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "Chrome/126 Safari/537.36"
+    ),
+    "Accept-Language": "en-US,en;q=0.9",
+}
+_GUEST_PAGE_SIZE = 10            # cards per guest-API page
+_GUEST_START_STEP = 25           # start offset increments
+_GUEST_DEFAULT_MAX_RESULTS = 100
+# Country code (lowercase) -> default location text for the guest API.
+_DEFAULT_LOCATION_BY_COUNTRY = {"fr": "France"}
+_QUOTED_RE = re.compile(r'"([^"]+)"')
 
 
 class SearchResult(TypedDict):
@@ -301,10 +320,127 @@ class TavilyBackend:
         )
 
 
+class LinkedInGuestBackend:
+    """LinkedIn's public guest jobs search API, fetched directly (no auth).
+
+    LinkedIn's ``/jobs-guest/jobs/api/seeMoreJobPostings/search`` endpoint
+    returns 10 job cards per page as HTML fragments for a keyword + location.
+    This backend paginates it and flattens the cards into ``SearchResult``s
+    whose ``url`` is the individual ``/jobs/view/<id>/`` listing. Free (no
+    paid API), but the endpoint is undocumented and may change or be blocked;
+    see ``docs/linkedin-source-spike.md``.
+    """
+
+    name = "linkedin_guest"
+
+    def __init__(self, max_results: int = _GUEST_DEFAULT_MAX_RESULTS) -> None:
+        self.max_results = max_results
+
+    def search(
+        self,
+        queries: Sequence[str],
+        *,
+        country_code: str | None = None,
+        language_code: str | None = None,
+    ) -> DiscoveryRun:
+        client = _open_client()
+        results: list[SearchResult] = []
+        seen: set[str] = set()
+        try:
+            for query in queries:
+                keywords, location = _parse_guest_query(query)
+                location = location or _DEFAULT_LOCATION_BY_COUNTRY.get(
+                    (country_code or "").lower(), "France"
+                )
+                start = 0
+                while len(results) < self.max_results:
+                    url = (
+                        f"{_GUEST_JOBS_ENDPOINT}?keywords={quote(keywords)}"
+                        f"&location={quote(location)}&start={start}"
+                    )
+                    resp = _request(client, "GET", url, headers=_GUEST_HEADERS)
+                    page = _parse_guest_cards(resp.text)
+                    if not page:
+                        break
+                    fresh = 0
+                    for hit in page:
+                        if hit["url"] not in seen:
+                            seen.add(hit["url"])
+                            results.append(hit)
+                            fresh += 1
+                    start += _GUEST_START_STEP
+                    if len(page) < _GUEST_PAGE_SIZE or fresh == 0:
+                        break
+        finally:
+            client.close()
+        return DiscoveryRun(
+            backend=self.name,
+            results=results,
+            cost_usd=None,
+            usage={"provider": "linkedin_guest", "n_queries": len(queries), "n_results": len(results)},
+        )
+
+
+def _parse_guest_query(query: str) -> tuple[str, str | None]:
+    """Split a LinkedIn search query into ``(keywords, location)``.
+
+    Accepts the ``site:linkedin.com/jobs "<role>" [<keywords>] <place>`` shape:
+    quoted phrases become keywords, the final unquoted token is the location,
+    and any intermediate unquoted tokens join the keywords. Returns
+    ``(keywords, None)`` when no trailing location token exists.
+    """
+    q = re.sub(r"site:linkedin\.com/(jobs|posts)", " ", query).strip()
+    quoted = _QUOTED_RE.findall(q)
+    rest = _QUOTED_RE.sub(" ", q).split()
+    location = rest[-1] if rest else None
+    keywords = quoted + (rest[:-1] if rest else [])
+    return " ".join(keywords).strip(), location
+
+
+def _parse_guest_cards(html_text: str) -> list[SearchResult]:
+    """Parse LinkedIn guest-jobs API HTML fragments into SearchResults.
+
+    Each job card is an ``<li>`` carrying ``data-entity-urn="urn:li:jobPosting:
+    <id>"`` plus title/company/location fields. Cards without a job id or title
+    are skipped. The result URL is the canonical ``/jobs/view/<id>/``.
+    """
+    out: list[SearchResult] = []
+    for block in re.split(r"<li", html_text):
+        id_m = re.search(r"urn:li:jobPosting:(\d+)", block)
+        if not id_m:
+            continue
+        job_id = id_m.group(1)
+        title_m = re.search(
+            r'<h3[^>]*class="[^"]*base-search-card__title[^"]*"[^>]*>(.*?)</h3>',
+            block, re.S,
+        )
+        if not title_m:
+            continue
+        title = re.sub(r"<[^>]+>", "", title_m.group(1)).strip()
+        company_m = re.search(
+            r'<h4[^>]*class="[^"]*base-search-card__subtitle[^"]*"[^>]*>(.*?)</h4>',
+            block, re.S,
+        )
+        company = re.sub(r"<[^>]+>", "", company_m.group(1)).strip() if company_m else ""
+        loc_m = re.search(
+            r'class="[^"]*job-search-card__location[^"]*"[^>]*>(.*?)</span>',
+            block, re.S,
+        )
+        location = re.sub(r"<[^>]+>", "", loc_m.group(1)).strip() if loc_m else ""
+        out.append(
+            SearchResult(
+                url=f"https://www.linkedin.com/jobs/view/{job_id}/",
+                title=title,
+                snippet=f"{company} — {location}".strip(" —"),
+            )
+        )
+    return out
+
+
 def make_backend(name: str) -> DiscoveryBackend:
     """Construct the discovery backend named ``name``.
 
-    Pre: ``name`` is "apify" or "tavily" (case-insensitive).
+    Pre: ``name`` is "apify", "tavily", or "linkedin_guest" (case-insensitive).
     Post: a ready-to-search backend instance; ValueError for unknown names.
     """
     canonical = name.lower()
@@ -312,6 +448,8 @@ def make_backend(name: str) -> DiscoveryBackend:
         return ApifyBackend()
     if canonical == "tavily":
         return TavilyBackend()
+    if canonical in ("linkedin", "linkedin_guest", "guest"):
+        return LinkedInGuestBackend()
     raise ValueError(f"Unknown discovery backend: {name!r} (expected 'apify' or 'tavily')")
 
 
@@ -326,7 +464,7 @@ def discover(
 
     Pre: ``backend`` is a DiscoveryBackend instance or "apify"/"tavily".
     Post: the backend's ``search`` result for ``queries``; ValueError for
-    unknown backend names.
+    unknown backend names. Accepts "linkedin_guest" for the guest jobs API.
     """
     resolved = make_backend(backend) if isinstance(backend, str) else backend
     return resolved.search(

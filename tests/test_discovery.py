@@ -149,3 +149,76 @@ def test_apify_backend_uses_api_token_fallback(monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setenv("APIFY_API_TOKEN", "api-token-123")
     backend = ApifyBackend(token=None)
     assert backend.token == "api-token-123"
+
+
+# --- LinkedInGuestBackend (public guest jobs API) ---
+
+def test_parse_guest_query_variants():
+    from job_search_toolkit.linkedin.discovery import _parse_guest_query
+    assert _parse_guest_query('site:linkedin.com/jobs "Data Engineer" France') == ("Data Engineer", "France")
+    assert _parse_guest_query('site:linkedin.com/jobs "BI Developer" "Power BI" France') == ("BI Developer Power BI", "France")
+    assert _parse_guest_query('site:linkedin.com/jobs "Microsoft Fabric" data engineer France') == ("Microsoft Fabric data engineer", "France")
+    assert _parse_guest_query('site:linkedin.com/jobs "Data Engineer"') == ("Data Engineer", None)
+    assert _parse_guest_query('site:linkedin.com/posts "Data Engineer" hiring France') == ("Data Engineer hiring", "France")
+
+
+def test_parse_guest_cards_against_fixture():
+    from job_search_toolkit.linkedin.discovery import _parse_guest_cards
+    html = (_FIXTURES / "guest_jobs.html").read_text(encoding="utf-8")
+    cards = _parse_guest_cards(html)
+    assert len(cards) == 2
+    assert cards[0]["url"] == "https://www.linkedin.com/jobs/view/4454183821/"
+    assert cards[0]["title"] == "Data Engineer"
+    assert "Acme" in cards[0]["snippet"] and "Paris" in cards[0]["snippet"]
+    assert cards[1]["url"] == "https://www.linkedin.com/jobs/view/4455012345/"
+
+
+def test_parse_guest_cards_skips_missing_title():
+    from job_search_toolkit.linkedin.discovery import _parse_guest_cards
+    html = '<li><div data-entity-urn="urn:li:jobPosting:111"><h4>NoTitle</h4></div></li>'
+    assert _parse_guest_cards(html) == []
+
+
+def test_linkedin_guest_backend_search_uses_endpoint(monkeypatch):
+    from job_search_toolkit.linkedin import discovery as dmod
+    from job_search_toolkit.linkedin.discovery import LinkedInGuestBackend
+    fixture = (_FIXTURES / "guest_jobs.html").read_text(encoding="utf-8")
+    captured: dict[str, str] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["url"] = str(request.url)
+        return httpx.Response(200, text=fixture, request=request)
+
+    _patch_client(monkeypatch, handler)
+    backend = LinkedInGuestBackend(max_results=100)
+    run = backend.search(('site:linkedin.com/jobs "Data Engineer" France',))
+    assert run["backend"] == "linkedin_guest"
+    assert run["cost_usd"] is None
+    assert "keywords=Data%20Engineer" in captured["url"]
+    assert "location=France" in captured["url"]
+    assert "start=0" in captured["url"]
+    # fixture has 2 cards; ensure no dup across a hypothetical 2nd page within cap
+    assert len(run["results"]) == 2
+
+
+def test_linkedin_guest_backend_dedups_and_stops_on_empty(monkeypatch):
+    from job_search_toolkit.linkedin import discovery as dmod
+    from job_search_toolkit.linkedin.discovery import LinkedInGuestBackend
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        if calls["n"] > 1:  # second page returns nothing -> stop
+            return httpx.Response(200, text="<html></html>", request=request)
+        return httpx.Response(200, text="<html></html>", request=request)
+
+    _patch_client(monkeypatch, handler)
+    run = LinkedInGuestBackend(max_results=100).search(('site:linkedin.com/jobs "Data Engineer" France',))
+    assert run["results"] == []
+    assert calls["n"] >= 1
+
+
+def test_make_backend_guest():
+    from job_search_toolkit.linkedin.discovery import LinkedInGuestBackend, make_backend
+    for name in ("linkedin_guest", "linkedin", "guest"):
+        assert isinstance(make_backend(name), LinkedInGuestBackend)

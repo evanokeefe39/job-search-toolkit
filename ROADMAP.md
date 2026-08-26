@@ -233,11 +233,11 @@ Highest score first. Re-score quarterly.
   one run (`raise_on_error=False` + surface failed step keys + recovery hint),
   add `RetryPolicy` to scrape assets, and fix the freework `_max_pages()` leak.
   Cheap wins; no new CLI surface.
-- **LinkedIn France job harvest** (2026-08-25 diagnosis): `linkedin_jobs`
-  under-yields because LinkedIn SEO landing pages (`/jobs/<keyword>-<location>`,
-  each embedding ~60 `/jobs/view/` links) are classified "drop" and discarded.
-  Harvest those pages' job links (dedup) to multiply the France pool. See
-  ISSUES.md blocker entry.
+- **LinkedIn jobs via guest API (done 2026-08-25):** `linkedin_jobs` now
+  discovers via LinkedIn's public guest jobs API (free, no auth) — resolves the
+  prior under-yield. **FRAGILE** (undocumented endpoint); if it breaks, see
+  `docs/linkedin-source-spike.md` for fallbacks (dedicated actors / google-
+  scraper). Original diagnosis: SEO landing pages were discarded; now moot.
 - **LinkedIn posts → jobs enrichment** (2026-08-25): recruiter posts become
   jobs via a regex verdict (`land`/`queue`/`drop`); explore recruiter-region
   inference (APAC/EMEA/DACH/USA) via regex vs LLM, and close the `queue` LLM
