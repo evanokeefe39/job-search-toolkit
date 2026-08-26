@@ -31,15 +31,17 @@ with human review gates — no fully automated ATS pipeline.
   user override; template `tailor_resume_preferences.example.yaml` at repo
   root) > defaults; the package-bundled `TONE.txt` injects tone guidance.
 - **Run config is YAML-driven.** Run *mechanics* (timeouts, page sizes, limits,
-  LLM rate limits) come from `config.yaml` (gitignored; template
+  LLM rate limits + connection) come from `config.yaml` (gitignored; template
   `config.example.yaml` at repo root) via `src/job_search_toolkit/run_config.py`
   (`RunConfig` + `load_run_config`), selected per-run with
   `pipeline run --config <name>` and `--max-pages N`. Precedence: CLI > named
-  run > `defaults` > env fallback > built-in. Search *criteria* (roles,
-  locations, LinkedIn queries) stay in `job_search_preferences.yaml`; API
-  secrets stay in `.env`. User-facing resume-tailoring preferences live in
-  `tailor_resume_preferences.yaml`. Shared resolution/precedence helpers in
-  `configutil.py`.
+  run > `defaults` > env fallback > built-in. **Named-run selection is threaded
+  end-to-end**: consumers call `get_run_config()` at point of use (it reads the
+  `RUN_CONFIG` env `run_pipeline` sets), and direct CLIs honor `RUN_CONFIG` too
+  when exported. Search *criteria* (roles, locations, LinkedIn queries) stay in
+  `job_search_preferences.yaml`; API secrets stay in `.env`. User-facing
+  resume-tailoring preferences live in `tailor_resume_preferences.yaml`. Shared
+  resolution/precedence helpers in `configutil.py`.
   Resume-Matcher is DEPRECATED (CP1252 mojibake, keyword-padding, 3-page bloat).
   The submission artifact is `cv_tailored.pdf` rendered by RenderCV from LLM-tailored YAML.
 

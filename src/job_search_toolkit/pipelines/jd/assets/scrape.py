@@ -20,7 +20,7 @@ from .common import (
     bronze_timestamped_path,
     iso_timestamp,
 )
-from job_search_toolkit.run_config import load_run_config
+from job_search_toolkit.run_config import get_run_config, load_run_config
 from ..config import ensure_data_dirs
 
 
@@ -61,17 +61,18 @@ def freework_jobs(context: AssetExecutionContext) -> dg.MaterializeResult:
     """Scrape free-work.com and normalize to canonical format."""
     from job_search_toolkit.scrapers.freework import (
         DEFAULT_CONTRACTS, DEFAULT_EXPERIENCE, DEFAULT_LOCATIONS,
-        DEFAULT_QUERY, DEFAULT_RADIUS, DEFAULT_REMOTE, DEFAULT_SORT,
+        DEFAULT_QUERY, DEFAULT_REMOTE, DEFAULT_SORT,
         build_url, scrape,
     )
     from ..adapt_freework import normalize_freework_job
 
     ensure_data_dirs()
+    rc = get_run_config()
     list_url = build_url(
         DEFAULT_QUERY, DEFAULT_LOCATIONS, DEFAULT_CONTRACTS,
-        DEFAULT_REMOTE, DEFAULT_EXPERIENCE, DEFAULT_SORT, DEFAULT_RADIUS,
+        DEFAULT_REMOTE, DEFAULT_EXPERIENCE, DEFAULT_SORT, rc.freework_radius,
     )
-    scrape(list_url, FREEWORK_RAW, max_pages=_max_pages(), fmt="json")
+    scrape(list_url, FREEWORK_RAW, max_pages=rc.max_pages, fmt="json")
     raw = json.loads(FREEWORK_RAW.read_text(encoding="utf-8"))
     canonical = [normalize_freework_job(j) for j in raw]
     FREEWORK_RAW.write_text(

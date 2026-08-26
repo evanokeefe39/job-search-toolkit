@@ -32,7 +32,7 @@ from typing import Any
 
 import duckdb
 
-from .config import ENRICHMENT_VERSION, WAREHOUSE_DB
+from .config import WAREHOUSE_DB, get_enrichment_version
 
 # Pipeline-internal keys that never become warehouse columns.
 _SKIP_KEYS = {"_enrichment", "_source", "company_info"}
@@ -223,7 +223,7 @@ def _company_dim_row(cid: str, name: str, board: str, ci: dict) -> dict:
         "latest_funding_type": ci.get("latest_funding_type"),
         "latest_funding_amount_usd": ci.get("latest_funding_amount_usd"),
         "homepage_url": ci.get("homepage_url"),
-        "enrichment_version": ENRICHMENT_VERSION,
+        "enrichment_version": get_enrichment_version(),
     }
 
 
@@ -506,7 +506,7 @@ def upsert_run(
             elif key == "enriched_at":
                 values.append("NULL")
             elif key == "enrichment_version":
-                values.append(str(ENRICHMENT_VERSION))
+                values.append(str(get_enrichment_version()))
             else:
                 value = job.get(key)
                 if value is None:
@@ -554,7 +554,7 @@ def mark_enriched(con: duckdb.DuckDBPyConnection) -> None:
         UPDATE silver.jobs SET
             enriched_at = NOW(),
             overall_score = NULL,
-            enrichment_version = {ENRICHMENT_VERSION}
+            enrichment_version = {get_enrichment_version()}
         WHERE enriched_at IS NULL AND {DONE_ALL}
         """
     )
@@ -569,7 +569,7 @@ def reset_stale(con: duckdb.DuckDBPyConnection, stage: str) -> None:
     rows — hiringcafe classify/company data comes from the source, not the
     LLM, and would otherwise be wiped with nothing to restore it.
     """
-    stale = f"enrichment_version < {ENRICHMENT_VERSION}"
+    stale = f"enrichment_version < {get_enrichment_version()}"
     if stage == "translate":
         con.execute(
             f"UPDATE silver.jobs SET description_language = 'fr' "

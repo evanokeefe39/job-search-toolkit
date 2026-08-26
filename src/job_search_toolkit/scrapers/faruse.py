@@ -31,7 +31,7 @@ from urllib.parse import quote
 import httpx
 import typer
 
-from job_search_toolkit.run_config import load_run_config
+from job_search_toolkit.run_config import get_run_config
 from job_search_toolkit.schemas import (
     CanonicalJob,
     CompanyInfo,
@@ -45,9 +45,6 @@ from job_search_toolkit.schemas import (
     WorkplaceType,
     new_canonical_job,
 )
-
-_CFG = load_run_config()
-_HTTP_TIMEOUT = _CFG.http_timeout
 
 app = typer.Typer(no_args_is_help=False)
 
@@ -70,8 +67,6 @@ DEFAULT_CONTRACTS: list[str] = []
 DEFAULT_REMOTE: list[str] = []
 DEFAULT_EXPERIENCE: list[str] = []
 DEFAULT_SORT = ""
-
-PAGE_SIZE = _CFG.faruse_page_size
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -249,7 +244,7 @@ def build_payload(
     """Build the search-jobs POST body from CLI parameters."""
     payload: dict = {
         "page": page,
-        "pageSize": PAGE_SIZE,
+        "pageSize": get_run_config().faruse_page_size,
         "searchQuery": query or "",
         "searchIn": "all",
     }
@@ -287,7 +282,7 @@ def build_payload(
 
 def fetch_page(client: httpx.Client, url: str, payload: dict) -> dict:
     """POST one page of the search-jobs edge function. Returns parsed JSON."""
-    resp = client.post(url, json=payload, timeout=_HTTP_TIMEOUT)
+    resp = client.post(url, json=payload, timeout=get_run_config().http_timeout)
     resp.raise_for_status()
     return resp.json()
 
@@ -302,10 +297,10 @@ def fetch_page_rest(client: httpx.Client, page: int) -> list[dict]:
         params={
             "select": "*",
             "order": "publishedAt.desc",
-            "offset": (page - 1) * PAGE_SIZE,
-            "limit": PAGE_SIZE,
+            "offset": (page - 1) * get_run_config().faruse_page_size,
+            "limit": get_run_config().faruse_page_size,
         },
-        timeout=_HTTP_TIMEOUT,
+        timeout=get_run_config().http_timeout,
     )
     resp.raise_for_status()
     data = resp.json()
@@ -535,7 +530,7 @@ def scrape(url: str, output: Path, max_pages: int | None, fmt: str, query: str, 
             records = fetch_page_rest(client, page)
             records = [r for r in records if rest_matches(r, query, location)]
             total_pages = page + 1  # unknown; iterate until an empty page
-            has_more = len(records) >= PAGE_SIZE
+            has_more = len(records) >= get_run_config().faruse_page_size
 
         page_jobs = 0
         for record in records:

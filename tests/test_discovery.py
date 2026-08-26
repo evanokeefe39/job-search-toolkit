@@ -252,3 +252,15 @@ def test_make_backend_guest():
     from job_search_toolkit.scrapers.linkedin.discovery import LinkedInGuestBackend, make_backend
     for name in ("linkedin_guest", "linkedin", "guest"):
         assert isinstance(make_backend(name), LinkedInGuestBackend)
+
+
+def test_run_info_dict_shared_location_works_on_plain_dict():
+    """The canonical _run_info_dict lives in configutil (imported by both
+    discovery and profile); it must pass plain dicts through unchanged."""
+    from job_search_toolkit.configutil import _run_info_dict
+
+    assert _run_info_dict({"id": "r1", "status": "SUCCEEDED", "defaultDatasetId": "d1"}) == {
+        "id": "r1",
+        "status": "SUCCEEDED",
+        "defaultDatasetId": "d1",
+    }

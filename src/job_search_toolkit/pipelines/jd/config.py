@@ -11,7 +11,7 @@ Set LLM_API_KEY and LLM_BASE_URL in the environment or a .env file.
 import os
 from pathlib import Path
 
-from job_search_toolkit.run_config import load_run_config
+from job_search_toolkit.run_config import get_run_config
 
 WORK_DIR = Path.cwd()
 
@@ -59,7 +59,24 @@ LLM_MODEL = _provider["model"]
 # Rate limits + enrichment version come from RunConfig (run_config.py), which
 # falls back to the legacy env vars (ENRICHMENT_VERSION / LLM_MAX_RPM /
 # LLM_CONCURRENCY) when not in config.yaml.
-_RUN_CFG = load_run_config()
+_RUN_CFG = get_run_config()
 ENRICHMENT_VERSION = _RUN_CFG.enrichment_version
 LLM_MAX_RPM = _RUN_CFG.llm_max_rpm
 LLM_CONCURRENCY = _RUN_CFG.llm_concurrency
+
+_ENRICHMENT_VERSION_CACHE: int | None = None
+
+
+def get_enrichment_version() -> int:
+    """Resolve the current run's enrichment version (named-run aware).
+
+    Unlike the ``ENRICHMENT_VERSION`` module constant (read at import, so it is
+    the default-run value), this resolves through ``get_run_config()`` at first
+    use — i.e. during asset execution, after ``run_pipeline`` has set
+    ``RUN_CONFIG`` — so a named run's ``enrichment_version`` applies. Cached
+    once per process (the CLI runs one config per process).
+    """
+    global _ENRICHMENT_VERSION_CACHE
+    if _ENRICHMENT_VERSION_CACHE is None:
+        _ENRICHMENT_VERSION_CACHE = get_run_config().enrichment_version
+    return _ENRICHMENT_VERSION_CACHE

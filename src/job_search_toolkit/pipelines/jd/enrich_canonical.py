@@ -16,7 +16,8 @@ import logging
 from openai import OpenAI
 from pydantic import BaseModel, Field
 
-from .config import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
+from job_search_toolkit.run_config import get_run_config
+from .config import LLM_API_KEY
 from job_search_toolkit.schemas import CompanyType
 
 logger = logging.getLogger(__name__)
@@ -28,9 +29,10 @@ def _get_client() -> OpenAI:
     global _client
     if _client is None:
         import instructor
+        rc = get_run_config()
         _client = instructor.from_openai(OpenAI(
             api_key=LLM_API_KEY,
-            base_url=LLM_BASE_URL,
+            base_url=rc.llm_base_url,
         ))
     return _client
 
@@ -124,7 +126,7 @@ def translate_jobs(jobs: list[dict]) -> list[dict]:
     def _do(job: dict) -> None:
         try:
             result = client.chat.completions.create(
-                model=LLM_MODEL, response_model=TranslationOutput,
+                model=get_run_config().llm_model, response_model=TranslationOutput,
                 messages=[{"role": "system", "content": TRANSLATE_SYSTEM},
                           {"role": "user", "content": job["description_text"][:3000]}],
                 max_tokens=2000,
@@ -155,7 +157,7 @@ def extract_tech(jobs: list[dict]) -> list[dict]:
             desc = job.get("description_text", "")
             title = job.get("title", "")
             result = client.chat.completions.create(
-                model=LLM_MODEL, response_model=TechExtractionOutput,
+                model=get_run_config().llm_model, response_model=TechExtractionOutput,
                 messages=[{"role": "system", "content": EXTRACT_SYSTEM},
                           {"role": "user", "content": f"Title: {title}\n\nDescription: {desc[:3000]}"}],
                 max_tokens=1000,
@@ -191,7 +193,7 @@ def classify_jobs(jobs: list[dict]) -> list[dict]:
             desc = job.get("description_text", "")
             company = job.get("company", "")
             result = client.chat.completions.create(
-                model=LLM_MODEL, response_model=ClassificationOutput,
+                model=get_run_config().llm_model, response_model=ClassificationOutput,
                 messages=[{"role": "system", "content": CLASSIFY_SYSTEM},
                           {"role": "user", "content": f"Posting company: {company}\n\nDescription: {desc[:3000]}"}],
                 max_tokens=500,
@@ -223,7 +225,7 @@ def enrich_companies(companies: list[dict]) -> list[dict]:
     def _do(c: dict) -> None:
         try:
             result = client.chat.completions.create(
-                model=LLM_MODEL, response_model=CompanyResearchOutput,
+                model=get_run_config().llm_model, response_model=CompanyResearchOutput,
                 messages=[{"role": "system", "content": RESEARCH_SYSTEM},
                           {"role": "user", "content": f"Company: {c['name']}"}],
                 max_tokens=300,

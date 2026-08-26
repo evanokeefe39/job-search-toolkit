@@ -29,7 +29,7 @@ from ..silver import (
     sql_json,
     sql_literal,
 )
-from ..config import ENRICHMENT_VERSION
+from ..config import get_enrichment_version
 
 _DB_UPDATE_TAIL = " AND source_board = {}"
 
@@ -165,7 +165,7 @@ def dim_company_enriched(context: AssetExecutionContext) -> dg.MaterializeResult
                 f"UPDATE silver.dim_company SET "
                 f"org_type = {sql_literal(c['org_type'])}, "
                 f"enriched_at = NOW(), "
-                f"enrichment_version = {ENRICHMENT_VERSION} "
+                f"enrichment_version = {get_enrichment_version()} "
                 f"WHERE company_id = {sql_literal(c['company_id'])}"
             )
             updated += 1

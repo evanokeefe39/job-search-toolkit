@@ -25,25 +25,12 @@ from urllib.parse import unquote, urlsplit
 from apify_client import ApifyClient
 from apify_client.errors import ApifyApiError
 
-from job_search_toolkit.run_config import load_run_config as _load_run_config
+from job_search_toolkit.configutil import _run_info_dict
+from job_search_toolkit.run_config import get_run_config
 
 # Env var override for the profile actor id (mirrors discovery.py's
 # APIFY_ACTOR_ID pattern); verified in the Apify account.
 _DEFAULT_ACTOR_ID = "data-slayer/linkedin-profile-scraper"
-
-_CFG = _load_run_config()
-
-
-def _run_info_dict(run: object) -> dict:
-    """Coerce an apify-client ``Run`` (pydantic model) or plain dict to a dict.
-
-    ``actor().call`` returns a ``Run`` model (not subscriptable);
-    ``model_dump(by_alias=True)`` yields the API camelCase keys (e.g.
-    ``defaultDatasetId``). Plain dicts pass through unchanged.
-    """
-    if hasattr(run, "model_dump"):
-        return run.model_dump(by_alias=True)  # type: ignore[attr-defined]
-    return dict(run)
 
 
 def _normalize_profile_url(url: str) -> str:
@@ -95,7 +82,7 @@ class LinkedInProfileScraper:
         self.actor_id = actor_id or os.environ.get(
             "APIFY_PROFILE_ACTOR_ID", _DEFAULT_ACTOR_ID
         )
-        self.timeout = _CFG.profile_timeout if timeout is None else timeout
+        self.timeout = get_run_config().profile_timeout if timeout is None else timeout
 
     def scrape_locations(
         self, profile_urls: Sequence[str]

@@ -23,7 +23,7 @@ from urllib.parse import quote_plus
 import httpx
 import typer
 
-from job_search_toolkit.run_config import load_run_config
+from job_search_toolkit.run_config import get_run_config
 
 app = typer.Typer(no_args_is_help=False)
 
@@ -34,8 +34,6 @@ DEFAULT_CONTRACTS = ["contractor", "fixed-term", "permanent"]
 DEFAULT_REMOTE = ["partial", "full", "none"]
 DEFAULT_EXPERIENCE = ["senior", "intermediate", "junior"]
 
-_CFG = load_run_config()
-_HTTP_TIMEOUT = _CFG.http_timeout
 DEFAULT_SORT = "date"
 
 # free-work → HiringCafe contract mapping
@@ -99,7 +97,7 @@ def geocode_location(name: str) -> dict:
                 "accept-language": "en",
             },
             headers={"User-Agent": "HiringCafeScraper/1.0"},
-            timeout=_HTTP_TIMEOUT,
+            timeout=get_run_config().http_timeout,
         )
         resp.raise_for_status()
         results = resp.json()
@@ -178,7 +176,7 @@ class HiringCafeClient:
         self.delay = delay
         self._build_id: str | None = None
         self._last_request_at = 0.0
-        self.client = httpx.Client(headers=HEADERS, timeout=_HTTP_TIMEOUT)
+        self.client = httpx.Client(headers=HEADERS, timeout=get_run_config().http_timeout)
 
     @property
     def build_id(self) -> str:
@@ -273,9 +271,11 @@ def build_search_state(
 def fetch_all_jobs(
     client: HiringCafeClient,
     search_state: dict,
-    max_pages: int = _CFG.hiringcafe_max_pages,
+    max_pages: int | None = None,
 ) -> list[dict]:
     """Paginate through all results, deduplicating on objectID."""
+    if max_pages is None:
+        max_pages = get_run_config().hiringcafe_max_pages
     jobs: list[dict] = []
     seen: set[str] = set()
 
@@ -589,7 +589,7 @@ def scrape(
     ] = DEFAULT_SORT,
     max_pages: Annotated[
         int, typer.Option("--max-pages", "-p", help="Max pages to fetch")
-    ] = _CFG.hiringcafe_max_pages,
+    ] = get_run_config().hiringcafe_max_pages,
     output: Annotated[
         Path, typer.Option("--output", "-o", help="Output file base (no extension)")
     ] = Path("hiringcafe_jobs"),
