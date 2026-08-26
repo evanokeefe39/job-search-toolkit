@@ -146,6 +146,13 @@ blocks carry the same instruction for external users.
 
 ## Engineering practices
 
+- **Use client libraries for APIs — never hand-roll HTTP.** When integrating
+  with an API that ships an official client library, use it (e.g. `apify-client`
+  for Apify), not raw REST calls. A slug-based REST 404 on a marketplace actor
+  usually means the actor isn't in your account yet — verify via the client or
+  after adding it, not by assuming the actor is broken. See tasks/lessons.md.
+
+
 - **Linear history.** No direct commits to `main`. Work on `feat/<name>` branches,
   open a PR, and squash-merge (PR title = commit message). `main` is always the
   sum of merged PRs.

@@ -13,12 +13,14 @@ import os
 import re
 import time
 from collections.abc import Sequence
+from datetime import timedelta
 from typing import Protocol, TypedDict
 from urllib.parse import quote
 
 import httpx
+from apify_client import ApifyClient
+from apify_client.errors import ApifyApiError
 
-_APIFY_BASE = "https://api.apify.com"
 _TAVILY_ENDPOINT = "https://api.tavily.com/search"
 _DEFAULT_ACTOR_ID = "apify~google-search-scraper"
 _TAVILY_RATE_LIMIT_SLEEP = 1.0
@@ -146,7 +148,11 @@ def _open_client() -> httpx.Client:
 
 
 class ApifyBackend:
-    """Google SERP discovery through the Apify REST API (no SDK)."""
+    """Google SERP discovery through the official Apify SDK (``apify-client``).
+
+    Uses the SDK's ``actor().start`` / ``run().wait_for_finish`` /
+    ``dataset().iterate_items`` rather than hand-rolled REST calls.
+    """
 
     name = "apify"
 
@@ -189,13 +195,24 @@ class ApifyBackend:
 
         Pre: ``queries`` is a non-empty sequence of search strings.
         Post: DiscoveryRun with backend="apify" and usage tracking keyed by
-        run id; raises RuntimeError on actor failure or HTTP errors, and
+        run id; raises RuntimeError on actor failure or API errors, and
         TimeoutError when the run does not finish within ``timeout`` seconds.
         """
-        with _open_client() as client:
-            run_id = self._start_run(client, queries, country_code, language_code)
-            usage_total_usd = self._wait_for_run(client, run_id)
-            dataset = self._fetch_dataset(client, run_id)
+        run_input: dict[str, object] = {
+            "queries": "\n".join(queries),
+            "maxPagesPerQuery": 1,
+        }
+        # The official apify/google-search-scraper input uses country/language,
+        # not the epctex actor's countryCode/languageCode. Omit when unset.
+        if country_code:
+            run_input["country"] = country_code
+        if language_code:
+            run_input["language"] = language_code
+
+        client = ApifyClient(self.token)
+        run_id = self._start_run(client, run_input)
+        usage_total_usd = self._wait_for_run(client, run_id)
+        dataset = self._fetch_dataset(client, run_id)
         results = flatten_apify_dataset(dataset)
         return DiscoveryRun(
             backend="apify",
@@ -208,26 +225,12 @@ class ApifyBackend:
             },
         )
 
-    def _start_run(
-        self,
-        client: httpx.Client,
-        queries: Sequence[str],
-        country_code: str | None,
-        language_code: str | None,
-    ) -> str:
-        """POST the queries to the actor and return the new run id."""
-        url = f"{_APIFY_BASE}/v2/acts/{self.actor_id}/runs"
-        payload = {"queries": "\n".join(queries), "maxPagesPerQuery": 1}
-        # The official apify/google-search-scraper input uses country/language,
-        # not the epctex actor's countryCode/languageCode. Omit when unset.
-        if country_code:
-            payload["country"] = country_code
-        if language_code:
-            payload["language"] = language_code
-        resp = _request(client, "POST", url, params={"token": self.token}, json=payload)
-        return resp.json()["data"]["id"]
+    def _start_run(self, client: object, run_input: dict[str, object]) -> str:
+        """Start the actor and return the new run id."""
+        run_info = client.actor(self.actor_id).start(run_input=run_input)  # type: ignore[attr-defined]
+        return run_info["id"]
 
-    def _wait_for_run(self, client: httpx.Client, run_id: str) -> float | None:
+    def _wait_for_run(self, client: object, run_id: str) -> float | None:
         """Poll the run until it finishes; return usageTotalUsd on success.
 
         Pre: the run exists and ``self.timeout`` is positive.
@@ -235,35 +238,34 @@ class ApifyBackend:
         RuntimeError for FAILED/TIMED-OUT/ABORTED runs and TimeoutError when
         ``self.timeout`` elapses first.
         """
-        url = f"{_APIFY_BASE}/v2/actor-runs/{run_id}"
         deadline = time.monotonic() + self.timeout
         while True:
-            if time.monotonic() >= deadline:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
                 raise TimeoutError(
                     f"Apify run {run_id} did not finish within {self.timeout}s"
                 )
-            resp = _request(client, "GET", url, params={"token": self.token})
-            data = resp.json()["data"]
-            status = data.get("status")
+            try:
+                run_info = client.run(run_id).wait_for_finish(  # type: ignore[attr-defined]
+                    wait_duration=timedelta(seconds=min(self.poll_interval, remaining))
+                )
+            except ApifyApiError as exc:
+                raise RuntimeError(f"Apify run {run_id} failed: {exc}") from exc
+            if not run_info:
+                continue
+            status = run_info.get("status")
             if status in _TERMINAL_STATUSES:
                 if status in _FAILED_STATUSES:
                     raise RuntimeError(f"Apify run {run_id} ended with status {status}")
-                return data.get("usageTotalUsd")
-            time.sleep(self.poll_interval)
+                return run_info.get("usageTotalUsd")
 
-    def _fetch_dataset(self, client: httpx.Client, run_id: str) -> list[dict]:
+    def _fetch_dataset(self, client: object, run_id: str) -> list[dict]:
         """Download the run's dataset items (the raw search pages)."""
-        url = f"{_APIFY_BASE}/v2/actor-runs/{run_id}/dataset/items"
-        resp = _request(
-            client, "GET", url, params={"token": self.token, "format": "json"}
-        )
-        items = resp.json()
-        if not isinstance(items, list):
-            raise RuntimeError(
-                f"Apify dataset for run {run_id} returned {type(items).__name__}, "
-                "expected list"
-            )
-        return items
+        run_info = client.run(run_id).get()  # type: ignore[attr-defined]
+        dataset_id = (run_info or {}).get("defaultDatasetId")
+        if not dataset_id:
+            raise RuntimeError(f"Apify run {run_id} has no default dataset")
+        return list(client.dataset(dataset_id).iterate_items())  # type: ignore[attr-defined]
 
 
 class TavilyBackend:

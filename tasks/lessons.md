@@ -560,3 +560,28 @@ costing a confusing false-failure loop. Fix: for worktree edits, use full
 absolute worktree paths with the tools, or write the file via `bash` heredoc
 with an explicit `cd` to the worktree. Verify edits with `grep`/`git diff` on
 the exact worktree path afterward.
+
+---
+
+## Use existing client libraries for APIs — never hand-roll HTTP
+
+**Date:** 2026-08-25
+
+**Trigger:** during the LinkedIn source spike I diagnosed Apify via raw `httpx`
+REST calls (curl-equivalent) instead of the official `apify-client` SDK, and
+even initially dismissed community actors as "not runnable" because the raw
+slug-based API 404'd (they weren't in the account yet). The user flagged this:
+we use Apify as a source, so there's no reason not to use its client library.
+
+**Rule:** when integrating with an API that ships an official client library,
+use that library — never duplicate its HTTP/transport layer by hand. This is a
+standing rule:
+- `apify` → `apify-client` (installed; `ApifyBackend` now uses
+  `actor().start` / `run().wait_for_finish` / `dataset().iterate_items`).
+- Prefer the SDK even for spikes/diagnostics; it's a thin wrapper over the same
+  REST API and resolves account-scoped actors correctly.
+
+**Corollary:** the raw slug-based API 404 was an account-ownership signal, not
+a "broken actor" one. With the SDK (or after adding the actor to the account),
+the same actor resolves and runs. Verify API access via the client, not by
+guessing slugs against a REST endpoint.

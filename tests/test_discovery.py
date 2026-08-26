@@ -66,22 +66,59 @@ def test_flatten_tavily_response_contains_job_views() -> None:
     assert any("/jobs/view/" in r["url"] for r in results)
 
 
-def test_apify_happy_path(monkeypatch: pytest.MonkeyPatch) -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        path = request.url.path
-        if path == f"/v2/acts/{_ACTOR}/runs":
-            assert request.method == "POST"
-            assert json.loads(request.content)["queries"] == "q"
-            return httpx.Response(200, json={"data": {"id": "r1"}})
-        if path == "/v2/actor-runs/r1":
-            return httpx.Response(
-                200, json={"data": {"status": "SUCCEEDED", "usageTotalUsd": 0.0185}}
-            )
-        if path == "/v2/actor-runs/r1/dataset/items":
-            return httpx.Response(200, json=_load_fixture("apify_dataset.json"))
-        return httpx.Response(404, text=f"unexpected path {path}")
+class _FakeActor:
+    def __init__(self, run_info):
+        self._run = run_info
 
-    _patch_client(monkeypatch, handler)
+    def start(self, run_input):
+        return self._run
+
+
+class _FakeRun:
+    def __init__(self, run_info):
+        self._run = run_info
+
+    def wait_for_finish(self, wait_duration=None):
+        return self._run
+
+    def get(self):
+        return self._run
+
+
+class _FakeDataset:
+    def __init__(self, items):
+        self._items = items
+
+    def iterate_items(self):
+        return iter(self._items)
+
+
+class _FakeApifyClient:
+    def __init__(self, run_info, items):
+        self._run = run_info
+        self._items = items
+
+    def actor(self, _id):
+        return _FakeActor(self._run)
+
+    def run(self, _id):
+        return _FakeRun(self._run)
+
+    def dataset(self, _id):
+        return _FakeDataset(self._items)
+
+
+def test_apify_happy_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    run_info = {
+        "id": "r1",
+        "status": "SUCCEEDED",
+        "usageTotalUsd": 0.0185,
+        "defaultDatasetId": "d1",
+    }
+    items = _load_fixture("apify_dataset.json")
+    monkeypatch.setattr(
+        discovery_module, "ApifyClient", lambda token: _FakeApifyClient(run_info, items)
+    )
     backend = ApifyBackend(token="test", actor_id=_ACTOR, poll_interval=0.0)
     run = backend.search(["q"])
 
@@ -93,17 +130,10 @@ def test_apify_happy_path(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_apify_failed_status_raises(monkeypatch: pytest.MonkeyPatch) -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        path = request.url.path
-        if path == f"/v2/acts/{_ACTOR}/runs":
-            return httpx.Response(200, json={"data": {"id": "r1"}})
-        if path == "/v2/actor-runs/r1":
-            return httpx.Response(
-                200, json={"data": {"status": "FAILED", "usageTotalUsd": 0.004}}
-            )
-        return httpx.Response(404, text=f"unexpected path {path}")
-
-    _patch_client(monkeypatch, handler)
+    run_info = {"id": "r1", "status": "FAILED", "defaultDatasetId": "d1"}
+    monkeypatch.setattr(
+        discovery_module, "ApifyClient", lambda token: _FakeApifyClient(run_info, [])
+    )
     backend = ApifyBackend(token="test", actor_id=_ACTOR, poll_interval=0.0)
 
     with pytest.raises(RuntimeError, match="FAILED"):
