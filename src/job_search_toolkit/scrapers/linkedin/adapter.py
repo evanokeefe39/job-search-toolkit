@@ -19,6 +19,7 @@ from typing import Literal, Sequence
 
 import httpx
 
+from job_search_toolkit.run_config import load_run_config
 from job_search_toolkit.scrapers.linkedin.config import LinkedInConfig
 from job_search_toolkit.scrapers.linkedin.discovery import (
     DiscoveryBackend,
@@ -202,9 +203,18 @@ def run_discovery(
     # configured search backend (apify/tavily). Jobs use the free LinkedIn guest
     # API by default (``guest_jobs``) — unless a backend was injected (test
     # seam), in which case both kinds use it. See docs/linkedin-source-spike.md.
-    post_backend = backend or make_backend(config.backend)
+    # The backend knobs (max results, timeouts, page sizes) come from the named
+    # run config (``config.config_name``) so `--config <name>` takes effect.
+    rc = load_run_config(config.config_name)
+    post_backend = backend or make_backend(config.backend, run_config=rc)
     job_backend = (
-        LinkedInGuestBackend() if (config.guest_jobs and backend is None) else post_backend
+        LinkedInGuestBackend(
+            max_results=rc.guest_max_results,
+            page_size=rc.guest_page_size,
+            start_step=rc.guest_start_step,
+        )
+        if (config.guest_jobs and backend is None)
+        else post_backend
     )
     scanner = scanner or _make_scanner(config)
 

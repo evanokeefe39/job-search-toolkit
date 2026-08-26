@@ -30,6 +30,14 @@ with human review gates — no fully automated ATS pipeline.
   Config precedence: CLI > env > `config.yaml` (gitignored user override,
   template at `automation/tailor/config.example.yaml`) > defaults; the
   package-bundled `TONE.txt` injects tone guidance.
+- **Run config is YAML-driven.** Run *mechanics* (timeouts, page sizes, limits,
+  LLM rate limits) come from `config.yaml` (gitignored; template
+  `config.example.yaml` at repo root) via `src/job_search_toolkit/run_config.py`
+  (`RunConfig` + `load_run_config`), selected per-run with
+  `pipeline run --config <name>` and `--max-pages N`. Precedence: CLI > named
+  run > `defaults` > env fallback > built-in. Search *criteria* (roles,
+  locations, LinkedIn queries) stay in `job_search_preferences.yaml`; API
+  secrets stay in `.env`. Shared resolution/precedence helpers in `configutil.py`.
   Resume-Matcher is DEPRECATED (CP1252 mojibake, keyword-padding, 3-page bloat).
   The submission artifact is `cv_tailored.pdf` rendered by RenderCV from LLM-tailored YAML.
 
@@ -240,13 +248,17 @@ excludes stale jobs, exposes ``days_since_posted``/``days_since_seen``),
   for an LLM enrichment pass that must be verified to cover `linkedin_posts`.
   Recruiter-region inference (APAC/EMEA/DACH/USA) is unexplored. See
   `tasks/plans/linkedin-posts-to-jobs.md`.
-- **NEXT ACTIVITY — config cleanup/refactor (deferred 2026-08-25):** after the
-  LinkedIn adapter lands, the next feature branch is consolidating run config:
-  many named run configs in YAML, `.env` for secrets only, no magic numbers,
-  CLI overrides (CLI > YAML > env > defaults). Current gaps: `timeout=30` inline
-  in ~10 scrapers, faruse `PAGE_SIZE=50`, freework `DEFAULT_RADIUS=30`, hiringcafe
-  `max_pages=50`, LinkedIn `_GUEST_DEFAULT_MAX_RESULTS=100`; `MAX_PAGES` not
-  applied to freework/hiringcafe. See ISSUES.md + `tasks/plans/config-cleanup.md`.
+- **Run config (implemented 2026-08-26):** run *mechanics* (timeouts, retries,
+  page sizes, limits, LLM rate limits) live in `config.yaml` (gitignored;
+  template `config.example.yaml` at repo root) under `defaults:` + named
+  `runs:<name>` sections, loaded by `src/job_search_toolkit/run_config.py`
+  (`RunConfig` + `load_run_config`). Precedence: CLI > named run > defaults >
+  env fallback > built-in. Search *criteria* stay in `job_search_preferences.yaml`;
+  secrets stay in `.env`. `pipeline run --config <name> --max-pages N` selects a
+  named run / page cap. Shared resolution + precedence helpers live in
+  `configutil.py` (reused by the tailor config). Static protocol constants
+  (endpoints, status-code sets, regexes) remain in code. See ISSUES.md +
+  `tasks/plans/config-cleanup.md`.
 - **Reader-mode vs DOM text:** The `read` tool's reader-mode injects artificial "SVG Image" text nodes that don't exist in the BeautifulSoup parse tree. Always test parsers against real `httpx` + `bs4` output, not reader-mode.
 - **get_text() concatenation:** BeautifulSoup's `get_text(strip=True)` glues adjacent text nodes with no separators (e.g. `Start dateAs soon as possible`). The `parse_details` regex handles this; new parsers must account for it.
 - **Card container:** Job cards are `div.rounded-lg.shadow` containers. The scraper walks up from each `h2` (up to 6 parent levels) until it finds an ancestor whose class list contains both `rounded-lg` and `shadow`.

@@ -98,11 +98,10 @@ behavior). The `tavily` package is not yet a dependency — add it.
 **Note:** this is a fallback backend only (posts use Apify; jobs use the LinkedIn
 guest API) — low priority, hence deferred.
 
-### Config cleanup/refactor: YAML run configs, kill magic numbers (NEXT ACTIVITY, deferred 2026-08-25)
+### Config cleanup/refactor: YAML run configs, kill magic numbers (RESOLVED 2026-08-26)
 
-**Kind:** enhancement / refactor. **Deferred** — out of scope of the LinkedIn
-source adapter. This is the NEXT feature branch/activity. Plan:
-`tasks/plans/config-cleanup.md`.
+**Kind:** enhancement / refactor. **Status: IMPLEMENTED** on
+`feat/config-cleanup` (see below). Plan: `tasks/plans/config-cleanup.md`.
 
 **Goal:** capture run configuration + tunable constants in YAML config files
 (many named run configs), keep `.env` for secrets only, eliminate magic
@@ -128,8 +127,24 @@ queries, limits, timeouts, retry), merged with env (secrets) + CLI overrides
 (CLI > YAML > env > defaults). Many run configs in YAML, not relying on .env
 defaults.
 
-**Deferred:** this is intentionally not done now — out of scope of the
-LinkedIn source adapter branch. Tracked as the next activity.
+**Implemented (2026-08-26, `feat/config-cleanup`):**
+- New `src/job_search_toolkit/configutil.py` (shared `resolve_config_path` /
+  `load_config_file` / `pick`; one convention, reused by tailor + run config)
+  and `src/job_search_toolkit/run_config.py` (`RunConfig` + `load_run_config`).
+- Root `config.example.yaml` template (gitignored `config.yaml`): `defaults:` +
+  named `runs:<name>` sections; precedence CLI > named run > defaults > env
+  fallback > built-in. `tailor:` section nests resume-tailoring keys (flat
+  top-level still accepted for backward compat).
+- All tunable timeouts/retries/backoff/page sizes/limits moved to RunConfig
+  across the 8 flat scrapers + the LinkedIn adapter (discovery, fetch, profile)
+  + pipeline LLM knobs (`LLM_MAX_RPM`/`LLM_CONCURRENCY`/`ENRICHMENT_VERSION`).
+- `MAX_PAGES` applied uniformly: freework leak fixed (was `max_pages=None`),
+  hiringcafe now honors a global cap; CLI `pipeline run --config <name>
+  --max-pages N` selects a named run / page cap.
+- `.env` reduced to secrets only (LLM_MAX_RPM/LLM_CONCURRENCY removed).
+- Static protocol constants (endpoints, status-code sets, regexes,
+  `_DEFAULT_LOCATION_BY_COUNTRY`) intentionally stay in code.
+- 282 tests green (16 new config tests).
 
 ### LinkedIn posts → jobs: recruiter-region follow-up + regex-vs-LLM enrichment (ENHANCEMENT 2026-08-25)
 

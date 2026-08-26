@@ -98,7 +98,10 @@ def run_ingest(run_id: str, board: str | None = None) -> bool:
 
 
 def run_pipeline(
-    enrich: bool = False, boards: list[str] | None = None
+    enrich: bool = False,
+    boards: list[str] | None = None,
+    config_name: str = "default",
+    max_pages: int | None = None,
 ) -> bool:
     """Materialize the DAG. Returns True on success.
 
@@ -108,10 +111,25 @@ def run_pipeline(
     score/gold/exports), so a subset can be iterated without re-scraping the
     whole source set. Staleness (never deactivation) makes subset runs safe:
     boards not in the run simply keep their last ``last_seen_at``.
+
+    ``config_name`` selects a named run config (``runs.<name>`` in config.yaml)
+    driving timeouts/limits; ``max_pages`` caps each board's pages (None = no
+    CLI override; 0 = unlimited). Both are threaded to the scrape assets via
+    the ``RUN_CONFIG`` / ``RUN_MAX_PAGES`` env channels (matching the legacy
+    ``MAX_PAGES`` mechanism) so in-process ``dg.materialize`` picks them up.
     """
+    import os
+
     from .config import ensure_data_dirs
 
     ensure_data_dirs()
+
+    # Thread the run selection into the scrape assets.
+    os.environ["RUN_CONFIG"] = config_name
+    if max_pages is not None:
+        os.environ["RUN_MAX_PAGES"] = str(max_pages)
+    else:
+        os.environ.pop("RUN_MAX_PAGES", None)
 
     if boards:
         unknown = [b for b in boards if b not in BOARD_SCRAPE_ASSETS]

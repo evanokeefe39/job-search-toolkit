@@ -258,9 +258,9 @@ def test_job_discovery_routes_through_guest_backend_when_enabled(monkeypatch):
     seen = {"post": None, "job": None}
     class FakeGuest:
         name = "linkedin_guest"
-        def __init__(self): seen["job"] = "linkedin_guest"
+        def __init__(self, *args, **kwargs): seen["job"] = "linkedin_guest"
         def search(self, queries, **kw): return DiscoveryRun(backend="linkedin_guest", results=[], cost_usd=None, usage={})
-    def fake_make_backend(name):
+    def fake_make_backend(name, run_config=None):
         seen["post"] = name
         return _noop_backend(name)
     monkeypatch.setattr(adapter, "LinkedInGuestBackend", FakeGuest)
@@ -278,9 +278,9 @@ def test_job_discovery_uses_configured_backend_when_guest_disabled(monkeypatch):
     seen = []
     class FakeGuest:
         name = "linkedin_guest"
-        def __init__(self): seen.append("guest_constructed")
+        def __init__(self, *args, **kwargs): seen.append("guest_constructed")
     monkeypatch.setattr(adapter, "LinkedInGuestBackend", FakeGuest)
-    monkeypatch.setattr(adapter, "make_backend", lambda name: _noop_backend(name))
+    monkeypatch.setattr(adapter, "make_backend", lambda name, run_config=None: _noop_backend(name))
     cfg = LinkedInConfig(post_queries=(), job_queries=("j",), guest_jobs=False)
     out = run_discovery(cfg)
     assert out.jobs == []
@@ -291,7 +291,7 @@ def test_injected_backend_bypasses_guest_routing(monkeypatch):
     """An injected backend (test seam) is used for both kinds regardless of guest_jobs."""
     import job_search_toolkit.scrapers.linkedin.adapter as adapter
     monkeypatch.setattr(adapter, "LinkedInGuestBackend", lambda: (_ for _ in ()).throw(AssertionError("guest used")))
-    monkeypatch.setattr(adapter, "make_backend", lambda name: (_ for _ in ()).throw(AssertionError("make_backend used")))
+    monkeypatch.setattr(adapter, "make_backend", lambda name, run_config=None: (_ for _ in ()).throw(AssertionError("make_backend used")))
     cfg = LinkedInConfig(post_queries=("p",), job_queries=("j",), guest_jobs=True)
     out = run_discovery(cfg, backend=_noop_backend("stub"))
     assert out.jobs == [] and out.posts == []

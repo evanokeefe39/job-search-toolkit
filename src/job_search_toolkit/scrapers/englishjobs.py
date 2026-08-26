@@ -41,6 +41,11 @@ from job_search_toolkit.schemas import (
     new_canonical_job,
 )
 
+from job_search_toolkit.run_config import load_run_config
+
+_CFG = load_run_config()
+_HTTP_TIMEOUT = _CFG.http_timeout
+
 app = typer.Typer(no_args_is_help=False)
 
 BASE_URL = "https://www.englishjobs.fr"
@@ -93,7 +98,7 @@ def build_url(query: str, location: str) -> str:
 
 
 def fetch_page(client: httpx.Client, url: str) -> str:
-    resp = client.get(url, timeout=30)
+    resp = client.get(url, timeout=_HTTP_TIMEOUT)
     resp.raise_for_status()
     return resp.text
 

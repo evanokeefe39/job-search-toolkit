@@ -1,0 +1,73 @@
+# job-search-toolkit run + tailor configuration.
+#
+# Copy this file to `config.yaml` (gitignored) and edit. `config.yaml` may hold
+# API keys, so it is never committed; this template is the tracked reference.
+#
+# Precedence (highest first):
+#   1. CLI args (e.g. `--max-pages N`, `-c <run>`)
+#   2. named run config (`runs.<name>`), merged over `defaults`
+#   3. this file's `defaults` section
+#   4. environment fallback (MAX_PAGES, LLM_MAX_RPM, LLM_CONCURRENCY,
+#      ENRICHMENT_VERSION)
+#   5. built-in defaults
+#
+# Secrets (API keys) belong in `.env`, never here.
+#
+# Search *criteria* (roles, locations, LinkedIn queries) stay in the gitignored
+# `job_search_preferences.yaml`; this file holds run *mechanics*.
+
+# Resume-tailoring settings (read by `job-search-toolkit tailor run`).
+# Keys are the env-var names lowercased (LLM_MODEL -> llm_model), matching the
+# existing tailor convention. Newer configs nest these under `tailor:`; the
+# flat top-level form is still accepted for backward compatibility.
+tailor:
+  llm_model: deepseek-chat
+  llm_base_url: https://api.deepseek.com/v1
+  llm_client: pydantic_ai      # pydantic_ai | json_mode
+  llm_temperature: 0.2
+  llm_max_tokens: 8000
+  tailor_level: relaxed        # relaxed | moderate | aggressive
+  tailor_max_highlights: 5
+  tailor_highlight_preference: impact_first
+  tailor_merge_low_value: true
+
+# Run-config tunables, shared across all runs.
+defaults:
+  # HTTP / fetch (board scrapers + LinkedIn page fetch)
+  http_timeout: 30
+  http_retries: 2
+  http_backoff: 1.5
+  max_pages: 0                 # 0/empty = unlimited; `--max-pages N` overrides
+
+  # LinkedIn guest jobs API
+  guest_page_size: 10          # cards per guest-API page
+  guest_start_step: 25         # start offset increments
+  guest_max_results: 100       # total job cap per discovery pass
+
+  # Tavily discovery backend
+  tavily_max_results: 10
+  tavily_rate_limit_sleep: 1.0
+
+  # Apify discovery backend
+  apify_timeout: 180.0
+  apify_poll_interval: 5.0
+
+  # LinkedIn profile scraper
+  profile_timeout: 180.0
+
+  # LLM enrichment pipeline
+  llm_max_rpm: 30
+  llm_concurrency: 5
+  enrichment_version: 1
+
+  # Per-board page/limit knobs
+  faruse_page_size: 50
+  freework_radius: 30
+  hiringcafe_max_pages: 50
+
+# Named run configs (deep-merged over `defaults`; selected via `-c <name>`).
+runs:
+  default: {}
+  linkedin-france:
+    guest_max_results: 200
+    apify_timeout: 300.0

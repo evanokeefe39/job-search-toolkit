@@ -20,6 +20,7 @@ not from this file.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -35,17 +36,27 @@ class LinkedInConfig:
     technology_list: str | None = None
     post_queries: tuple[str, ...] = field(default_factory=tuple)
     job_queries: tuple[str, ...] = field(default_factory=tuple)
+    # Named run config (runs.<name> in config.yaml) driving the mechanical
+    # knobs (guest_max_results, apify_timeout, ...) via RunConfig.
+    config_name: str = "default"
 
     @classmethod
-    def from_preferences(cls, path: str | Path | None = None) -> "LinkedInConfig":
+    def from_preferences(
+        cls,
+        path: str | Path | None = None,
+        config_name: str | None = None,
+    ) -> "LinkedInConfig":
         """Load the ``linkedin:`` section from ``job_search_preferences.yaml``.
 
         ``path`` defaults to ``job_search_preferences.yaml`` in the repo root.
-        A missing file or missing section yields a fully-default config.
+        ``config_name`` selects the named run config (``runs.<name>`` in
+        config.yaml) that drives the adapter's mechanical knobs; it defaults to
+        the ``RUN_CONFIG`` env var, then ``"default"``. A missing file or
+        missing section yields a fully-default config.
         """
         p = Path(path) if path else Path("job_search_preferences.yaml")
         if not p.exists():
-            return cls()
+            return cls(config_name=config_name or os.getenv("RUN_CONFIG") or "default")
         raw = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
         section = raw.get("linkedin") or {}
 
@@ -62,4 +73,5 @@ class LinkedInConfig:
             technology_list=str(tech_list) if tech_list else None,
             post_queries=posts,
             job_queries=jobs,
+            config_name=config_name or os.getenv("RUN_CONFIG") or "default",
         )
