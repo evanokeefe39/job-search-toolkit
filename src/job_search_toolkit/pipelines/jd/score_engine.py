@@ -5,6 +5,8 @@ Scores each job across dimensions relevant to the user's goals:
 - Flexibility to travel
 - Work-life balance for side projects
 - Interesting tech stack
+- Freshness: penalize old posts and stale last-seen (decay factor applied
+  multiplicatively so the tuned quality weights are untouched)
 
 Idempotent — re-scores every run (scoring is cheap, no LLM needed).
 Reads from `freework_jobs_enriched.json`, writes scored output.
@@ -21,9 +23,12 @@ import csv
 import json
 import re
 import sys
+from datetime import date, datetime
 from pathlib import Path
 
 from dotenv import load_dotenv
+
+from .silver import STALE_AFTER_DAYS
 
 load_dotenv()
 
@@ -266,6 +271,62 @@ def _score_company_quality(job: dict) -> float:
     return max(min(score, 1.0), 0.0)
 
 
+# Freshness decay curves (days). Age = since date_posted; seen = since
+# last_seen_at. Fresh (0-7d) scores 1.0 and decays linearly to 0.
+_FRESH_DAYS = 7
+_MAX_AGE_DAYS = 90  # a post older than this is likely filled
+# seen-decay horizon == STALE_AFTER_DAYS (silver.py); a job not seen for this
+# long is treated as gone by the gold views too.
+
+
+def _coerce_date(value) -> date | None:
+    """Coerce a stored date/timestamp (str, date, or datetime) to a date."""
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        try:
+            return datetime.fromisoformat(text.replace("Z", "+00:00")).date()
+        except ValueError:
+            return None
+    return None
+
+
+def _score_freshness(job: dict, today: date | None = None) -> float:
+    """Score posting freshness: penalize old posts and stale last-seen.
+
+    Combines two decay curves in [0, 1] (missing input -> neutral 0.5):
+    - age: days since ``date_posted`` (fresh -> 1.0, linear to 0 at
+      ``_MAX_AGE_DAYS``).
+    - seen: days since ``last_seen_at`` (fresh -> 1.0, linear to 0 at
+      ``STALE_AFTER_DAYS``).
+
+    A floor of 0.3 keeps long-listed jobs ranked below fresh ones instead of
+    zeroing them out. Applied multiplicatively to the weighted quality sum so
+    the five tuned weights are untouched.
+    """
+    today = today or date.today()
+    posted = _coerce_date(job.get("date_posted"))
+    seen = _coerce_date(job.get("last_seen_at"))
+    age = (
+        0.5
+        if posted is None
+        else max(0.0, 1.0 - max((today - posted).days, 0) / _MAX_AGE_DAYS)
+    )
+    seen_score = (
+        0.5
+        if seen is None
+        else max(0.0, 1.0 - max((today - seen).days, 0) / STALE_AFTER_DAYS)
+    )
+    return round(max(0.3, 0.5 * age + 0.5 * seen_score), 3)
+
+
 def score_jobs(jobs: list[dict]) -> list[dict]:
     """Score all jobs and add scores + ranking."""
     for job in jobs:
@@ -275,8 +336,10 @@ def score_jobs(jobs: list[dict]) -> list[dict]:
             "low_responsibility": _score_low_responsibility(job),
             "tech_match": _score_tech_match(job),
             "company_quality": _score_company_quality(job),
+            "freshness": _score_freshness(job),
         }
-        overall = sum(scores[k] * WEIGHTS[k] for k in WEIGHTS)
+        base = sum(scores[k] * WEIGHTS[k] for k in WEIGHTS)
+        overall = base * scores["freshness"]
         job["scores"] = scores
         job["overall_score"] = round(overall, 3)
 
@@ -308,6 +371,7 @@ def export_csv(jobs: list[dict], path: Path) -> None:
         "scores_low_responsibility",
         "scores_tech_match",
         "scores_company_quality",
+        "scores_freshness",
         "title",
         "company",
         "end_client_sector",
@@ -337,6 +401,7 @@ def export_csv(jobs: list[dict], path: Path) -> None:
                 "scores_low_responsibility": scores.get("low_responsibility"),
                 "scores_tech_match": scores.get("tech_match"),
                 "scores_company_quality": scores.get("company_quality"),
+                "scores_freshness": scores.get("freshness"),
                 "title": job.get("title"),
                 "company": job.get("company"),
                 "end_client_sector": job.get("end_client_sector"),
@@ -384,7 +449,7 @@ def print_summary(jobs: list[dict], top_n: int = 15) -> None:
     print(f"TOP {top_n} RECOMMENDATIONS")
     print(f"{'─'*80}")
     print(f"{'Score':>6} {'Tier':>6} {'Pay':>5} {'Flex':>5} {'LoResp':>6} "
-          f"{'Tech':>5} {'Co':>5} | {'Title':<50} | {'Company':<25} | Sector")
+          f"{'Tech':>5} {'Co':>5} {'Fresh':>5} | {'Title':<50} | {'Company':<25} | Sector")
     print(f"{'─'*80}")
 
     for job in jobs[:top_n]:
@@ -400,6 +465,7 @@ def print_summary(jobs: list[dict], top_n: int = 15) -> None:
             f"{s.get('low_responsibility',0):.2f} "
             f"{s.get('tech_match',0):.2f} "
             f"{s.get('company_quality',0):.2f} "
+            f"{s.get('freshness',0):.2f} "
             f"| {title:<50} | {company:<25} | {sector}"
         )
 

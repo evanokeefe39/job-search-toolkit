@@ -52,16 +52,76 @@ def pipeline_run(
         False, "--enrich",
         help="Also run the optional LLM enrichment pass (deferred, dimension-scoped)",
     ),
+    boards: list[str] = typer.Option(
+        None, "--boards", "-b",
+        help="Only run these boards' scrape+ingest (repeatable). Defaults to all active boards.",
+    ),
 ) -> None:
     """Run the ranking path (scrape -> merge -> score -> export), no LLM.
 
     With --enrich, the optional LLM enrichment assets run afterwards.
+    With --boards (e.g. `--boards linkedin_jobs --boards linkedin_posts`),
+    only those boards are scraped and ingested — merge/score/export/gold still
+    run on the subset, so a single source can be iterated without re-scraping
+    the whole set.
     """
     from job_search_toolkit.pipelines.jd.run import run_pipeline
 
-    ok = run_pipeline(enrich=enrich)
+    # Accept `--boards "a b"` or `--boards a --boards b` (split on ws/comma).
+    flat = [b for item in (boards or []) for b in item.replace(",", " ").split()]
+    ok = run_pipeline(enrich=enrich, boards=flat or None)
     if not ok:
         raise typer.Exit(code=1)
+
+
+@pipeline_app.command("ingest")
+def pipeline_ingest(
+    run_id: str = typer.Option(
+        ..., "--run-id",
+        help="Bronze run id (from runs.json) to ingest without re-scraping",
+    ),
+    board: str = typer.Option(
+        None, "--board", "-b",
+        help="Only ingest this board's bronze from the run (default: all boards)",
+    ),
+) -> None:
+    """Recover an orphaned bronze snapshot: ingest run_id -> score -> export -> gold.
+
+    Reads the given run's bronze from ``data/bronze/runs.json`` and upserts it
+    into ``silver.jobs``, then runs the score/export/gold assets downstream —
+    with NO scrape asset (fully offline). Unknown run ids/boards error listing
+    the available ones. See also ``pipeline list-runs``.
+    """
+    from job_search_toolkit.pipelines.jd.run import run_ingest
+
+    try:
+        ok = run_ingest(run_id, board)
+    except ValueError as e:
+        raise typer.Exit(str(e))
+    if not ok:
+        raise typer.Exit(code=1)
+
+
+@pipeline_app.command("list-runs")
+def pipeline_list_runs() -> None:
+    """List available bronze runs + per-board job counts from runs.json."""
+    from job_search_toolkit.pipelines.jd.assets.merge import list_runs
+
+    entries = list_runs()
+    if not entries:
+        print(
+            "No bronze runs found — run `job-search-toolkit pipeline run` "
+            "or a scrape first."
+        )
+        return
+    by_run: dict[str, list[tuple[str, int]]] = {}
+    for e in entries:
+        by_run.setdefault(e.get("run_id", ""), []).append(
+            (e.get("board", ""), e.get("job_count", 0))
+        )
+    for run_id in sorted(by_run):
+        boards = ", ".join(f"{b}={n}" for b, n in sorted(by_run[run_id]))
+        print(f"{run_id}: {boards}")
 
 
 @pipeline_app.command("gold")
@@ -86,6 +146,14 @@ app.add_typer(pipeline_app, name="pipeline")
 from job_search_toolkit.cli_tailor import app as tailor_app  # noqa: E402
 
 app.add_typer(tailor_app, name="tailor", help="Resume tailoring automation.")
+
+# ---------------------------------------------------------------------------
+# linkedin
+# ---------------------------------------------------------------------------
+
+from job_search_toolkit.scrapers.linkedin.cli import app as linkedin_app  # noqa: E402
+
+app.add_typer(linkedin_app, name="linkedin", help="Discover LinkedIn recruiter posts + job listings.")
 
 # ---------------------------------------------------------------------------
 # skills

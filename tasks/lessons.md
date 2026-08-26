@@ -450,3 +450,138 @@ SQL blocks + a broken con.execute() call. Full-function delete + rewrite was
 the reliable fix — reinforces the rule: after one mangle on a file, full-file
 write or full-function rewrite for that function; never attempt to patch the
 patch.
+
+## 2026-08-23: incremental gate "terminal" marker must be a persisted column value
+
+**Problem:** A subagent building the deferred `linkedin_post_enriched` LLM
+asset claimed its unfillable rows were "marked terminal via
+`_enrichment["post_enriched"]` so they are not retried". That flag lives in
+the `_enrichment` dict, which is in silver.py's `_SKIP_KEYS` and never becomes
+a warehouse column. The gate selects on `title = '' OR location_raw = ''`.
+So a post the LLM genuinely couldn't fill kept `title = ''` forever, the gate
+re-selected it every run, and the LLM was re-queried on the same unfillable
+post indefinitely. The subagent's 7 tests passed because they asserted the
+within-run flag, not the cross-run persistence that the gate actually depends
+on.
+
+**Root cause:** the "processed" sentinel was written to a transient,
+non-persisted dict instead of a persisted column the gate reads. A NULL/empty-
+based incremental gate can only be terminal if the sentinel is a real column
+value (or the gate checks a persisted flag).
+
+**Fix:** coerce unfillable `title`/`location_raw` to the non-empty sentinel
+`"unknown"` — consistent with the existing `org_type = 'unknown'` convention
+("researched, nothing found") — so the empty-based gate stops selecting the row.
+
+**Rule:** any "processed once, don't re-select" marker for a NULL/empty-based
+gate MUST be a persisted column value (or a persisted flag column the gate
+references). Transient `_enrichment`/`_source` dict flags are lost between
+runs and can never serve as a gate terminal marker.
+
+**Corollary (delegation):** subagent self-reports describe the HAPPY intent
+("marked terminal so not retried"), not the actual persistence semantics.
+Verify the gate's terminal condition against the warehouse schema (which keys
+are persisted) — not just the subagent's green tests — before accepting.
+
+## 2026-08-25: global deactivation made subset runs unsafe — replaced with time-based staleness
+
+**Problem:** `deactivate_not_seen` ran in `silver_upsert` and flipped
+`is_active = FALSE` for every job whose `last_seen_run != current_run`. That
+is correct for a full multi-board run, but any *subset* run (e.g. LinkedIn
+only) deactivated ALL of the other boards' rows — so the pipeline was forced
+to always run every board. When `datasciencejobs` (the long-running bottleneck)
+failed mid-run, the full run never reached LinkedIn, leaving both LinkedIn
+boards empty in the warehouse, and the only fix was to keep running everything.
+
+**Root cause:** "likely gone" was modeled as a binary, run-relative state
+(`is_active` computed against the latest run's board membership) instead of as
+a time-based signal that is independent of which boards a given run scraped.
+
+**Fix:** jobs are never deactivated. `is_active` stays TRUE once seen, and
+staleness is inferred from `last_seen_at` against a `STALE_AFTER_DAYS` horizon
+(60). Gold views (`ranked_jobs`, `by_sector`, `by_tier`) filter on
+`days_since_seen <= horizon` and expose `days_since_posted`/`days_since_seen`
+live; `disappeared_this_run` = not seen within the horizon. A `freshness`
+decay factor was added to `score_engine.py` (penalizes old posts and stale
+last-seen, applied multiplicatively so the five tuned quality weights are
+untouched). With deactivation gone, subset runs are safe — a board not scraped
+simply stops refreshing `last_seen_at` and eventually falls out of the gold
+views. Added `pipeline run --boards <board>...` (uses Dagster `materialize(
+assets, selection=...)`, which materializes only the selection — upstream
+assets are loaded, not re-run).
+
+**Rule:** don't model "gone" as a run-relative binary state when sources are
+scraped on independent schedules. Prefer a time-based staleness signal computed
+at read/rank time; it makes subset runs safe and folds naturally into ranking.
+
+**Windows/DuckDB sharp edge:** DuckDB is single-writer. If the warehouse file
+is open in DBeaver (or any reader), `pipeline run`'s `silver_upsert` hangs on
+`connect()` (`IOException: file is being used by another process`) and the run
+times out *after* the scrape assets have already written bronze. The scraped
+data is not lost (bronze + runs.json), so a re-run after releasing the lock
+ingests it. Close the DBeaver connection before any pipeline run.
+
+## 2026-08-25: partial-run fixes surfaced two scoring-robustness bugs + a worktree edit gotcha
+
+**Problem:** adding a `pipeline ingest` recovery path (ingest an orphaned
+bronze run_id without re-scraping) surfaced two latent bugs in `scored_jobs`
+that the normal full run never hit because the real warehouse always had every
+column:
+
+1. `reset_stale`/`_update` write `overall_score`/`scores`/`recommendation_tier`,
+   but `silver.jobs` is created from incoming bronze columns, which don't
+   include scoring outputs. On a fresh or partial warehouse those columns don't
+   exist and scoring fails (`Binder Error: Referenced update column
+   overall_score not found`). Fix: `scored_jobs` calls `_ensure_scoring_columns`
+   (idempotent `ALTER TABLE ADD COLUMN`) before reset/write.
+2. `fetch_jobs(SCORE_COLUMNS, GATE_SCORE, ...)` referenced canonical columns
+   (e.g. `seniority_level`) that a partial bronze doesn't create
+   (`Referenced column seniority_level not found`). Fix: fetch only the
+   `SCORE_COLUMNS` that exist in `silver.jobs` (score_engine tolerates missing
+   fields as neutral).
+
+**Root cause:** the scoring asset assumed the warehouse always has its input
+and output columns because a full scrape run always created them. Any path that
+scores a partial/fresh table (ingest recovery, or a first run on a fresh DB)
+breaks. An asset must guarantee its own output columns and tolerate a subset of
+input columns.
+
+**Rule:** an asset that writes columns must ensure they exist (idempotent
+`ADD COLUMN`), and an asset that reads a column set must intersect it with what
+actually exists in the table. Never assume the table has every canonical
+column — a partial ingest only creates the columns its records carry.
+
+**Worktree edit gotcha:** while implementing in a git worktree, the `edit` and
+`write` tools resolve relative paths against the SESSION cwd (the main
+checkout), not the worktree path in `cd`. Two "successful" `edit`/`write` calls
+to `src/.../score.py` actually modified the MAIN checkout's file and left the
+worktree untouched (verified by `grep` on the worktree showing no change) —
+costing a confusing false-failure loop. Fix: for worktree edits, use full
+absolute worktree paths with the tools, or write the file via `bash` heredoc
+with an explicit `cd` to the worktree. Verify edits with `grep`/`git diff` on
+the exact worktree path afterward.
+
+---
+
+## Use existing client libraries for APIs — never hand-roll HTTP
+
+**Date:** 2026-08-25
+
+**Trigger:** during the LinkedIn source spike I diagnosed Apify via raw `httpx`
+REST calls (curl-equivalent) instead of the official `apify-client` SDK, and
+even initially dismissed community actors as "not runnable" because the raw
+slug-based API 404'd (they weren't in the account yet). The user flagged this:
+we use Apify as a source, so there's no reason not to use its client library.
+
+**Rule:** when integrating with an API that ships an official client library,
+use that library — never duplicate its HTTP/transport layer by hand. This is a
+standing rule:
+- `apify` → `apify-client` (installed; `ApifyBackend` now uses
+  `actor().start` / `run().wait_for_finish` / `dataset().iterate_items`).
+- Prefer the SDK even for spikes/diagnostics; it's a thin wrapper over the same
+  REST API and resolves account-scoped actors correctly.
+
+**Corollary:** the raw slug-based API 404 was an account-ownership signal, not
+a "broken actor" one. With the SDK (or after adding the actor to the account),
+the same actor resolves and runs. Verify API access via the client, not by
+guessing slugs against a REST endpoint.

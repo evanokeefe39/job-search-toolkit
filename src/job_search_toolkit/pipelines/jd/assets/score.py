@@ -2,8 +2,9 @@
 
 Scoring is incremental: only rows with ``overall_score IS NULL`` are scored.
 The score stage is decoupled from LLM enrichment — ``scored_jobs`` depends
-only on ``silver_upsert`` and reads purely tabular fields (company data via
-the ``dim_company`` join, which at scoring time contains only scraper-parsed
+on the per-board silver assets (and ``silver_ingest`` for the resume-from-
+bronze path) and reads purely tabular fields (company data via the
+``dim_company`` join, which at scoring time contains only scraper-parsed
 values, never LLM research). The ranked CSV export is a backward-compat
 bridge — it is materialized from ``silver.jobs`` on every run so the
 jd-refresh / new-application skills keep working unchanged.
@@ -14,7 +15,7 @@ import csv
 import dagster as dg
 from dagster import AssetExecutionContext
 
-from .merge import silver_upsert
+from .merge import SILVER_BOARD_ASSETS, silver_ingest
 from ..silver import GATE_SCORE, connect, fetch_jobs, reset_stale, sql_json, sql_literal
 
 # Every field score_engine.py reads (score_engine.py::score_jobs).
@@ -25,7 +26,32 @@ SCORE_COLUMNS = [
     "salary", "workplace_type", "contract_types", "contract_duration",
     "seniority_level", "role_category", "technologies",
     "posting_company_type", "engagement_type",
+    "date_posted", "last_seen_at",
 ]
+
+# Columns this asset writes. silver.jobs is created from incoming bronze
+# columns, which don't include scoring outputs — so on a fresh or partial
+# warehouse (e.g. the ingest path) these may not exist yet. They are
+# guaranteed here so reset_stale/_update never reference a missing column.
+_SCORING_COLUMNS = [
+    ("scores", "JSON"),
+    ("overall_score", "DOUBLE"),
+    ("recommendation_tier", "VARCHAR"),
+]
+
+
+def _ensure_scoring_columns(con) -> None:
+    """Idempotently add the scoring-output columns if the table lacks them."""
+    exists = con.execute(
+        "SELECT COUNT(*) FROM information_schema.tables "
+        "WHERE table_schema = 'silver' AND table_name = 'jobs'"
+    ).fetchone()[0]
+    if not exists:
+        return
+    existing = {r[1] for r in con.execute("PRAGMA table_info('silver.jobs')").fetchall()}
+    for name, typ in _SCORING_COLUMNS:
+        if name not in existing:
+            con.execute(f'ALTER TABLE silver.jobs ADD COLUMN "{name}" {typ}')
 
 
 def _update(con, job: dict, sets: str) -> None:
@@ -38,7 +64,7 @@ def _update(con, job: dict, sets: str) -> None:
 
 
 @dg.asset(
-    deps=[silver_upsert],
+    deps=list(SILVER_BOARD_ASSETS.values()) + [silver_ingest],
     group_name="scoring",
     description="Score pending jobs and assign recommendation tiers",
 )
@@ -51,8 +77,14 @@ def scored_jobs(context: AssetExecutionContext) -> dg.MaterializeResult:
     from ..score_engine import score_jobs as do_score
 
     with connect() as con:
+        _ensure_scoring_columns(con)
         reset_stale(con, "score")
-        rows = fetch_jobs(con, SCORE_COLUMNS, GATE_SCORE, order="id", join_company=True)
+        # A partial/ingest warehouse may lack some canonical columns (a bronze
+        # record only creates the columns it carries). score_engine tolerates
+        # missing fields (neutral), so fetch only the columns that exist.
+        existing = {r[1] for r in con.execute("PRAGMA table_info('silver.jobs')").fetchall()}
+        cols = [c for c in SCORE_COLUMNS if c in existing]
+        rows = fetch_jobs(con, cols, GATE_SCORE, order="id", join_company=True)
         do_score(rows)
         updated = 0
         for job in rows:

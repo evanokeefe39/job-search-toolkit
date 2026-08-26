@@ -15,11 +15,12 @@ pip install job-search-toolkit
 
 # jd-refresh
 
-Refresh the job funnel: re-scrape both boards, upsert them into the medallion
-warehouse (`data/warehouse/jobs.db`), incrementally enrich, score, and export,
-then report the delta from the gold views — new jobs, jobs that disappeared,
-and the top 10 ranked candidates. The warehouse keeps every job ever seen;
-the agent never shortlists, it presents and stops.
+Refresh the job funnel: re-scrape the active boards, upsert them into the
+medallion warehouse (`data/warehouse/jobs.db`), incrementally enrich, score,
+and export, then report the delta from the gold views — new jobs, jobs that
+disappeared, and the top 10 ranked candidates. The warehouse keeps every job
+ever seen; jobs are never deactivated — staleness is inferred from time since
+last seen. The agent never shortlists, it presents and stops.
 
 ## Playbook
 
@@ -31,15 +32,22 @@ the agent never shortlists, it presents and stops.
    ```bash
    job-search-toolkit pipeline run
    ```
-   - This materializes the full Dagster asset graph (both boards → `silver_upsert`
-     into `data/warehouse/jobs.db` → translate/extract/classify/company research →
-     score → exports → gold views).
+   - This materializes the Dagster asset graph (all active boards →
+     `silver_upsert` into `data/warehouse/jobs.db` → translate/extract/classify/
+     company research → score → exports → gold views).
+   - To iterate on a single source without re-scraping the whole set, pass
+     `--boards`: `job-search-toolkit pipeline run --boards linkedin_jobs --boards linkedin_posts`
+     (merge/score/export/gold still run on the subset).
    - Enrichment is incremental — only new or pending rows hit the LLM; already
      enriched jobs are untouched.
    - The run takes a few minutes. On failure, see "Failure handling".
    - There is NO snapshot step anymore: the bronze directory
      (`data/bronze/{board}/{timestamp}.json` + `runs.json`) and the warehouse
-     ARE the history. Disappeared jobs are marked `is_active = false`, never deleted.
+     ARE the history. Jobs are never deactivated — a job "disappears" when it
+     has not been seen within the staleness horizon (`STALE_AFTER_DAYS`), which
+     is inferred from `last_seen_at`, not a binary flag. This keeps subset
+     (`--boards`) runs safe: boards not in the run simply stop refreshing
+     `last_seen_at` and eventually fall out of the gold views.
 
 3. **Compute and report the delta from the gold views.** Open the warehouse in
    an eval cell and query the run-scoped views (they are rebuilt on every
@@ -65,12 +73,13 @@ the agent never shortlists, it presents and stops.
 
    Report:
    - **New jobs** (first seen in this run): for each, company, title, and `apply_url`.
-   - **Disappeared jobs** (active last run, inactive now): for each, company,
-     title, and `apply_url` — likely filled or removed.
-   - **Top 10 by `overall_score`** from the new file: for each job, report
-     company, role (`title`), `overall_score`, pay range (extract
-     `min_annual_eur`–`max_annual_eur` from the `salary` JSON — write "not
-     listed" when undisclosed), location (`location_raw`), and URL (`apply_url`).
+   - **Disappeared jobs** (not seen within the staleness horizon): for each,
+     company, title, and `apply_url` — likely filled or removed.
+   - **Top 10 by `overall_score`** from `gold.ranked_jobs` (which excludes
+     stale jobs): for each job, report company, role (`title`), `overall_score`,
+     pay range (extract `min_annual_eur`–`max_annual_eur` from the `salary`
+     JSON — write "not listed" when undisclosed), location (`location_raw`),
+     and URL (`apply_url`).
 
 4. **Present the shortlist candidates and STOP.**
    - **STOP and present to the human:** a compact report containing (a) the

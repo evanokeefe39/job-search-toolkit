@@ -146,6 +146,13 @@ blocks carry the same instruction for external users.
 
 ## Engineering practices
 
+- **Use client libraries for APIs — never hand-roll HTTP.** When integrating
+  with an API that ships an official client library, use it (e.g. `apify-client`
+  for Apify), not raw REST calls. A slug-based REST 404 on a marketplace actor
+  usually means the actor isn't in your account yet — verify via the client or
+  after adding it, not by assuming the actor is broken. See tasks/lessons.md.
+
+
 - **Linear history.** No direct commits to `main`. Work on `feat/<name>` branches,
   open a PR, and squash-merge (PR title = commit message). `main` is always the
   sum of merged PRs.
@@ -166,26 +173,30 @@ blocks carry the same instruction for external users.
 
 Kimball star schema (3 dims + 1 fact):
 
-- **silver.dim_board** — 8 rows, static: board_id, name, description_language, base_url
+- **silver.dim_board** — 10 rows, static: board_id, name, description_language, base_url
 - **silver.dim_company** — one row per (normalized name, source_board), 1,992 rows:
   company_id (SHA-1 hash), name, display_name, source_board, industry, size_employees,
   year_founded, hq_country, org_type, stock_symbol, stock_exchange, latest_funding_*,
   homepage_url, enriched_at, enrichment_version. LLM research writes here (deferred,
   once per company, never on the ranking path).
 - **silver.dim_date** — spine over date_posted: date_id, iso_week, month, quarter, year
-- **silver.jobs** — the fact table: one row per unique (id, source_board), never deleted.
-  All canonical fields are columns (nested dicts/lists as JSON), plus lineage:
-  first_seen_run/first_seen_at, last_seen_run/last_seen_at, is_active,
+- **silver.jobs** — the fact table: one row per unique (id, source_board), never
+  deleted. All canonical fields are columns (nested dicts/lists as JSON), plus
+  lineage: first_seen_run/first_seen_at, last_seen_run/last_seen_at, is_active,
   enriched_at, enrichment_version, created_at, updated_at, plus company_id FK
-  to dim_company. The legacy company_info JSON column is gone — bridges and
-  fetch_jobs(join_company=True) rebuild it from the dim join.
+  to dim_company. Jobs are never deactivated: ``is_active`` stays TRUE once
+  seen, and staleness is inferred from ``last_seen_at`` (see ``STALE_AFTER_DAYS``)
+  so subset (``--boards``) runs are safe. The legacy company_info JSON column
+  is gone — bridges and fetch_jobs(join_company=True) rebuild it from the dim
+  join.
 
 Enrichment state is column nullability, not flags: ``description_language='fr'``
 means needs translation; empty ``technologies`` means needs tech extraction.
 Company research lives on ``dim_company`` (DIM_COMPANY_GATE: org_type IS NULL),
-never on per-row enrichment. ``gold.*`` views: ``ranked_jobs`` (joins dim_company),
+never on per-row enrichment. ``gold.*`` views: ``ranked_jobs`` (joins dim_company,
+excludes stale jobs, exposes ``days_since_posted``/``days_since_seen``),
 ``by_sector``, ``by_tier``, ``job_history``, ``weekly_snapshot``, ``new_this_run``,
-``disappeared_this_run``.
+``disappeared_this_run`` (jobs not seen within the staleness horizon).
 
 ### Data quality notes
 
@@ -200,6 +211,42 @@ never on per-row enrichment. ``gold.*`` views: ``ranked_jobs`` (joins dim_compan
 
 ## Known sharp edges
 
+- **CLI source selection (potential enhancement, 2026-08-25):** the CLI is
+  intentionally minimal — `pipeline run [-b BOARD ...]` (default = 9 active
+  boards; datasciencejobs opt-in by name), `pipeline ingest --run-id <id>
+  [-b board]`, `pipeline list-runs`, `pipeline gold`. A design review
+  (3-expert panel) concluded NOT to add YAML config, per-board limit flags, or
+  a `--resume` flag. The deferred wins are three robustness micro-fixes
+  (`raise_on_error=False` + failed-step reporting, `RetryPolicy` on scrape
+  assets, freework `_max_pages()` leak) and, if the tool becomes scheduled or
+  multi-user, per-board Dagster partitions. See
+  `tasks/plans/cli-source-selection.md` + `ROADMAP.md` → "Potential
+  Enhancements". Don't expand the CLI without revisiting that decision.
+- **LinkedIn jobs discovery — guest API (2026-08-25):** `linkedin_jobs` now
+  discovers via LinkedIn's **public guest jobs API**
+  (`linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search`) when
+  `guest_jobs: true` in `job_search_preferences.yaml` (default; see
+  `scrapers/linkedin/discovery.py` `LinkedInGuestBackend`). It is **free, no auth, and
+  yields hundreds of France-scoped job IDs** (location in the card), replacing
+  the under-harvesting `apify~google-search-scraper` route for jobs (which now
+  only serves `linkedin_posts` + a jobs fallback). **FRAGILE:** the guest API is
+  an undocumented public endpoint — LinkedIn can change or block it without
+  notice. If it breaks, see **`docs/linkedin-source-spike.md`** for the source
+  analysis and quick-fix options (dedicated Apify actors need a purchasable
+  actor; google-scraper is the fallback). The France filter
+  (`_is_france_job`) still guarantees only `country=FR` jobs enter silver.
+- **LinkedIn posts → jobs (2026-08-25):** `scrapers/linkedin/post_extract.py:extract_from_post`
+  is the regex verdict gate (`land`/`queue`/`drop`); `queue` rows are reserved
+  for an LLM enrichment pass that must be verified to cover `linkedin_posts`.
+  Recruiter-region inference (APAC/EMEA/DACH/USA) is unexplored. See
+  `tasks/plans/linkedin-posts-to-jobs.md`.
+- **NEXT ACTIVITY — config cleanup/refactor (deferred 2026-08-25):** after the
+  LinkedIn adapter lands, the next feature branch is consolidating run config:
+  many named run configs in YAML, `.env` for secrets only, no magic numbers,
+  CLI overrides (CLI > YAML > env > defaults). Current gaps: `timeout=30` inline
+  in ~10 scrapers, faruse `PAGE_SIZE=50`, freework `DEFAULT_RADIUS=30`, hiringcafe
+  `max_pages=50`, LinkedIn `_GUEST_DEFAULT_MAX_RESULTS=100`; `MAX_PAGES` not
+  applied to freework/hiringcafe. See ISSUES.md + `tasks/plans/config-cleanup.md`.
 - **Reader-mode vs DOM text:** The `read` tool's reader-mode injects artificial "SVG Image" text nodes that don't exist in the BeautifulSoup parse tree. Always test parsers against real `httpx` + `bs4` output, not reader-mode.
 - **get_text() concatenation:** BeautifulSoup's `get_text(strip=True)` glues adjacent text nodes with no separators (e.g. `Start dateAs soon as possible`). The `parse_details` regex handles this; new parsers must account for it.
 - **Card container:** Job cards are `div.rounded-lg.shadow` containers. The scraper walks up from each `h2` (up to 6 parent levels) until it finds an ancestor whose class list contains both `rounded-lg` and `shadow`.

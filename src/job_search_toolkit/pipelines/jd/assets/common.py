@@ -28,6 +28,8 @@ BRONZE_BOARD_DIRS = {
     "wwr": BRONZE_DIR / "wwr",
     "remoteok": BRONZE_DIR / "remoteok",
     "datasciencejobs": BRONZE_DIR / "datasciencejobs",
+    "linkedin_jobs": BRONZE_DIR / "linkedin_jobs",
+    "linkedin_posts": BRONZE_DIR / "linkedin_posts",
 }
 
 

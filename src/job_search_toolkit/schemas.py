@@ -178,6 +178,11 @@ class CanonicalJob(TypedDict):
     # --- Contract details ---
     contract_duration: str | None     # free-form e.g. "6 months", "12 mois"
 
+    # --- Recruiter / poster (LinkedIn posts) ---
+    poster_name: str | None           # the recruiter/poster display name
+    poster_url: str | None            # the poster's LinkedIn profile URL
+    poster_location: str | None       # the poster's location (profile scrape)
+
     # --- Metrics (from source board) ---
     views: int | None
     applications: int | None
@@ -244,6 +249,9 @@ def new_canonical_job(source_board: str) -> CanonicalJob:
         end_client_name=None,
         end_client_sector=None,
         contract_duration=None,
+        poster_name=None,
+        poster_url=None,
+        poster_location=None,
         views=None,
         applications=None,
         is_expired=False,

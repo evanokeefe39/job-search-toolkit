@@ -11,9 +11,9 @@ What's already built and working.
 
 ### Discovery
 
-- [x] **Job board scraping** — 8 boards: free-work.com, hiringcafe.com, hellowork.com, englishjobs.fr,
-  faruse.com, weworkremotely.com, remoteok.com, datasciencejobs.com
-  (Typer/httpx/bs4 or Next.js data routes) → timestamped bronze snapshots
+- [x] **Job board scraping** — 10 boards: free-work.com, hiringcafe.com, hellowork.com, englishjobs.fr,
+  faruse.com, weworkremotely.com, remoteok.com, datasciencejobs.com, plus linkedin.com
+  (two sources: `linkedin_jobs` listings + `linkedin_posts` recruiter posts)
 - [x] **Pipeline enrichment** — Dagster Kimball star schema: scrape → upsert →
   score → exports → gold views. Ranking is decoupled from LLM (pure tabular);
   optional `--enrich` runs deferred, dimension-scoped company research
@@ -21,6 +21,10 @@ What's already built and working.
 - [x] **Ranked export** — `jobs_ranked.csv` with five-dimension scoring
   (pay, flexibility, responsibility, tech match, company quality);
   company_quality uses tabular heuristics + dim_company join, zero LLM
+- [x] **LinkedIn boards** — recruiter posts + job listings land in `silver.jobs` as
+  two boards (`linkedin_posts`, `linkedin_jobs`): Apify/Tavily discovery → JSON-LD
+  parse → dedup → deterministic tech scan + regex post→job extraction → bronze;
+  deferred `linkedin_post_enriched` LLM pass fills the regex gap (2026-08-23)
 
 ### Application Workflow
 
@@ -149,6 +153,12 @@ learning.
 - [ ] **Identify key voices** in French/European data engineering: who writes about Fabric, Azure data, dbt, data platform architecture? Follow, engage, learn
 - [ ] **Potential collaborators** — creators whose audience overlaps with target customers. Joint webinars, guest posts, cross-promotion
 - [ ] **Mentor/advisors** — senior data engineers or freelance consultants in Paris who've done what we're trying to do. Coffee chats, not cold outreach
+- [ ] **LinkedIn peer discovery (deferred 2026-08-17)** — extend the LinkedIn
+      source adapter with a practitioner/peer pass: devs and data engineers in
+      Paris/Europe with shared interests (Fabric/Azure/dbt). Surfaces as Person
+      contacts (`contact_type=data_team`/`network`) into the silver people
+      contract. Deferred until the recruiter + job pipeline validates — not
+      dropped.
 
 ### Continuous Market Education
 
@@ -213,6 +223,34 @@ Highest score first. Re-score quarterly.
 | Market research reports as lead magnet | 4 | 3 | 2 | 6.0 | 3 |
 | Fabric architecture review service | 3 | 3 | 2 | 4.5 | 3 |
 | Pipeline velocity dashboard | 2 | 4 | 2 | 4.0 | 5 |
+
+---
+
+## Potential Enhancements (deferred)
+
+- **CLI robustness micro-fixes** (2026-08-25 design review, see
+  `tasks/plans/cli-source-selection.md`): make partial failures survivable in
+  one run (`raise_on_error=False` + surface failed step keys + recovery hint),
+  add `RetryPolicy` to scrape assets, and fix the freework `_max_pages()` leak.
+  Cheap wins; no new CLI surface.
+- **LinkedIn jobs via guest API (done 2026-08-25):** `linkedin_jobs` now
+  discovers via LinkedIn's public guest jobs API (free, no auth) — resolves the
+  prior under-yield. **FRAGILE** (undocumented endpoint); if it breaks, see
+  `docs/linkedin-source-spike.md` for fallbacks (dedicated actors / google-
+  scraper). Original diagnosis: SEO landing pages were discarded; now moot.
+- **LinkedIn posts → jobs enrichment** (2026-08-25): recruiter posts become
+  jobs via a regex verdict (`land`/`queue`/`drop`); explore recruiter-region
+  inference (APAC/EMEA/DACH/USA) via regex vs LLM, and close the `queue` LLM
+  pass gap. See `tasks/plans/linkedin-posts-to-jobs.md`.
+- **Config cleanup/refactor (NEXT ACTIVITY, deferred 2026-08-25):** many named
+  run configs in YAML, `.env` for secrets only, eliminate magic numbers
+  (`timeout=30`, `PAGE_SIZE=50`, `DEFAULT_RADIUS=30`, `max_pages=50`,
+  `_GUEST_DEFAULT_MAX_RESULTS=100`), CLI overrides. See ISSUES.md +
+  `tasks/plans/config-cleanup.md`.
+- **Per-board Dagster partitions** (future): if the pipeline becomes scheduled
+  or multi-user, model each board as a static partition for native selective
+  runs + backfill (see `docs/pipeline-streaming-research.md`). Requires a
+  persistent DagsterInstance. Deliberately NOT building now.
 
 ---
 
