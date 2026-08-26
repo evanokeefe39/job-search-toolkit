@@ -11,9 +11,9 @@ from pathlib import Path
 import httpx
 import pytest
 
-from job_search_toolkit.linkedin.fetch import FetchError, fetch_page
-from job_search_toolkit.linkedin.parse import extract_jsonld, parse_job, parse_post
-from job_search_toolkit.linkedin.urls import (
+from job_search_toolkit.scrapers.linkedin.fetch import FetchError, fetch_page
+from job_search_toolkit.scrapers.linkedin.parse import extract_jsonld, parse_job, parse_post
+from job_search_toolkit.scrapers.linkedin.urls import (
     author_slug_from_post_url,
     classify_url,
     job_id_from_url,

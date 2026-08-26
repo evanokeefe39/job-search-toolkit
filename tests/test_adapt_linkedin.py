@@ -7,7 +7,7 @@ extraction to ``extract_from_post`` with verdict-based handling).
 
 from __future__ import annotations
 
-from job_search_toolkit.linkedin.models import JobRecord, PostRecord
+from job_search_toolkit.scrapers.linkedin.models import JobRecord, PostRecord
 from job_search_toolkit.pipelines.jd.adapt_linkedin import (
     normalize_linkedin_job,
     normalize_linkedin_post,

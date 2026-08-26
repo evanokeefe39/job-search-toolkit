@@ -1,4 +1,4 @@
-"""Unit tests for job_search_toolkit.linkedin.tech_scan.
+"""Unit tests for job_search_toolkit.scrapers.linkedin.tech_scan.
 
 Covers the deterministic, file-backed technology scanner:
 - synonym / alias / abbreviation mapping to one canonical keyword
@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import pytest
 
-from job_search_toolkit.linkedin.tech_scan import (
+from job_search_toolkit.scrapers.linkedin.tech_scan import (
     DEFAULT_SYNONYMS,
     DEFAULT_TECHNOLOGIES,
     TechnologyScanner,

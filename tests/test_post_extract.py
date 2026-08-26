@@ -1,4 +1,4 @@
-"""Unit tests for job_search_toolkit.linkedin.post_extract.
+"""Unit tests for job_search_toolkit.scrapers.linkedin.post_extract.
 
 Covers the verdict rules (land / queue / drop), every extractor, the salary
 format matrix (k / € / NBSP / TJM), multi-word role precedence, workplace and
@@ -7,8 +7,8 @@ contract vocabularies, and the fixed ``PostExtraction`` contract.
 
 import pytest
 
-from job_search_toolkit.linkedin.models import PostRecord
-from job_search_toolkit.linkedin.post_extract import (
+from job_search_toolkit.scrapers.linkedin.models import PostRecord
+from job_search_toolkit.scrapers.linkedin.post_extract import (
     detect_language,
     extract_contract_duration,
     extract_contract_types,

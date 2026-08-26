@@ -17,8 +17,8 @@ own board:
 
 from typing import cast
 
-from job_search_toolkit.linkedin.models import JobRecord, PostRecord
-from job_search_toolkit.linkedin.post_extract import extract_from_post
+from job_search_toolkit.scrapers.linkedin.models import JobRecord, PostRecord
+from job_search_toolkit.scrapers.linkedin.post_extract import extract_from_post
 from job_search_toolkit.schemas import (
     CanonicalJob,
     ContractType,

@@ -17,8 +17,8 @@ from pathlib import Path
 import httpx
 import pytest
 
-from job_search_toolkit.linkedin import discovery as discovery_module
-from job_search_toolkit.linkedin.discovery import (
+from job_search_toolkit.scrapers.linkedin import discovery as discovery_module
+from job_search_toolkit.scrapers.linkedin.discovery import (
     ApifyBackend,
     TavilyBackend,
     flatten_apify_dataset,
@@ -184,7 +184,7 @@ def test_apify_backend_uses_api_token_fallback(monkeypatch: pytest.MonkeyPatch) 
 # --- LinkedInGuestBackend (public guest jobs API) ---
 
 def test_parse_guest_query_variants():
-    from job_search_toolkit.linkedin.discovery import _parse_guest_query
+    from job_search_toolkit.scrapers.linkedin.discovery import _parse_guest_query
     assert _parse_guest_query('site:linkedin.com/jobs "Data Engineer" France') == ("Data Engineer", "France")
     assert _parse_guest_query('site:linkedin.com/jobs "BI Developer" "Power BI" France') == ("BI Developer Power BI", "France")
     assert _parse_guest_query('site:linkedin.com/jobs "Microsoft Fabric" data engineer France') == ("Microsoft Fabric data engineer", "France")
@@ -193,7 +193,7 @@ def test_parse_guest_query_variants():
 
 
 def test_parse_guest_cards_against_fixture():
-    from job_search_toolkit.linkedin.discovery import _parse_guest_cards
+    from job_search_toolkit.scrapers.linkedin.discovery import _parse_guest_cards
     html = (_FIXTURES / "guest_jobs.html").read_text(encoding="utf-8")
     cards = _parse_guest_cards(html)
     assert len(cards) == 2
@@ -204,14 +204,14 @@ def test_parse_guest_cards_against_fixture():
 
 
 def test_parse_guest_cards_skips_missing_title():
-    from job_search_toolkit.linkedin.discovery import _parse_guest_cards
+    from job_search_toolkit.scrapers.linkedin.discovery import _parse_guest_cards
     html = '<li><div data-entity-urn="urn:li:jobPosting:111"><h4>NoTitle</h4></div></li>'
     assert _parse_guest_cards(html) == []
 
 
 def test_linkedin_guest_backend_search_uses_endpoint(monkeypatch):
-    from job_search_toolkit.linkedin import discovery as dmod
-    from job_search_toolkit.linkedin.discovery import LinkedInGuestBackend
+    from job_search_toolkit.scrapers.linkedin import discovery as dmod
+    from job_search_toolkit.scrapers.linkedin.discovery import LinkedInGuestBackend
     fixture = (_FIXTURES / "guest_jobs.html").read_text(encoding="utf-8")
     captured: dict[str, str] = {}
 
@@ -232,8 +232,8 @@ def test_linkedin_guest_backend_search_uses_endpoint(monkeypatch):
 
 
 def test_linkedin_guest_backend_dedups_and_stops_on_empty(monkeypatch):
-    from job_search_toolkit.linkedin import discovery as dmod
-    from job_search_toolkit.linkedin.discovery import LinkedInGuestBackend
+    from job_search_toolkit.scrapers.linkedin import discovery as dmod
+    from job_search_toolkit.scrapers.linkedin.discovery import LinkedInGuestBackend
     calls = {"n": 0}
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -249,6 +249,6 @@ def test_linkedin_guest_backend_dedups_and_stops_on_empty(monkeypatch):
 
 
 def test_make_backend_guest():
-    from job_search_toolkit.linkedin.discovery import LinkedInGuestBackend, make_backend
+    from job_search_toolkit.scrapers.linkedin.discovery import LinkedInGuestBackend, make_backend
     for name in ("linkedin_guest", "linkedin", "guest"):
         assert isinstance(make_backend(name), LinkedInGuestBackend)

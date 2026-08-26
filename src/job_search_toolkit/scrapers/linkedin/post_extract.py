@@ -24,7 +24,7 @@ Matching rules (fixed by the build spec in ``tasks/plans/linkedin-post-to-job.md
 import re
 from typing import Literal, TypedDict
 
-from job_search_toolkit.linkedin.models import PostRecord
+from job_search_toolkit.scrapers.linkedin.models import PostRecord
 from job_search_toolkit.schemas import (
     ContractType,
     EngagementType,

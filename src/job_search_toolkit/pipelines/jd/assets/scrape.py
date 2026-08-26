@@ -217,8 +217,8 @@ def _has_discovery_key() -> bool:
 )
 def linkedin_jobs(context: AssetExecutionContext) -> dg.MaterializeResult:
     """Discover + normalize LinkedIn job listings into canonical format."""
-    from job_search_toolkit.linkedin.adapter import run_discovery
-    from job_search_toolkit.linkedin.config import LinkedInConfig
+    from job_search_toolkit.scrapers.linkedin.adapter import run_discovery
+    from job_search_toolkit.scrapers.linkedin.config import LinkedInConfig
     from ..adapt_linkedin import normalize_linkedin_job
 
     if not _has_discovery_key():
@@ -243,8 +243,8 @@ def linkedin_jobs(context: AssetExecutionContext) -> dg.MaterializeResult:
 )
 def linkedin_posts(context: AssetExecutionContext) -> dg.MaterializeResult:
     """Discover + normalize LinkedIn recruiter posts into canonical format."""
-    from job_search_toolkit.linkedin.adapter import run_discovery
-    from job_search_toolkit.linkedin.config import LinkedInConfig
+    from job_search_toolkit.scrapers.linkedin.adapter import run_discovery
+    from job_search_toolkit.scrapers.linkedin.config import LinkedInConfig
     from ..adapt_linkedin import normalize_linkedin_post
 
     if not _has_discovery_key():

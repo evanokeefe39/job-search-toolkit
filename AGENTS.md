@@ -226,7 +226,7 @@ excludes stale jobs, exposes ``days_since_posted``/``days_since_seen``),
   discovers via LinkedIn's **public guest jobs API**
   (`linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search`) when
   `guest_jobs: true` in `job_search_preferences.yaml` (default; see
-  `linkedin/discovery.py` `LinkedInGuestBackend`). It is **free, no auth, and
+  `scrapers/linkedin/discovery.py` `LinkedInGuestBackend`). It is **free, no auth, and
   yields hundreds of France-scoped job IDs** (location in the card), replacing
   the under-harvesting `apify~google-search-scraper` route for jobs (which now
   only serves `linkedin_posts` + a jobs fallback). **FRAGILE:** the guest API is
@@ -235,7 +235,7 @@ excludes stale jobs, exposes ``days_since_posted``/``days_since_seen``),
   analysis and quick-fix options (dedicated Apify actors need a purchasable
   actor; google-scraper is the fallback). The France filter
   (`_is_france_job`) still guarantees only `country=FR` jobs enter silver.
-- **LinkedIn posts → jobs (2026-08-25):** `post_extract.py:extract_from_post`
+- **LinkedIn posts → jobs (2026-08-25):** `scrapers/linkedin/post_extract.py:extract_from_post`
   is the regex verdict gate (`land`/`queue`/`drop`); `queue` rows are reserved
   for an LLM enrichment pass that must be verified to cover `linkedin_posts`.
   Recruiter-region inference (APAC/EMEA/DACH/USA) is unexplored. See

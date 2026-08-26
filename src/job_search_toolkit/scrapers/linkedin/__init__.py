@@ -9,7 +9,7 @@ record contracts shared across the sub-modules.
 
 from __future__ import annotations
 
-from job_search_toolkit.linkedin.models import (
+from job_search_toolkit.scrapers.linkedin.models import (
     ContentQuality,
     JobRecord,
     Location,

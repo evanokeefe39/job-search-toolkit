@@ -7,7 +7,7 @@ from pathlib import Path
 
 import httpx
 
-from job_search_toolkit.linkedin.adapter import (
+from job_search_toolkit.scrapers.linkedin.adapter import (
     FRENCH_LOCALITIES,
     DiscoveryOutcome,
     _dedup_jobs,
@@ -17,9 +17,9 @@ from job_search_toolkit.linkedin.adapter import (
     run_discovery,
     write_candidate_pool,
 )
-from job_search_toolkit.linkedin.config import LinkedInConfig
-from job_search_toolkit.linkedin.discovery import DiscoveryRun, SearchResult
-from job_search_toolkit.linkedin.tech_scan import TechnologyScanner
+from job_search_toolkit.scrapers.linkedin.config import LinkedInConfig
+from job_search_toolkit.scrapers.linkedin.discovery import DiscoveryRun, SearchResult
+from job_search_toolkit.scrapers.linkedin.tech_scan import TechnologyScanner
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -254,7 +254,7 @@ def _noop_backend(name):
 def test_job_discovery_routes_through_guest_backend_when_enabled(monkeypatch):
     """guest_jobs=True and no injected backend => jobs use LinkedInGuestBackend,
     posts use make_backend(config.backend)."""
-    import job_search_toolkit.linkedin.adapter as adapter
+    import job_search_toolkit.scrapers.linkedin.adapter as adapter
     seen = {"post": None, "job": None}
     class FakeGuest:
         name = "linkedin_guest"
@@ -274,7 +274,7 @@ def test_job_discovery_routes_through_guest_backend_when_enabled(monkeypatch):
 
 def test_job_discovery_uses_configured_backend_when_guest_disabled(monkeypatch):
     """guest_jobs=False => jobs use make_backend(config.backend), not the guest API."""
-    import job_search_toolkit.linkedin.adapter as adapter
+    import job_search_toolkit.scrapers.linkedin.adapter as adapter
     seen = []
     class FakeGuest:
         name = "linkedin_guest"
@@ -289,7 +289,7 @@ def test_job_discovery_uses_configured_backend_when_guest_disabled(monkeypatch):
 
 def test_injected_backend_bypasses_guest_routing(monkeypatch):
     """An injected backend (test seam) is used for both kinds regardless of guest_jobs."""
-    import job_search_toolkit.linkedin.adapter as adapter
+    import job_search_toolkit.scrapers.linkedin.adapter as adapter
     monkeypatch.setattr(adapter, "LinkedInGuestBackend", lambda: (_ for _ in ()).throw(AssertionError("guest used")))
     monkeypatch.setattr(adapter, "make_backend", lambda name: (_ for _ in ()).throw(AssertionError("make_backend used")))
     cfg = LinkedInConfig(post_queries=("p",), job_queries=("j",), guest_jobs=True)

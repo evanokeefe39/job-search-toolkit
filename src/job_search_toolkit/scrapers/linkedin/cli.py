@@ -6,15 +6,15 @@ import json
 
 import typer
 
-from job_search_toolkit.linkedin.adapter import (
+from job_search_toolkit.scrapers.linkedin.adapter import (
     DEFAULT_OUT_DIR,
     run_discovery,
     write_candidate_pool,
 )
-from job_search_toolkit.linkedin.config import LinkedInConfig
-from job_search_toolkit.linkedin.fetch import fetch_page
-from job_search_toolkit.linkedin.parse import parse_job, parse_post
-from job_search_toolkit.linkedin.urls import classify_url
+from job_search_toolkit.scrapers.linkedin.config import LinkedInConfig
+from job_search_toolkit.scrapers.linkedin.fetch import fetch_page
+from job_search_toolkit.scrapers.linkedin.parse import parse_job, parse_post
+from job_search_toolkit.scrapers.linkedin.urls import classify_url
 
 app = typer.Typer(help="LinkedIn source: discover recruiter posts + job listings.", no_args_is_help=True)
 
@@ -53,7 +53,7 @@ def linkedin_run(
     )
 
     if dry_run:
-        from job_search_toolkit.linkedin.discovery import discover, make_backend
+        from job_search_toolkit.scrapers.linkedin.discovery import discover, make_backend
 
         be = make_backend(config.backend)
         for kind, queries in (("post", config.post_queries), ("job", config.job_queries)):

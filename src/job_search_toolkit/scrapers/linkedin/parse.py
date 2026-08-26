@@ -16,8 +16,8 @@ from typing import Any
 
 from bs4 import BeautifulSoup
 
-from job_search_toolkit.linkedin.models import ContentQuality, JobRecord, Location, PostRecord
-from job_search_toolkit.linkedin.urls import (
+from job_search_toolkit.scrapers.linkedin.models import ContentQuality, JobRecord, Location, PostRecord
+from job_search_toolkit.scrapers.linkedin.urls import (
     author_slug_from_post_url,
     job_id_from_url,
     post_activity_id,

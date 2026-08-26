@@ -6,8 +6,8 @@ faked at the module seam; no network. Run: uv run pytest tests/test_profile.py
 
 import pytest
 
-from job_search_toolkit.linkedin import profile as profile_module
-from job_search_toolkit.linkedin.profile import (
+from job_search_toolkit.scrapers.linkedin import profile as profile_module
+from job_search_toolkit.scrapers.linkedin.profile import (
     LinkedInProfileScraper,
     _normalize_profile_url,
 )

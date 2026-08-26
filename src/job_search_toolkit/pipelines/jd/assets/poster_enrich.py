@@ -24,7 +24,7 @@ from ..silver import GATE_POSTER, connect, fetch_jobs, sql_literal
 )
 def linkedin_post_poster_enriched(context: AssetExecutionContext) -> dg.MaterializeResult:
     """Scrape poster profiles and fill ``poster_location`` for queued posts."""
-    from job_search_toolkit.linkedin.profile import LinkedInProfileScraper
+    from job_search_toolkit.scrapers.linkedin.profile import LinkedInProfileScraper
 
     columns = ["id", "source_board", "poster_url"]
     with connect() as con:

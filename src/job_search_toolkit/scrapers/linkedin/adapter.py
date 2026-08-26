@@ -19,19 +19,19 @@ from typing import Literal, Sequence
 
 import httpx
 
-from job_search_toolkit.linkedin.config import LinkedInConfig
-from job_search_toolkit.linkedin.discovery import (
+from job_search_toolkit.scrapers.linkedin.config import LinkedInConfig
+from job_search_toolkit.scrapers.linkedin.discovery import (
     DiscoveryBackend,
     LinkedInGuestBackend,
     SearchResult,
     discover,
     make_backend,
 )
-from job_search_toolkit.linkedin.fetch import FetchError, fetch_page
-from job_search_toolkit.linkedin.models import JobRecord, PostRecord
-from job_search_toolkit.linkedin.parse import parse_job, parse_post
-from job_search_toolkit.linkedin.tech_scan import TechnologyScanner
-from job_search_toolkit.linkedin.urls import classify_url
+from job_search_toolkit.scrapers.linkedin.fetch import FetchError, fetch_page
+from job_search_toolkit.scrapers.linkedin.models import JobRecord, PostRecord
+from job_search_toolkit.scrapers.linkedin.parse import parse_job, parse_post
+from job_search_toolkit.scrapers.linkedin.tech_scan import TechnologyScanner
+from job_search_toolkit.scrapers.linkedin.urls import classify_url
 
 _GONE = frozenset({404, 410})
 

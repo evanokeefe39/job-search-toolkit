@@ -18,13 +18,13 @@ from pathlib import Path
 import dagster as dg
 import httpx
 
-import job_search_toolkit.linkedin.adapter as adapter_module
+import job_search_toolkit.scrapers.linkedin.adapter as adapter_module
 import job_search_toolkit.pipelines.jd.assets.scrape as scrape_module
-from job_search_toolkit.linkedin.adapter import DiscoveryOutcome, run_discovery
-from job_search_toolkit.linkedin.config import LinkedInConfig
-from job_search_toolkit.linkedin.discovery import DiscoveryRun, SearchResult
-from job_search_toolkit.linkedin.models import JobRecord, PostRecord
-from job_search_toolkit.linkedin.tech_scan import TechnologyScanner
+from job_search_toolkit.scrapers.linkedin.adapter import DiscoveryOutcome, run_discovery
+from job_search_toolkit.scrapers.linkedin.config import LinkedInConfig
+from job_search_toolkit.scrapers.linkedin.discovery import DiscoveryRun, SearchResult
+from job_search_toolkit.scrapers.linkedin.models import JobRecord, PostRecord
+from job_search_toolkit.scrapers.linkedin.tech_scan import TechnologyScanner
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
