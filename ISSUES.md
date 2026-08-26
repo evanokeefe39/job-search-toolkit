@@ -61,7 +61,7 @@ runnable without a purchase/plan change, ~$1/1k results; (3) **LinkedIn's
 public guest jobs API** (`jobs-guest/jobs/api/seeMoreJobPostings/search`) via
 direct HTTP — **free, no auth, 80 unique France job IDs from a single
 keyword×France pair over 8 pages**, returning title/company/location/apply URL
-in the card. Switch IMPLEMENTED (commit `4bb4dd2`): `LinkedInGuestBackend` in
+in the card. Switch IMPLEMENTED (commit `68add01`): `LinkedInGuestBackend` in
 `linkedin/discovery.py` (free, no auth, paginates `seeMoreJobPostings/search`),
 `guest_jobs: true` in `job_search_preferences.yaml`, `_run_pass`
 fetch→`parse_job`→`_is_france_job` path unchanged, google-scraper retained for
