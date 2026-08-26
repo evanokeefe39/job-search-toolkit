@@ -16,6 +16,7 @@ from job_search_toolkit.linkedin.post_extract import (
     extract_engagement,
     extract_from_post,
     extract_location,
+    extract_region,
     extract_salary,
     extract_seniority,
     extract_title,
@@ -432,3 +433,45 @@ def test_landing_matrix(text, expected_title, expected_location):
     assert res["verdict"] == "land"
     assert res["title"] == expected_title
     assert res["location_raw"] == expected_location
+
+
+# --- Region extraction + region-completes-land verdict ---
+
+def test_extract_region_words_and_acronyms():
+    assert extract_region("Hiring Data Engineers across EMEA") == ("EMEA", "low")
+    assert extract_region("Recruiting data engineers in Europe") == ("Europe", "low")
+    assert extract_region("CDI data engineer en France") == ("France", "low")
+    # acronyms must be uppercase (avoid the English pronoun/word "us"/"uk")
+    assert extract_region("hiring in apac") is None
+    assert extract_region("hiring across APAC") == ("APAC", "low")
+
+
+def test_extract_region_none_when_no_region():
+    assert extract_region("hiring a data engineer for a banking client") is None
+    assert extract_region("") is None
+
+
+def test_france_relevant_region_completes_land_without_city():
+    res = extract_from_post(_post("Hiring a Data Engineer across Europe, Azure stack"))
+    assert res["verdict"] == "land"
+    assert res["title"] == "Data Engineer"
+    assert res["location_raw"] == "Europe"
+
+
+def test_emea_region_completes_land():
+    res = extract_from_post(_post("We are hiring a Data Engineer for our EMEA clients"))
+    assert res["verdict"] == "land"
+    assert res["location_raw"] == "EMEA"
+
+
+def test_non_france_region_does_not_complete_land():
+    # APAC/USA exclude France -> not a France lead -> stays queue
+    res = extract_from_post(_post("Hiring a Data Engineer in APAC"))
+    assert res["verdict"] == "queue"
+    assert res["location_raw"] is None
+
+
+def test_region_does_not_override_city():
+    res = extract_from_post(_post("Data Engineer in Paris, serving EMEA clients"))
+    assert res["verdict"] == "land"
+    assert res["location_raw"] == "Paris"

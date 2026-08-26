@@ -194,6 +194,19 @@ _PREP_LOCATION = re.compile(
 )
 _BARE_CITY = re.compile(rf"(?P<loc>{_CITY})", re.IGNORECASE)
 
+# Recruiter-managed regions. Multi-word/word regions are matched
+# case-insensitively; acronyms (EMEA/APAC/...) must appear UPPERCASE so the
+# English pronoun "us" or "uk" (a word) never matches "US"/"UK".
+_REGION_WORDS = ("north america", "united states", "nordics", "europe", "france")
+_REGION_ACRONYMS = ("EMEA", "APAC", "DACH", "MENA", "LATAM", "BENELUX", "USA", "UK")
+# Regions that include France — only these are usable location signals for the
+# France-focused pipeline (a post scoped to APAC/USA is not a France lead).
+_FRANCE_RELEVANT_REGIONS = frozenset({"emea", "europe", "france"})
+_REGION_WORD_RE = re.compile(rf"{_bounded(*_REGION_WORDS)}", re.IGNORECASE)
+_REGION_ACRONYM_RE = re.compile(
+    rf"\b(?:{'|'.join(_REGION_ACRONYMS)})\b"
+)
+
 # Workplace type.
 _WORKPLACE = re.compile(rf"(?P<w>{_bounded(*WORKPLACE_TERMS)})", re.IGNORECASE)
 
@@ -367,6 +380,25 @@ def extract_workplace(text: str) -> tuple[WorkplaceType, Confidence] | None:
         return None
     token = m.group("w").strip().lower()
     return _WORKPLACE_MAP.get(token), "high"
+
+
+def extract_region(text: str) -> tuple[str, Confidence] | None:
+    """Extract a recruiter-managed region (EMEA, APAC, DACH, Europe, France…).
+
+    Preconditions: ``text`` is the raw post body.
+    Postconditions: returns ``(region, confidence)`` for the first region
+    mention (words case-insensitive, acronyms uppercase-only), else ``None``.
+    The caller decides France-relevance via ``FRANCE_RELEVANT_REGIONS``.
+    """
+    if not text:
+        return None
+    m = _REGION_WORD_RE.search(text)
+    if m:
+        return m.group(0).strip().title(), "low"
+    m = _REGION_ACRONYM_RE.search(text)
+    if m:
+        return m.group(0), "low"
+    return None
 
 
 def _to_int(raw: str) -> int:
@@ -614,13 +646,15 @@ def extract_from_post(post: PostRecord) -> PostExtraction:
     title = extract_title(text)
     location = extract_location(text)
     workplace = extract_workplace(text)
+    region = extract_region(text)
+    region_ok = region is not None and region[0].lower() in _FRANCE_RELEVANT_REGIONS
 
     has_bare_role = bool(text and _BARE_ROLE.search(text))
     has_hiring_signal = bool(text and _HIRING_SIGNAL.search(text))
 
     if title is None and not has_bare_role and not has_hiring_signal:
         verdict: Literal["land", "queue", "drop"] = "drop"
-    elif title is not None and (location is not None or workplace is not None):
+    elif title is not None and (location is not None or workplace is not None or region_ok):
         verdict = "land"
     else:
         verdict = "queue"
@@ -630,7 +664,8 @@ def extract_from_post(post: PostRecord) -> PostExtraction:
         out_location: str | None = None
     else:
         out_title = title[0] if title else None
-        out_location = location[0] if location else None
+        # Region is a location-completing signal: use it when no city was found.
+        out_location = location[0] if location is not None else (region[0] if region_ok else None)
 
     salary = extract_salary(text)
     contracts = extract_contract_types(text)

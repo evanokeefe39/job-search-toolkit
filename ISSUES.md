@@ -136,6 +136,15 @@ exists for `queue`.
 3. **Posts→jobs quality bar:** define when a post is a usable job
    (title + at least one of location/workplace/region) vs when to drop.
 
+**Progress (2026-08-25):** the `queue` → LLM pass is confirmed ALREADY
+implemented (`linkedin_post_enriched`, `--enrich`). A deterministic region
+extractor (`extract_region` in `post_extract.py`) is added: a France-relevant
+region (EMEA/Europe/France) now completes `land` for posts with no city
+(region becomes `location_raw`); non-France regions (APAC/USA/DACH) stay
+`queue`. 259 tests green. Remaining: recruiter-profile follow-up (fetch the
+author to infer a region the text omits) + the labelled regex-vs-LLM judgment
+sample — next sub-step.
+
 **Decision needed:** regex-only vs LLM structured extraction for the
 recruiter-region inference, and whether the follow-up is per-post or
 per-author (cached). See the plan for the recommendation + DoD.
