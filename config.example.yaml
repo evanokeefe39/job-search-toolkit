@@ -1,7 +1,12 @@
-# job-search-toolkit run + tailor configuration.
+# job-search-toolkit run configuration.
 #
 # Copy this file to `config.yaml` (gitignored) and edit. `config.yaml` may hold
 # API keys, so it is never committed; this template is the tracked reference.
+#
+# This file holds RUN MECHANICS only (timeouts, page sizes, limits, LLM rate
+# limits). User-facing choices live in their own gitignored files:
+#   - search criteria:        job_search_preferences.yaml
+#   - resume tailoring:       tailor_resume_preferences.yaml
 #
 # Precedence (highest first):
 #   1. CLI args (e.g. `--max-pages N`, `-c <run>`)
@@ -12,24 +17,6 @@
 #   5. built-in defaults
 #
 # Secrets (API keys) belong in `.env`, never here.
-#
-# Search *criteria* (roles, locations, LinkedIn queries) stay in the gitignored
-# `job_search_preferences.yaml`; this file holds run *mechanics*.
-
-# Resume-tailoring settings (read by `job-search-toolkit tailor run`).
-# Keys are the env-var names lowercased (LLM_MODEL -> llm_model), matching the
-# existing tailor convention. Newer configs nest these under `tailor:`; the
-# flat top-level form is still accepted for backward compatibility.
-tailor:
-  llm_model: deepseek-chat
-  llm_base_url: https://api.deepseek.com/v1
-  llm_client: pydantic_ai      # pydantic_ai | json_mode
-  llm_temperature: 0.2
-  llm_max_tokens: 8000
-  tailor_level: relaxed        # relaxed | moderate | aggressive
-  tailor_max_highlights: 5
-  tailor_highlight_preference: impact_first
-  tailor_merge_low_value: true
 
 # Run-config tunables, shared across all runs.
 defaults:

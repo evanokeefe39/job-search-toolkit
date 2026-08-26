@@ -7,8 +7,8 @@
         --level relaxed|moderate|aggressive \
         --tone TONE.txt
 
-Config resolution (highest first): CLI args > env vars > config.yaml > defaults.
-See job_search_toolkit/automation/tailor/config.py and config.example.yaml.
+Config resolution (highest first): CLI args > env vars > tailor_resume_preferences.yaml > defaults.
+See job_search_toolkit/automation/tailor/config.py and tailor_resume_preferences.example.yaml.
 
 
 SAFETY: the master --yaml file is NEVER modified (merge_content() deep-copies;
@@ -41,7 +41,7 @@ from job_search_toolkit.automation.tailor import (
 )
 from job_search_toolkit.automation.tailor.config import (
     TONE_NONE,
-    DEFAULT_CONFIG_PATH,
+    DEFAULT_TAILOR_PREFERENCES_PATH,
     load_config,
 )
 from job_search_toolkit.automation.tailor.prompts import load_tone
@@ -90,8 +90,8 @@ def run(
         typer.Option("--level", help="relaxed | moderate | aggressive"),
     ] = None,
     config: Annotated[
-        Path, typer.Option("--config", help="Path to config.yaml")
-    ] = DEFAULT_CONFIG_PATH,
+        Path, typer.Option("--config", help="Path to tailor_resume_preferences.yaml")
+    ] = DEFAULT_TAILOR_PREFERENCES_PATH,
     model: Annotated[
         Optional[str], typer.Option("--model", help="LLM model name (env LLM_MODEL)")
     ] = None,

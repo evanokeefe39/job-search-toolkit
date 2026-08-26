@@ -123,25 +123,31 @@ def test_load_config_file_unparseable_returns_empty(tmp_path: pathlib.Path) -> N
 
 
 def test_default_config_path_is_a_path() -> None:
+    from job_search_toolkit.configutil import DEFAULT_TAILOR_PREFERENCES_PATH
+
     assert isinstance(DEFAULT_CONFIG_PATH, pathlib.Path)
+    assert isinstance(DEFAULT_TAILOR_PREFERENCES_PATH, pathlib.Path)
 
 
-# --- tailor section backward compatibility ---
+# --- tailor preferences file ---
 
-def test_tailor_section_and_flat_fallback(tmp_path: pathlib.Path, monkeypatch) -> None:
+def test_tailor_preferences_file(tmp_path: pathlib.Path, monkeypatch) -> None:
     from job_search_toolkit.automation.tailor.config import load_config
 
-    # Nested `tailor:` section wins.
-    nested = _write_config(tmp_path, "tailor:\n  llm_max_tokens: 4000\n  tailor_level: moderate\n")
-    cfg = load_config(nested)
+    # A tailor_resume_preferences.yaml holds flat, env-derived keys.
+    p = _write_config(tmp_path, "llm_max_tokens: 4000\ntailor_level: moderate\n")
+    cfg = load_config(p)
     assert cfg.max_tokens == 4000
     assert cfg.level == "moderate"
     assert cfg.model == "deepseek-chat"  # untouched default
 
-    # Flat top-level keys still load (backward compat).
-    flat = _write_config(tmp_path, "llm_max_tokens: 5000\n")
-    cfg = load_config(flat)
-    assert cfg.max_tokens == 5000
+    # Missing/unset keys fall back to built-in defaults.
+    cfg = load_config(tmp_path / "absent.yaml")
+    assert cfg.max_tokens == 8000
+    assert cfg.level == "relaxed"
 
+    # Env vars still override the preferences file.
+    monkeypatch.setenv("LLM_MAX_TOKENS", "6000")
+    cfg = load_config(p)
+    assert cfg.max_tokens == 6000
     monkeypatch.delenv("LLM_MAX_TOKENS", raising=False)
-    monkeypatch.delenv("TAILOR_LEVEL", raising=False)

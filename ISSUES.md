@@ -133,8 +133,11 @@ defaults.
   and `src/job_search_toolkit/run_config.py` (`RunConfig` + `load_run_config`).
 - Root `config.example.yaml` template (gitignored `config.yaml`): `defaults:` +
   named `runs:<name>` sections; precedence CLI > named run > defaults > env
-  fallback > built-in. `tailor:` section nests resume-tailoring keys (flat
-  top-level still accepted for backward compat).
+  fallback > built-in. **Follow-up (2026-08-26, `feat/tailor-resume-preferences`):**
+  resume-tailoring preferences moved out of the `tailor:` section into a
+  dedicated user-facing `tailor_resume_preferences.yaml` (template
+  `tailor_resume_preferences.example.yaml`), leaving `config.yaml` as pure run
+  mechanics; `TailorConfig` reads from the new file.
 - All tunable timeouts/retries/backoff/page sizes/limits moved to RunConfig
   across the 8 flat scrapers + the LinkedIn adapter (discovery, fetch, profile)
   + pipeline LLM knobs (`LLM_MAX_RPM`/`LLM_CONCURRENCY`/`ENRICHMENT_VERSION`).

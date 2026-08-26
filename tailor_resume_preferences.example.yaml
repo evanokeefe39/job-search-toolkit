@@ -1,0 +1,30 @@
+# Resume-tailoring preferences — TEMPLATE (tracked).
+# Copy to tailor_resume_preferences.yaml (gitignored) and edit.
+#
+# This file holds USER-FACING resume-tailoring preferences, kept separate from
+# the mechanical run config (config.yaml) and the search criteria
+# (job_search_preferences.yaml). API keys stay in .env.
+#
+# Keys are the env-var names lowercased (LLM_MODEL -> llm_model), matching the
+# shared config convention. Precedence: CLI args > env vars > this file >
+# built-in defaults.
+#
+# Env overrides: LLM_MODEL, LLM_BASE_URL, LLM_API_KEY, LLM_CLIENT,
+# LLM_TEMPERATURE, LLM_MAX_TOKENS, TAILOR_LEVEL, TAILOR_MAX_HIGHLIGHTS,
+# TAILOR_HIGHLIGHT_PREFERENCE, TAILOR_MERGE_LOW_VALUE, TAILOR_TONE_FILE.
+
+# LLM connection (tailoring)
+llm_model: deepseek-chat
+llm_base_url: https://api.deepseek.com/v1
+llm_client: pydantic_ai      # pydantic_ai | json_mode
+llm_temperature: 0.2
+llm_max_tokens: 8000
+
+# Tailoring behavior
+tailor_level: relaxed            # relaxed | moderate | aggressive
+tailor_max_highlights: 5         # max bullets kept per role
+tailor_highlight_preference: impact_first
+tailor_merge_low_value: true
+
+# Tone-of-voice: omit to use the package-bundled TONE.txt, or point at your own:
+# tailor_tone_file: /path/to/tone.txt

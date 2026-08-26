@@ -52,6 +52,8 @@ tasks/plans/
 
 # User override config (may hold API keys); template config.example.yaml is tracked
 config.yaml
+# User-facing resume-tailoring preferences; template tailor_resume_preferences.example.yaml is tracked
+tailor_resume_preferences.yaml
 
 # DuckDB gold layer artifact (rebuilt by `job-search-toolkit pipeline gold`)
 data/gold/
