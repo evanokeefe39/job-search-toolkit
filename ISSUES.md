@@ -145,9 +145,13 @@ region (EMEA/Europe/France) now completes `land` for posts with no city
 author to infer a region the text omits) + the labelled regex-vs-LLM judgment
 sample — next sub-step.
 
-**Decision needed:** regex-only vs LLM structured extraction for the
-recruiter-region inference, and whether the follow-up is per-post or
-per-author (cached). See the plan for the recommendation + DoD.
+**Resolved (2026-08-25):** the recruiter-profile follow-up was tested and is
+NOT feasible anonymously — LinkedIn returns HTTP 999 (anti-bot) for 6/8
+profile fetches, and the adapter avoids auth/cookies. Decision: **regex-only
+(text-based)** — the deterministic `extract_region` (EMEA/Europe/France) works
+on post text (7/58 real posts gain a usable location); the existing LLM pass
+(`linkedin_post_enriched`, `--enrich`) already covers title/location gap-fill.
+No per-profile fetch, no extra LLM call for region. See the plan.
 
 ### CLI source-selection design review — enhancement, not a bug (OPEN 2026-08-25)
 
