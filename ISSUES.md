@@ -51,8 +51,26 @@ France job pool by an order of magnitude (potentially freework-comparable).
 Secondary: reconsider the France filter for login-walled partials (they are
 France-scoped by query but currently dropped for unknown location).
 
-**If not harvesting:** accept LinkedIn as a low-volume supplementary France
-source (~10–20 jobs/run) and close the branch on that caveat.
+**Spike result (2026-08-25) — preferred fix found:** a source spike
+(`docs/linkedin-source-spike.md`) tested 3 ingestion routes on real data:
+(1) current `apify~google-search-scraper` (~19 France jobs/run, ~$0.04, under-
+harvests, ~60% login-wall loss); (2) dedicated Apify LinkedIn actors
+(`coregent/…`, `jobscrawler/…`, `spookyweb/…`) — store pages exist but the API
+404s for every community actor on this account (unverified-slug trap), not
+runnable without a purchase/plan change, ~$1/1k results; (3) **LinkedIn's
+public guest jobs API** (`jobs-guest/jobs/api/seeMoreJobPostings/search`) via
+direct HTTP — **free, no auth, 80 unique France job IDs from a single
+keyword×France pair over 8 pages**, returning title/company/location/apply URL
+in the card. Recommended: switch LinkedIn job discovery to the guest API
+(paginate per role×France), reuse the existing fetch→`parse_job`→`_is_france_job`
+path unchanged; keeps `google-search-scraper` for `linkedin_posts` + as
+fallback. This should push `linkedin_jobs` to hundreds of France jobs/run at
+zero cost, exceeding freework's 138. Caveat: the guest API is an undocumented
+public endpoint (ToS-fragile like the current approach).
+
+**If not switching to the guest API:** accept LinkedIn as a low-volume
+supplementary France source (~10–20 jobs/run) and close the branch on that
+caveat.
 
 
 ### LinkedIn posts → jobs: recruiter-region follow-up + regex-vs-LLM enrichment (ENHANCEMENT 2026-08-25)
