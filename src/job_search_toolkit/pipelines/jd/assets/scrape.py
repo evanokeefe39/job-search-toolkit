@@ -20,16 +20,22 @@ from .common import (
     bronze_timestamped_path,
     iso_timestamp,
 )
+from job_search_toolkit.run_config import load_run_config
 from ..config import ensure_data_dirs
 
 
 def _max_pages() -> int | None:
-    """Bounded-run override: MAX_PAGES env var (0/empty = unlimited)."""
-    raw = os.getenv("MAX_PAGES", "0")
-    try:
-        return int(raw) or None
-    except ValueError:
-        return None
+    """Global pagination override (0/empty = unlimited).
+
+    Precedence: pipeline CLI ``--max-pages`` (via the ``RUN_MAX_PAGES`` env
+    channel set by run_pipeline) > config.yaml (``max_pages`` under the
+    selected run) > legacy ``MAX_PAGES`` env > None (unlimited). Returns the
+    resolved cap, or None when unlimited.
+    """
+    name = os.getenv("RUN_CONFIG", "default")
+    cli_raw = os.getenv("RUN_MAX_PAGES")
+    cli = int(cli_raw) if cli_raw not in (None, "") else None
+    return load_run_config(name, max_pages=cli).max_pages
 
 
 def _write_bronze_snapshot(board: str, run_id: str, jobs: list[dict]) -> None:
@@ -65,7 +71,7 @@ def freework_jobs(context: AssetExecutionContext) -> dg.MaterializeResult:
         DEFAULT_QUERY, DEFAULT_LOCATIONS, DEFAULT_CONTRACTS,
         DEFAULT_REMOTE, DEFAULT_EXPERIENCE, DEFAULT_SORT, DEFAULT_RADIUS,
     )
-    scrape(list_url, FREEWORK_RAW, max_pages=None, fmt="json")
+    scrape(list_url, FREEWORK_RAW, max_pages=_max_pages(), fmt="json")
     raw = json.loads(FREEWORK_RAW.read_text(encoding="utf-8"))
     canonical = [normalize_freework_job(j) for j in raw]
     FREEWORK_RAW.write_text(
@@ -84,7 +90,13 @@ def hiringcafe_jobs(context: AssetExecutionContext) -> dg.MaterializeResult:
     from job_search_toolkit.scrapers.hiringcafe import scrape
 
     ensure_data_dirs()
-    scrape(output=HIRINGCAFE_RAW.with_suffix(""))
+    mp = _max_pages()
+    # Only pass a global cap when one is set; otherwise hiringcafe uses its own
+    # default cap (RunConfig hiringcafe_max_pages, 50).
+    kwargs = {"output": HIRINGCAFE_RAW.with_suffix("")}
+    if mp is not None:
+        kwargs["max_pages"] = mp
+    scrape(**kwargs)
     canonical = json.loads(HIRINGCAFE_RAW.read_text(encoding="utf-8"))
     _write_bronze_snapshot("hiringcafe", context.run_id, canonical)
     return dg.MaterializeResult(metadata={"path": str(HIRINGCAFE_RAW)})

@@ -3,11 +3,14 @@
 Precedence (highest first):
     1. explicit CLI args (passed in by scripts/tailor_resume.py)
     2. environment variables (LLM_MODEL, LLM_BASE_URL, LLM_API_KEY, LLM_CLIENT)
-    3. config.yaml at repo root (gitignored)
+    3. config.yaml at repo root (gitignored) — ``tailor:`` section
     4. built-in defaults
 
 Exported dataclass ``TailorConfig`` carries every tunable so callers never
-reach for os.environ directly. ``load_config()`` merges the three sources.
+reach for os.environ directly. ``load_config()`` merges the four sources.
+
+The shared resolution + precedence helpers live in ``job_search_toolkit.configutil``
+so tailor and the run config use one implementation.
 """
 
 from __future__ import annotations
@@ -16,33 +19,19 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import yaml
+from job_search_toolkit.configutil import (
+    DEFAULT_CONFIG_PATH,
+    load_config_file,
+    pick,
+)
 
 PKG_DIR = Path(__file__).resolve().parent
 
-
-def _resolve_config_path() -> Path:
-    """Config file lookup: JOB_SEARCH_CONFIG > ~/.config/... > ./config.yaml > package.
-
-    - Explicit: JOB_SEARCH_CONFIG=/path/to/config.yaml
-    - pip install: ~/.config/job-search-toolkit/config.yaml (XDG)
-    - repo checkout: ./config.yaml (cwd) — preserves the historical repo-root file
-    - last resort: config.yaml next to this module (editable installs / vendored)
-    """
-    env_path = os.getenv("JOB_SEARCH_CONFIG")
-    if env_path:
-        return Path(env_path)
-    xdg = Path(os.getenv("XDG_CONFIG_HOME", Path.home() / ".config")) / "job-search-toolkit" / "config.yaml"
-    if xdg.exists():
-        return xdg
-    cwd_config = Path.cwd() / "config.yaml"
-    if cwd_config.exists():
-        return cwd_config
-    return PKG_DIR / "config.yaml"
-
+# Backward-compatible aliases for callers that referenced the old names.
+_load_config_file = load_config_file
+_pick = pick
 
 REPO_ROOT = Path.cwd()
-DEFAULT_CONFIG_PATH = _resolve_config_path()
 
 # Package-bundled tone guidance ships with the wheel; user override wins.
 DEFAULT_TONE_PATH = PKG_DIR / "TONE.txt"
@@ -81,27 +70,17 @@ class TailorConfig:
 _DEFAULTS = TailorConfig()
 
 
-def _load_config_file(path: Path = DEFAULT_CONFIG_PATH) -> dict:
-    if not path.exists():
-        return {}
-    try:
-        data = yaml.safe_load(path.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
-    return data if isinstance(data, dict) else {}
+def _tailor_section(path: Path = DEFAULT_CONFIG_PATH) -> dict:
+    """Return the ``tailor:`` section of config.yaml, else the flat keys.
 
-
-def _pick(cli_val, env_name: str, file_cfg: dict, default):
-    """CLI > env > config.yaml > default."""
-    if cli_val is not None:
-        return cli_val
-    env = os.getenv(env_name)
-    if env is not None and env != "":
-        return env
-    key = env_name.lower()
-    if key in file_cfg and file_cfg[key] is not None:
-        return file_cfg[key]
-    return default
+    Newer config.yaml files nest tailor keys under ``tailor:``; older ones
+    keep them at the top level. Both load correctly.
+    """
+    file_cfg = load_config_file(path)
+    section = file_cfg.get("tailor")
+    if isinstance(section, dict):
+        return section
+    return file_cfg
 
 
 def load_config(
@@ -125,35 +104,35 @@ def load_config(
     A CLI value of ``None`` means "not provided" and falls through to
     env/config/default. ``tone_file=TONE_NONE`` means "explicitly no tone".
     """
-    file_cfg = _load_config_file(config_path)
+    file_cfg = _tailor_section(config_path)
 
     cfg = TailorConfig(
-        model=str(_pick(model, "LLM_MODEL", file_cfg, _DEFAULTS.model)),
-        base_url=str(_pick(base_url, "LLM_BASE_URL", file_cfg, _DEFAULTS.base_url)),
+        model=str(pick(model, "LLM_MODEL", file_cfg, _DEFAULTS.model)),
+        base_url=str(pick(base_url, "LLM_BASE_URL", file_cfg, _DEFAULTS.base_url)),
         api_key=api_key if api_key is not None else (
             os.getenv("LLM_API_KEY") or os.getenv("DEEPSEEK_API_KEY", "")
         ),
-        llm_client=str(_pick(llm_client, "LLM_CLIENT", file_cfg, _DEFAULTS.llm_client)),
+        llm_client=str(pick(llm_client, "LLM_CLIENT", file_cfg, _DEFAULTS.llm_client)),
         temperature=float(
-            _pick(temperature, "LLM_TEMPERATURE", file_cfg, _DEFAULTS.temperature)
+            pick(temperature, "LLM_TEMPERATURE", file_cfg, _DEFAULTS.temperature)
         ),
         max_tokens=int(
-            _pick(max_tokens, "LLM_MAX_TOKENS", file_cfg, _DEFAULTS.max_tokens)
+            pick(max_tokens, "LLM_MAX_TOKENS", file_cfg, _DEFAULTS.max_tokens)
         ),
-        level=str(_pick(level, "TAILOR_LEVEL", file_cfg, _DEFAULTS.level)),
+        level=str(pick(level, "TAILOR_LEVEL", file_cfg, _DEFAULTS.level)),
         max_highlights=int(
-            _pick(max_highlights, "TAILOR_MAX_HIGHLIGHTS", file_cfg, _DEFAULTS.max_highlights)
+            pick(max_highlights, "TAILOR_MAX_HIGHLIGHTS", file_cfg, _DEFAULTS.max_highlights)
         ),
         highlight_preference=str(
-            _pick(highlight_preference, "TAILOR_HIGHLIGHT_PREFERENCE",
+            pick(highlight_preference, "TAILOR_HIGHLIGHT_PREFERENCE",
                   file_cfg, _DEFAULTS.highlight_preference)
         ),
         merge_low_value=bool(
-            _pick(merge_low_value, "TAILOR_MERGE_LOW_VALUE",
+            pick(merge_low_value, "TAILOR_MERGE_LOW_VALUE",
                   file_cfg, _DEFAULTS.merge_low_value)
         ),
         tone_file=(None if tone_file is TONE_NONE
-                   else _pick(tone_file, "TAILOR_TONE_FILE", file_cfg, _DEFAULTS.tone_file)),
+                   else pick(tone_file, "TAILOR_TONE_FILE", file_cfg, _DEFAULTS.tone_file)),
         master_yaml=master_yaml or _DEFAULTS.master_yaml,
     )
     cfg.cli_overrides = {

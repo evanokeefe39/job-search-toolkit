@@ -31,6 +31,7 @@ from urllib.parse import quote
 import httpx
 import typer
 
+from job_search_toolkit.run_config import load_run_config
 from job_search_toolkit.schemas import (
     CanonicalJob,
     CompanyInfo,
@@ -44,6 +45,9 @@ from job_search_toolkit.schemas import (
     WorkplaceType,
     new_canonical_job,
 )
+
+_CFG = load_run_config()
+_HTTP_TIMEOUT = _CFG.http_timeout
 
 app = typer.Typer(no_args_is_help=False)
 
@@ -67,7 +71,7 @@ DEFAULT_REMOTE: list[str] = []
 DEFAULT_EXPERIENCE: list[str] = []
 DEFAULT_SORT = ""
 
-PAGE_SIZE = 50
+PAGE_SIZE = _CFG.faruse_page_size
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -283,7 +287,7 @@ def build_payload(
 
 def fetch_page(client: httpx.Client, url: str, payload: dict) -> dict:
     """POST one page of the search-jobs edge function. Returns parsed JSON."""
-    resp = client.post(url, json=payload, timeout=30)
+    resp = client.post(url, json=payload, timeout=_HTTP_TIMEOUT)
     resp.raise_for_status()
     return resp.json()
 
@@ -301,7 +305,7 @@ def fetch_page_rest(client: httpx.Client, page: int) -> list[dict]:
             "offset": (page - 1) * PAGE_SIZE,
             "limit": PAGE_SIZE,
         },
-        timeout=30,
+        timeout=_HTTP_TIMEOUT,
     )
     resp.raise_for_status()
     data = resp.json()

@@ -21,9 +21,10 @@ import httpx
 from apify_client import ApifyClient
 from apify_client.errors import ApifyApiError
 
+from job_search_toolkit.run_config import RunConfig, load_run_config as _load_run_config
+
 _TAVILY_ENDPOINT = "https://api.tavily.com/search"
 _DEFAULT_ACTOR_ID = "apify~google-search-scraper"
-_TAVILY_RATE_LIMIT_SLEEP = 1.0
 _BODY_PREFIX_CHARS = 200
 _TERMINAL_STATUSES = frozenset({"SUCCEEDED", "FAILED", "TIMED-OUT", "ABORTED"})
 _FAILED_STATUSES = frozenset({"FAILED", "TIMED-OUT", "ABORTED"})
@@ -38,12 +39,15 @@ _GUEST_HEADERS = {
     ),
     "Accept-Language": "en-US,en;q=0.9",
 }
-_GUEST_PAGE_SIZE = 10            # cards per guest-API page
-_GUEST_START_STEP = 25           # start offset increments
-_GUEST_DEFAULT_MAX_RESULTS = 100
 # Country code (lowercase) -> default location text for the guest API.
 _DEFAULT_LOCATION_BY_COUNTRY = {"fr": "France"}
 _QUOTED_RE = re.compile(r'"([^"]+)"')
+
+# Tunable run parameters (timeouts, page sizes, limits, rate limits) come from
+# RunConfig (run_config.py); the endpoint/header/status constants above stay
+# static. Loaded once at import; falls back to built-in defaults with no
+# config.yaml present.
+_CFG = _load_run_config()
 
 
 class SearchResult(TypedDict):
@@ -174,8 +178,8 @@ class ApifyBackend:
         token: str | None = None,
         actor_id: str | None = None,
         *,
-        timeout: float = 180.0,
-        poll_interval: float = 5.0,
+        timeout: float | None = None,
+        poll_interval: float | None = None,
     ) -> None:
         """Pre: ``token``, ``APIFY_TOKEN``, or ``APIFY_API_TOKEN`` must be set,
         else RuntimeError.
@@ -194,8 +198,8 @@ class ApifyBackend:
                 "Apify token not set: pass token= or export APIFY_TOKEN / APIFY_API_TOKEN"
             )
         self.actor_id = actor_id or os.environ.get("APIFY_ACTOR_ID", _DEFAULT_ACTOR_ID)
-        self.timeout = timeout
-        self.poll_interval = poll_interval
+        self.timeout = _CFG.apify_timeout if timeout is None else timeout
+        self.poll_interval = _CFG.apify_poll_interval if poll_interval is None else poll_interval
 
     def search(
         self,
@@ -286,17 +290,18 @@ class TavilyBackend:
 
     name = "tavily"
 
-    def __init__(self, api_key: str | None = None, *, max_results: int = 10) -> None:
+    def __init__(self, api_key: str | None = None, *, max_results: int | None = None) -> None:
         """Pre: ``api_key`` or ``TAVILY_API_KEY`` must be set, else RuntimeError.
 
-        Post: a backend querying up to ``max_results`` LinkedIn hits per query.
+        Post: a backend querying up to ``max_results`` LinkedIn hits per query
+        (default from RunConfig ``tavily_max_results``).
         """
         self.api_key = api_key or os.environ.get("TAVILY_API_KEY")
         if not self.api_key:
             raise RuntimeError(
                 "TAVILY_API_KEY is not set: pass api_key= or export TAVILY_API_KEY"
             )
-        self.max_results = max_results
+        self.max_results = _CFG.tavily_max_results if max_results is None else max_results
 
     def search(
         self,
@@ -326,7 +331,7 @@ class TavilyBackend:
                 resp = _request(client, "POST", _TAVILY_ENDPOINT, json=payload)
                 all_results.extend(flatten_tavily_response(resp.json()))
                 if index < len(queries) - 1:
-                    time.sleep(_TAVILY_RATE_LIMIT_SLEEP)
+                    time.sleep(_CFG.tavily_rate_limit_sleep)
         return DiscoveryRun(
             backend="tavily",
             results=all_results,
@@ -348,8 +353,18 @@ class LinkedInGuestBackend:
 
     name = "linkedin_guest"
 
-    def __init__(self, max_results: int = _GUEST_DEFAULT_MAX_RESULTS) -> None:
-        self.max_results = max_results
+    def __init__(
+        self,
+        max_results: int | None = None,
+        *,
+        page_size: int | None = None,
+        start_step: int | None = None,
+    ) -> None:
+        """Knobs default from RunConfig (``guest_max_results``/``guest_page_size``/
+        ``guest_start_step``) when not passed explicitly."""
+        self.max_results = _CFG.guest_max_results if max_results is None else max_results
+        self.page_size = _CFG.guest_page_size if page_size is None else page_size
+        self.start_step = _CFG.guest_start_step if start_step is None else start_step
 
     def search(
         self,
@@ -383,8 +398,8 @@ class LinkedInGuestBackend:
                             seen.add(hit["url"])
                             results.append(hit)
                             fresh += 1
-                    start += _GUEST_START_STEP
-                    if len(page) < _GUEST_PAGE_SIZE or fresh == 0:
+                    start += self.start_step
+                    if len(page) < self.page_size or fresh == 0:
                         break
         finally:
             client.close()
@@ -452,19 +467,28 @@ def _parse_guest_cards(html_text: str) -> list[SearchResult]:
     return out
 
 
-def make_backend(name: str) -> DiscoveryBackend:
+def make_backend(
+    name: str, run_config: RunConfig | None = None
+) -> DiscoveryBackend:
     """Construct the discovery backend named ``name``.
 
     Pre: ``name`` is "apify", "tavily", or "linkedin_guest" (case-insensitive).
     Post: a ready-to-search backend instance; ValueError for unknown names.
+    Knobs (timeouts, max results, page sizes) come from ``run_config`` when
+    given, else the module-level RunConfig (``_CFG``).
     """
+    rc = run_config if run_config is not None else _CFG
     canonical = name.lower()
     if canonical == "apify":
-        return ApifyBackend()
+        return ApifyBackend(timeout=rc.apify_timeout, poll_interval=rc.apify_poll_interval)
     if canonical == "tavily":
-        return TavilyBackend()
+        return TavilyBackend(max_results=rc.tavily_max_results)
     if canonical in ("linkedin", "linkedin_guest", "guest"):
-        return LinkedInGuestBackend()
+        return LinkedInGuestBackend(
+            max_results=rc.guest_max_results,
+            page_size=rc.guest_page_size,
+            start_step=rc.guest_start_step,
+        )
     raise ValueError(f"Unknown discovery backend: {name!r} (expected 'apify' or 'tavily')")
 
 

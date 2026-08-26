@@ -25,9 +25,13 @@ from urllib.parse import unquote, urlsplit
 from apify_client import ApifyClient
 from apify_client.errors import ApifyApiError
 
+from job_search_toolkit.run_config import load_run_config as _load_run_config
+
 # Env var override for the profile actor id (mirrors discovery.py's
 # APIFY_ACTOR_ID pattern); verified in the Apify account.
 _DEFAULT_ACTOR_ID = "data-slayer/linkedin-profile-scraper"
+
+_CFG = _load_run_config()
 
 
 def _run_info_dict(run: object) -> dict:
@@ -77,7 +81,7 @@ class LinkedInProfileScraper:
         token: str | None = None,
         actor_id: str | None = None,
         *,
-        timeout: float = 180.0,
+        timeout: float | None = None,
     ) -> None:
         self.token = (
             token
@@ -91,7 +95,7 @@ class LinkedInProfileScraper:
         self.actor_id = actor_id or os.environ.get(
             "APIFY_PROFILE_ACTOR_ID", _DEFAULT_ACTOR_ID
         )
-        self.timeout = timeout
+        self.timeout = _CFG.profile_timeout if timeout is None else timeout
 
     def scrape_locations(
         self, profile_urls: Sequence[str]

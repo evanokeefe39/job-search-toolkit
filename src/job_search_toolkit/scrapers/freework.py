@@ -21,6 +21,11 @@ import httpx
 import typer
 from bs4 import BeautifulSoup, Tag
 
+from job_search_toolkit.run_config import load_run_config
+
+_CFG = load_run_config()
+_HTTP_TIMEOUT = _CFG.http_timeout
+
 app = typer.Typer(no_args_is_help=False)
 
 BASE_URL = "https://www.free-work.com"
@@ -30,7 +35,7 @@ DEFAULT_CONTRACTS = ["contractor", "fixed-term", "permanent"]
 DEFAULT_REMOTE = ["partial", "full", "none"]
 DEFAULT_EXPERIENCE = ["senior", "intermediate", "junior"]
 DEFAULT_SORT = "date"
-DEFAULT_RADIUS = 30
+DEFAULT_RADIUS = _CFG.freework_radius
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -76,7 +81,7 @@ def build_url(
 
 def fetch_page(client: httpx.Client, list_url: str, page: int) -> str:
     url = f"{list_url}&page={page}"
-    resp = client.get(url, timeout=30)
+    resp = client.get(url, timeout=_HTTP_TIMEOUT)
     resp.raise_for_status()
     return resp.text
 

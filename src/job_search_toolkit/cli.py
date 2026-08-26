@@ -56,6 +56,14 @@ def pipeline_run(
         None, "--boards", "-b",
         help="Only run these boards' scrape+ingest (repeatable). Defaults to all active boards.",
     ),
+    config: str = typer.Option(
+        "default", "--config", "-c",
+        help="Named run config (runs.<name> in config.yaml) driving timeouts/limits.",
+    ),
+    max_pages: Optional[int] = typer.Option(
+        None, "--max-pages",
+        help="Limit each board to N pages (0 = unlimited). Overrides config.yaml max_pages.",
+    ),
 ) -> None:
     """Run the ranking path (scrape -> merge -> score -> export), no LLM.
 
@@ -64,12 +72,16 @@ def pipeline_run(
     only those boards are scraped and ingested — merge/score/export/gold still
     run on the subset, so a single source can be iterated without re-scraping
     the whole set.
+    With --config <name> (runs.<name> in config.yaml) and/or --max-pages N,
+    the run's timeouts/limits are taken from that named config / page cap.
     """
     from job_search_toolkit.pipelines.jd.run import run_pipeline
 
     # Accept `--boards "a b"` or `--boards a --boards b` (split on ws/comma).
     flat = [b for item in (boards or []) for b in item.replace(",", " ").split()]
-    ok = run_pipeline(enrich=enrich, boards=flat or None)
+    ok = run_pipeline(
+        enrich=enrich, boards=flat or None, config_name=config, max_pages=max_pages
+    )
     if not ok:
         raise typer.Exit(code=1)
 

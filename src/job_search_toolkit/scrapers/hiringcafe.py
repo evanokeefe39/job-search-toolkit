@@ -23,6 +23,8 @@ from urllib.parse import quote_plus
 import httpx
 import typer
 
+from job_search_toolkit.run_config import load_run_config
+
 app = typer.Typer(no_args_is_help=False)
 
 # --- Defaults (match free-work scraper) ---
@@ -31,6 +33,9 @@ DEFAULT_QUERY = "data engineer"
 DEFAULT_CONTRACTS = ["contractor", "fixed-term", "permanent"]
 DEFAULT_REMOTE = ["partial", "full", "none"]
 DEFAULT_EXPERIENCE = ["senior", "intermediate", "junior"]
+
+_CFG = load_run_config()
+_HTTP_TIMEOUT = _CFG.http_timeout
 DEFAULT_SORT = "date"
 
 # free-work → HiringCafe contract mapping
@@ -94,7 +99,7 @@ def geocode_location(name: str) -> dict:
                 "accept-language": "en",
             },
             headers={"User-Agent": "HiringCafeScraper/1.0"},
-            timeout=15,
+            timeout=_HTTP_TIMEOUT,
         )
         resp.raise_for_status()
         results = resp.json()
@@ -173,7 +178,7 @@ class HiringCafeClient:
         self.delay = delay
         self._build_id: str | None = None
         self._last_request_at = 0.0
-        self.client = httpx.Client(headers=HEADERS, timeout=30)
+        self.client = httpx.Client(headers=HEADERS, timeout=_HTTP_TIMEOUT)
 
     @property
     def build_id(self) -> str:
@@ -268,7 +273,7 @@ def build_search_state(
 def fetch_all_jobs(
     client: HiringCafeClient,
     search_state: dict,
-    max_pages: int = 50,
+    max_pages: int = _CFG.hiringcafe_max_pages,
 ) -> list[dict]:
     """Paginate through all results, deduplicating on objectID."""
     jobs: list[dict] = []
@@ -584,7 +589,7 @@ def scrape(
     ] = DEFAULT_SORT,
     max_pages: Annotated[
         int, typer.Option("--max-pages", "-p", help="Max pages to fetch")
-    ] = 50,
+    ] = _CFG.hiringcafe_max_pages,
     output: Annotated[
         Path, typer.Option("--output", "-o", help="Output file base (no extension)")
     ] = Path("hiringcafe_jobs"),
