@@ -115,6 +115,12 @@ GATE_POST_ENRICH = (
     "is_active AND source_board = 'linkedin_posts' "
     "AND (title = '' OR location_raw = '')"
 )
+# Poster-location enrichment: rows with a known poster profile URL whose
+# location is not yet scraped. NULL/empty poster_url rows are never selected.
+GATE_POSTER = (
+    "is_active AND source_board = 'linkedin_posts' "
+    "AND poster_url <> '' AND poster_location IS NULL"
+)
 GATE_SCORE = "is_active AND overall_score IS NULL"
 
 # Company research is dimension-scoped (one row per company, not per job).

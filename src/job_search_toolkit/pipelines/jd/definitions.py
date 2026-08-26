@@ -22,6 +22,7 @@ import dagster as dg
 
 from .assets import (
     linkedin_post_enriched,
+    linkedin_post_poster_enriched,
     translated,
     tech_extracted,
     vertical_classified,
@@ -61,6 +62,7 @@ ENRICH_ASSETS = [
     vertical_classified,
     dim_company_enriched,
     linkedin_post_enriched,
+    linkedin_post_poster_enriched,
 ]
 
 # Ingest-only recovery path: silver_ingest (explicit run_id) + the downstream

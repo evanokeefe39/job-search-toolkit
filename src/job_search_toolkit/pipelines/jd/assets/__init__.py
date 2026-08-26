@@ -23,6 +23,7 @@ from .merge import (
 )
 from .enrich import translated, tech_extracted, vertical_classified, dim_company_enriched
 from .post_enrich import linkedin_post_enriched
+from .poster_enrich import linkedin_post_poster_enriched
 from .score import scored_jobs, ranked_csv
 from .gold import gold_views
 from .exports import merged_jobs_export, freework_enriched_export
@@ -38,6 +39,7 @@ __all__ = [
     "linkedin_jobs",
     "linkedin_posts",
     "linkedin_post_enriched",
+    "linkedin_post_poster_enriched",
     "BOARD_SCRAPE_ASSETS",
     "SILVER_BOARD_ASSETS",
     "silver_ingest",

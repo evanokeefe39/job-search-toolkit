@@ -126,6 +126,27 @@ def test_job_missing_hiring_organization_does_not_crash():
 # ---------------------------------------------------------------------------
 
 
+def test_post_carries_poster_identity():
+    post = make_post("Hiring a Senior Data Engineer in Paris.")
+
+    out = normalize_linkedin_post(post)
+
+    assert out is not None
+    assert out["poster_name"] == "Alice Recruiter"
+    assert out["poster_url"] == "https://www.linkedin.com/in/alice"
+    # Poster location is filled only by the deferred profile-scrape enrichment.
+    assert out["poster_location"] is None
+
+
+def test_new_canonical_job_has_poster_defaults():
+    from job_search_toolkit.schemas import new_canonical_job
+
+    j = new_canonical_job("linkedin_posts")
+    assert j["poster_name"] is None
+    assert j["poster_url"] is None
+    assert j["poster_location"] is None
+
+
 def test_post_land_fills_full_fields():
     post = make_post(
         "We are hiring a Senior Data Engineer in Paris with 5+ years of experience.",

@@ -128,7 +128,10 @@ def normalize_linkedin_post(post: PostRecord) -> CanonicalJob | None:
     Returns ``None`` when the verdict is ``drop`` (no job signal). For
     ``land`` the extracted title/location are used; for ``queue`` title and
     location_raw are left empty (filled later by the LLM pass) while every
-    other extracted field is carried over. ``_source`` carries the original
+    other extracted field is carried over. The recruiter/poster identity
+    (``poster_name``/``poster_url``) is carried from ``author_name`` /
+    ``author_profile_url``, while ``poster_location`` stays None until the
+    deferred profile-scrape enrichment. ``_source`` carries the original
     record; board is ``linkedin_posts``.
     """
     extraction = extract_from_post(post)
@@ -157,6 +160,11 @@ def normalize_linkedin_post(post: PostRecord) -> CanonicalJob | None:
         "engagement_type": extraction["engagement_type"],
         "end_client_name": extraction["end_client_name"],
         "contract_duration": extraction["contract_duration"],
+        # Recruiter/poster identity comes straight from the post; the poster's
+        # location is filled later by the deferred profile-scrape enrichment.
+        "poster_name": post.get("author_name"),
+        "poster_url": post.get("author_profile_url"),
+        "poster_location": None,
         "_source": post,
     })
     # Salary is a nested dict; the factory default (undisclosed) stands when
