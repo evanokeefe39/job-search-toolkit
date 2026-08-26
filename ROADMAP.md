@@ -233,6 +233,15 @@ Highest score first. Re-score quarterly.
   one run (`raise_on_error=False` + surface failed step keys + recovery hint),
   add `RetryPolicy` to scrape assets, and fix the freework `_max_pages()` leak.
   Cheap wins; no new CLI surface.
+- **LinkedIn France job harvest** (2026-08-25 diagnosis): `linkedin_jobs`
+  under-yields because LinkedIn SEO landing pages (`/jobs/<keyword>-<location>`,
+  each embedding ~60 `/jobs/view/` links) are classified "drop" and discarded.
+  Harvest those pages' job links (dedup) to multiply the France pool. See
+  ISSUES.md blocker entry.
+- **LinkedIn posts → jobs enrichment** (2026-08-25): recruiter posts become
+  jobs via a regex verdict (`land`/`queue`/`drop`); explore recruiter-region
+  inference (APAC/EMEA/DACH/USA) via regex vs LLM, and close the `queue` LLM
+  pass gap. See `tasks/plans/linkedin-posts-to-jobs.md`.
 - **Per-board Dagster partitions** (future): if the pipeline becomes scheduled
   or multi-user, model each board as a static partition for native selective
   runs + backfill (see `docs/pipeline-streaming-research.md`). Requires a

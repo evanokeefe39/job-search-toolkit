@@ -215,6 +215,19 @@ excludes stale jobs, exposes ``days_since_posted``/``days_since_seen``),
   multi-user, per-board Dagster partitions. See
   `tasks/plans/cli-source-selection.md` + `ROADMAP.md` → "Potential
   Enhancements". Don't expand the CLI without revisiting that decision.
+- **LinkedIn jobs discovery under-harvests (2026-08-25):** `site:linkedin.com/jobs`
+  queries return ~120 results/run; only ~53 are individual `/jobs/view/` URLs.
+  The other ~64 are LinkedIn SEO landing pages (`/jobs/<keyword>-<location>`)
+  that `classify_url` marks "drop" — but each embeds ~60 individual
+  `/jobs/view/` links. Discarding them loses the richest France job-link source.
+  `classify_url`'s "drop" for `/jobs/<slug>` pages is a deliberate guard
+  (they aren't JobPosting pages) — don't relax it blindly; the fix is to
+  *harvest* those pages' links, not treat them as jobs. See ISSUES.md blocker.
+- **LinkedIn posts → jobs (2026-08-25):** `post_extract.py:extract_from_post`
+  is the regex verdict gate (`land`/`queue`/`drop`); `queue` rows are reserved
+  for an LLM enrichment pass that must be verified to cover `linkedin_posts`.
+  Recruiter-region inference (APAC/EMEA/DACH/USA) is unexplored. See
+  `tasks/plans/linkedin-posts-to-jobs.md`.
 - **Reader-mode vs DOM text:** The `read` tool's reader-mode injects artificial "SVG Image" text nodes that don't exist in the BeautifulSoup parse tree. Always test parsers against real `httpx` + `bs4` output, not reader-mode.
 - **get_text() concatenation:** BeautifulSoup's `get_text(strip=True)` glues adjacent text nodes with no separators (e.g. `Start dateAs soon as possible`). The `parse_details` regex handles this; new parsers must account for it.
 - **Card container:** Job cards are `div.rounded-lg.shadow` containers. The scraper walks up from each `h2` (up to 6 parent levels) until it finds an ancestor whose class list contains both `rounded-lg` and `shadow`.
