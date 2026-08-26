@@ -153,6 +153,16 @@ on post text (7/58 real posts gain a usable location); the existing LLM pass
 (`linkedin_post_enriched`, `--enrich`) already covers title/location gap-fill.
 No per-profile fetch, no extra LLM call for region. See the plan.
 
+**Profile-source spike (2026-08-25):** `docs/linkedin-profile-source-spike.md`
+— assessed LinkedIn profile scraping. Viable Apify actors exist
+(`alwaysprimedev/linkedin-profile-scraper` $3.50/1k, `data-slayer` $4/1k) but
+are NOT runnable with the current Apify token (API 404, same as jobs actors —
+community actors need purchase/plan). Proxycurl shut down July 2025; direct HTTP
+is blocked (999). Cost is negligible (~$0.004/profile) but no source is
+reachable today. Recommendation: don't adopt a profile source now — the real
+consumer is the `cold-outreach` skill (separate), not region inference. Revisit
+when outreach is active AND Apify access is resolved.
+
 ### CLI source-selection design review — enhancement, not a bug (OPEN 2026-08-25)
 
 **Kind:** enhancement / design decision (no defect). A 3-expert review panel
