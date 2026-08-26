@@ -64,9 +64,67 @@ def test_named_run_overrides_defaults(run_yaml: pathlib.Path) -> None:
 
 
 def test_unknown_run_falls_back_to_defaults(run_yaml: pathlib.Path) -> None:
-    cfg = load_run_config("nope", run_yaml)
+    with pytest.warns(UserWarning, match="unknown run"):
+        cfg = load_run_config("nope", run_yaml)
     assert cfg.guest_max_results == 100
     assert cfg.http_timeout == 40
+
+
+def test_coercion_failure_warns_and_falls_back(tmp_path: pathlib.Path) -> None:
+    p = _write_config(tmp_path, "defaults:\n  max_pages: '50x'\n")
+    with pytest.warns(UserWarning, match="invalid value"):
+        cfg = load_run_config("default", p)
+    assert cfg.max_pages is None
+
+
+def test_get_run_config_honors_run_config_env(monkeypatch, run_yaml: pathlib.Path) -> None:
+    from job_search_toolkit.run_config import get_run_config
+
+    monkeypatch.setenv("RUN_CONFIG", "linkedin-france")
+    cfg = get_run_config(run_yaml)
+    assert cfg.guest_max_results == 200
+    assert cfg.apify_timeout == 300.0
+
+
+def test_get_run_config_default_without_env(monkeypatch, run_yaml: pathlib.Path) -> None:
+    from job_search_toolkit.run_config import get_run_config
+
+    monkeypatch.delenv("RUN_CONFIG", raising=False)
+    cfg = get_run_config(run_yaml)
+    assert cfg.guest_max_results == 100
+
+
+def test_llm_connection_fields_from_config(tmp_path: pathlib.Path) -> None:
+    p = _write_config(
+        tmp_path,
+        "defaults:\n  llm_provider: gemini\n  llm_model: gemini-2.0-flash\n",
+    )
+    cfg = load_run_config("default", p)
+    assert cfg.llm_provider == "gemini"
+    assert cfg.llm_model == "gemini-2.0-flash"
+    assert cfg.llm_base_url == _DEFAULTS.llm_base_url
+
+
+def test_llm_connection_env_fallback(tmp_path: pathlib.Path, monkeypatch) -> None:
+    monkeypatch.setenv("LLM_MODEL", "deepseek-reasoner")
+    cfg = load_run_config("default", tmp_path / "absent.yaml")
+    assert cfg.llm_model == "deepseek-reasoner"
+    monkeypatch.delenv("LLM_MODEL", raising=False)
+
+
+def test_coerce_bool() -> None:
+    from job_search_toolkit.configutil import coerce_bool
+
+    assert coerce_bool(True) is True
+    assert coerce_bool(False) is False
+    assert coerce_bool("true") is True
+    assert coerce_bool("1") is True
+    assert coerce_bool("yes") is True
+    assert coerce_bool("false") is False
+    assert coerce_bool("0") is False
+    assert coerce_bool("no") is False
+    assert coerce_bool("off") is False
+    assert coerce_bool("") is False
 
 
 def test_cli_max_pages_overrides_config(run_yaml: pathlib.Path) -> None:
@@ -119,7 +177,8 @@ def test_load_config_file_missing_returns_empty(tmp_path: pathlib.Path) -> None:
 
 def test_load_config_file_unparseable_returns_empty(tmp_path: pathlib.Path) -> None:
     p = _write_config(tmp_path, "key: [1, 2\n")  # unclosed flow sequence -> ParseError
-    assert load_config_file(p) == {}
+    with pytest.warns(UserWarning, match="could not parse"):
+        assert load_config_file(p) == {}
 
 
 def test_default_config_path_is_a_path() -> None:
@@ -151,3 +210,27 @@ def test_tailor_preferences_file(tmp_path: pathlib.Path, monkeypatch) -> None:
     cfg = load_config(p)
     assert cfg.max_tokens == 6000
     monkeypatch.delenv("LLM_MAX_TOKENS", raising=False)
+
+
+def test_tailor_master_yaml_from_env(tmp_path: pathlib.Path, monkeypatch) -> None:
+    from job_search_toolkit.automation.tailor.config import load_config
+
+    master = tmp_path / "cv.yaml"
+    monkeypatch.setenv("TAILOR_MASTER_YAML", str(master))
+    cfg = load_config(tmp_path / "absent.yaml")
+    assert cfg.master_yaml == master
+
+
+def test_tailor_merge_low_value_env_false(tmp_path: pathlib.Path, monkeypatch) -> None:
+    from job_search_toolkit.automation.tailor.config import load_config
+
+    # Env "false" must coerce to False, not to True (the old bool() bug).
+    monkeypatch.setenv("TAILOR_MERGE_LOW_VALUE", "false")
+    cfg = load_config(tmp_path / "absent.yaml")
+    assert cfg.merge_low_value is False
+
+
+def test_tailor_default_config_path_alias_removed() -> None:
+    # The misleading alias was removed; importing it must now fail.
+    with pytest.raises(ImportError):
+        from job_search_toolkit.automation.tailor.config import DEFAULT_CONFIG_PATH  # noqa: F401

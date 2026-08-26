@@ -100,3 +100,29 @@ def test_scrape_locations_missing_token_raises(monkeypatch):
     monkeypatch.delenv("APIFY_API_TOKEN", raising=False)
     with pytest.raises(RuntimeError, match="token"):
         LinkedInProfileScraper(token=None, actor_id="x")
+
+
+def test_profile_scraper_default_timeout_from_run_config(monkeypatch):
+    """LinkedInProfileScraper(timeout=None) must fall back to
+    get_run_config().profile_timeout at construction time."""
+    from job_search_toolkit.run_config import RunConfig
+
+    monkeypatch.setattr(
+        profile_module,
+        "get_run_config",
+        lambda: RunConfig(profile_timeout=99),
+    )
+    scraper = LinkedInProfileScraper(token="test", actor_id="x")
+    assert scraper.timeout == 99
+
+
+def test_profile_scraper_explicit_timeout_wins(monkeypatch):
+    from job_search_toolkit.run_config import RunConfig
+
+    monkeypatch.setattr(
+        profile_module,
+        "get_run_config",
+        lambda: RunConfig(profile_timeout=99),
+    )
+    scraper = LinkedInProfileScraper(token="test", actor_id="x", timeout=7)
+    assert scraper.timeout == 7

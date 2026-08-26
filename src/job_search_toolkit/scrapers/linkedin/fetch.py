@@ -10,7 +10,7 @@ import time
 
 import httpx
 
-from job_search_toolkit.run_config import load_run_config as _load_run_config
+from job_search_toolkit.run_config import get_run_config
 
 # Browser-like headers so LinkedIn serves the public (non-login-wall) variant.
 DEFAULT_HEADERS: dict[str, str] = {
@@ -25,10 +25,6 @@ DEFAULT_HEADERS: dict[str, str] = {
 _GONE = frozenset({404, 410})
 # Statuses worth retrying: rate-limited or server-side transient failures.
 _RETRYABLE = frozenset({429}) | set(range(500, 600))
-
-# Tunable fetch knobs (timeout/retries/backoff) come from RunConfig; the
-# status sets above stay static.
-_CFG = _load_run_config()
 
 
 class FetchError(Exception):
@@ -63,11 +59,12 @@ def fetch_page(
     ``retries`` times, sleeping ``backoff * attempt`` seconds between tries and
     then raising with the last status; any other non-200 raises immediately.
     """
-    r = _CFG.http_retries if retries is None else retries
-    b = _CFG.http_backoff if backoff is None else backoff
+    cfg = get_run_config()
+    r = cfg.http_retries if retries is None else retries
+    b = cfg.http_backoff if backoff is None else backoff
     owns_client = client is None
     if owns_client:
-        client = httpx.Client(follow_redirects=True, timeout=_CFG.http_timeout)
+        client = httpx.Client(follow_redirects=True, timeout=cfg.http_timeout)
     try:
         for attempt in range(r + 1):
             response = client.get(url, headers=DEFAULT_HEADERS)

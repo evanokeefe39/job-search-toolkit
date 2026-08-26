@@ -34,10 +34,7 @@ from job_search_toolkit.schemas import (
     new_canonical_job,
 )
 
-from job_search_toolkit.run_config import load_run_config
-
-_CFG = load_run_config()
-_HTTP_TIMEOUT = _CFG.http_timeout
+from job_search_toolkit.run_config import get_run_config
 
 app = typer.Typer(no_args_is_help=False)
 
@@ -111,7 +108,7 @@ def build_url(query: str, location: str, contracts: list[str]) -> str:
 def fetch_page(client: httpx.Client, list_url: str, page: int) -> str:
     """Fetch one results page (paginated via ?p=N)."""
     url = f"{list_url}&p={page}"
-    resp = client.get(url, timeout=_HTTP_TIMEOUT)
+    resp = client.get(url, timeout=get_run_config().http_timeout)
     resp.raise_for_status()
     return resp.text
 
@@ -293,7 +290,7 @@ def fetch_job_description(client: httpx.Client, url: str) -> str | None:
     is absent.
     """
     try:
-        resp = client.get(url, timeout=_HTTP_TIMEOUT)
+        resp = client.get(url, timeout=get_run_config().http_timeout)
         resp.raise_for_status()
     except httpx.HTTPError:
         return None

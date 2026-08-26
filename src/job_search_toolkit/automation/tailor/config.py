@@ -25,19 +25,12 @@ from pathlib import Path
 
 from job_search_toolkit.configutil import (
     DEFAULT_TAILOR_PREFERENCES_PATH,
+    coerce_bool,
     load_config_file,
     pick,
 )
 
 PKG_DIR = Path(__file__).resolve().parent
-
-# Backward-compatible aliases for callers that referenced the old names.
-_load_config_file = load_config_file
-_pick = pick
-
-# Backward-compatible alias: the tailor preferences file replaced config.yaml
-# as the tailor settings source.
-DEFAULT_CONFIG_PATH = DEFAULT_TAILOR_PREFERENCES_PATH
 
 REPO_ROOT = Path.cwd()
 
@@ -79,7 +72,7 @@ _DEFAULTS = TailorConfig()
 
 
 def load_config(
-    config_path: Path = DEFAULT_CONFIG_PATH,
+    config_path: Path = DEFAULT_TAILOR_PREFERENCES_PATH,
     *,
     model: str | None = None,
     base_url: str | None = None,
@@ -122,13 +115,16 @@ def load_config(
             pick(highlight_preference, "TAILOR_HIGHLIGHT_PREFERENCE",
                   file_cfg, _DEFAULTS.highlight_preference)
         ),
-        merge_low_value=bool(
+        merge_low_value=coerce_bool(
             pick(merge_low_value, "TAILOR_MERGE_LOW_VALUE",
                   file_cfg, _DEFAULTS.merge_low_value)
         ),
         tone_file=(None if tone_file is TONE_NONE
                    else pick(tone_file, "TAILOR_TONE_FILE", file_cfg, _DEFAULTS.tone_file)),
-        master_yaml=master_yaml or _DEFAULTS.master_yaml,
+        master_yaml=Path(
+            pick(master_yaml, "TAILOR_MASTER_YAML",
+                  file_cfg, _DEFAULTS.master_yaml)
+        ),
     )
     cfg.cli_overrides = {
         k: v for k, v in {

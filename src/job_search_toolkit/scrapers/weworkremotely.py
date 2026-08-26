@@ -54,10 +54,7 @@ from job_search_toolkit.schemas import (
     new_canonical_job,
 )
 
-from job_search_toolkit.run_config import load_run_config
-
-_CFG = load_run_config()
-_HTTP_TIMEOUT = _CFG.http_timeout
+from job_search_toolkit.run_config import get_run_config
 
 app = typer.Typer(no_args_is_help=False)
 
@@ -135,7 +132,7 @@ def build_url(query: str, location: Optional[str]) -> list[str]:
 
 def fetch_feed(client: httpx.Client, url: str) -> ET.Element:
     """Fetch an RSS feed and parse it into an ElementTree root."""
-    resp = client.get(url, timeout=_HTTP_TIMEOUT)
+    resp = client.get(url, timeout=get_run_config().http_timeout)
     resp.raise_for_status()
     return ET.fromstring(resp.content)
 

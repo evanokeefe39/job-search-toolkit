@@ -14,6 +14,7 @@ Precedence (highest first):
 from __future__ import annotations
 
 import os
+import warnings
 from pathlib import Path
 from typing import Any
 
@@ -64,14 +65,33 @@ DEFAULT_TAILOR_PREFERENCES_PATH = resolve_tailor_preferences_path()
 
 
 def load_config_file(path: Path = DEFAULT_CONFIG_PATH) -> dict:
-    """Read a config YAML into a dict; a missing or unparseable file is {}."""
+    """Read a config YAML into a dict.
+
+    A missing file returns {} silently; a present-but-unparseable file warns
+    and returns {} (so a typo is not silently treated as "no config").
+    """
     if not path.exists():
         return {}
     try:
         data = yaml.safe_load(path.read_text(encoding="utf-8"))
-    except Exception:
+    except yaml.YAMLError as exc:
+        warnings.warn(f"config: could not parse {path}: {exc}")
         return {}
     return data if isinstance(data, dict) else {}
+
+
+def coerce_bool(value: Any) -> bool:
+    """Coerce a config/env value to bool, handling string forms.
+
+    ``"false"``/``"0"``/``"no"``/``"off"`` (case-insensitive) -> False;
+    ``"true"``/``"1"``/``"yes"`` -> True; actual bools pass through. Unlike
+    ``bool(str)``, ``bool("false")`` is False, not True.
+    """
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() not in {"", "0", "false", "no", "off"}
+    return bool(value)
 
 
 def pick(cli_val: Any, env_name: str | None, file_cfg: dict, default: Any) -> Any:
@@ -92,3 +112,16 @@ def pick(cli_val: Any, env_name: str | None, file_cfg: dict, default: Any) -> An
     if key is not None and key in file_cfg and file_cfg[key] is not None:
         return file_cfg[key]
     return default
+
+
+def _run_info_dict(run: object) -> dict:
+    """Coerce an apify-client ``Run`` (pydantic model) or plain dict to a dict.
+
+    The SDK's ``start``/``wait_for_finish``/``get``/``call`` return a ``Run``
+    pydantic model (not subscriptable); ``model_dump(by_alias=True)`` yields
+    the API's camelCase keys (``usageTotalUsd``, ``defaultDatasetId``). Plain
+    dicts pass through unchanged.
+    """
+    if hasattr(run, "model_dump"):
+        return run.model_dump(by_alias=True)  # type: ignore[attr-defined]
+    return dict(run)

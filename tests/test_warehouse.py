@@ -103,7 +103,7 @@ def test_upsert_inserts_with_lineage(wh):
         "SELECT id, first_seen_run, last_seen_run, is_active, enriched_at, "
         "enrichment_version FROM silver.jobs"
     ).fetchone()
-    assert row == ("j1", "run1", "run1", True, None, S.ENRICHMENT_VERSION)
+    assert row == ("j1", "run1", "run1", True, None, S.get_enrichment_version())
 
 
 def test_reupsert_preserves_enrichment(wh):

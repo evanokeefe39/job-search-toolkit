@@ -13,7 +13,9 @@ from typing import Any
 
 import httpx
 
-from ..config import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL, LLM_MAX_RPM, LLM_CONCURRENCY
+from job_search_toolkit.run_config import get_run_config
+
+from ..config import LLM_API_KEY
 
 
 class LLMClient:
@@ -26,29 +28,30 @@ class LLMClient:
         base_url: str | None = None,
         api_key: str | None = None,
     ) -> None:
-        """Async client; params override the module defaults (config chain).
+        """Async client; params override the resolved run config.
 
-        Backward-compatible: ``LLMClient()`` uses LLM_MODEL/LLM_BASE_URL/
-        LLM_API_KEY from pipelines.jd.config as before. The tailor pipeline passes
-        its resolved (CLI > env > config.yaml) values explicitly so the
-        fallback honors overrides.
+        ``model``/``base_url``/concurrency/max_rpm default from
+        ``get_run_config()`` (config.yaml + LLM_* env + defaults), so a named
+        run config (``RUN_CONFIG``) is honored. The API key is a secret read
+        from the environment (``LLM_API_KEY``) and never from YAML.
         """
-        self._model = model or LLM_MODEL
+        rc = get_run_config()
+        self._model = model or rc.llm_model
         key = api_key or LLM_API_KEY
         if not key:
             raise RuntimeError(
                 "LLM_API_KEY not set. Export it or add it to a .env file."
             )
         self._client = httpx.AsyncClient(
-            base_url=base_url or LLM_BASE_URL,
+            base_url=base_url or rc.llm_base_url,
             headers={
                 "Authorization": f"Bearer {key}",
                 "Content-Type": "application/json",
             },
             timeout=httpx.Timeout(120.0),
         )
-        self._sem = asyncio.Semaphore(LLM_CONCURRENCY)
-        self._min_interval = 60.0 / LLM_MAX_RPM  # seconds between requests
+        self._sem = asyncio.Semaphore(rc.llm_concurrency)
+        self._min_interval = 60.0 / rc.llm_max_rpm  # seconds between requests
         self._last_request = 0.0
     async def close(self) -> None:
         await self._client.aclose()

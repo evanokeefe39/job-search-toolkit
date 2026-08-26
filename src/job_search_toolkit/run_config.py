@@ -18,6 +18,7 @@ Loading a named config with ``config_name`` is just:
 from __future__ import annotations
 
 import os
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
@@ -61,6 +62,11 @@ class RunConfig:
     llm_concurrency: int = 5
     enrichment_version: int = 1
 
+    # LLM connection (pipeline; env LLM_PROVIDER/LLM_MODEL/LLM_BASE_URL fallback)
+    llm_provider: str = "deepseek"
+    llm_model: str = "deepseek-chat"
+    llm_base_url: str = "https://api.deepseek.com/v1"
+
     # Per-board page/limit knobs
     faruse_page_size: int = 50
     freework_radius: int = 30
@@ -76,6 +82,9 @@ _ENV_FALLBACK = {
     "llm_max_rpm": "LLM_MAX_RPM",
     "llm_concurrency": "LLM_CONCURRENCY",
     "enrichment_version": "ENRICHMENT_VERSION",
+    "llm_provider": "LLM_PROVIDER",
+    "llm_model": "LLM_MODEL",
+    "llm_base_url": "LLM_BASE_URL",
 }
 
 _INT_FIELDS = {
@@ -99,6 +108,7 @@ _FLOAT_FIELDS = {
     "apify_poll_interval",
     "profile_timeout",
 }
+_STR_FIELDS = {"llm_provider", "llm_model", "llm_base_url"}
 
 
 def _merged_section(file_cfg: dict, config_name: str) -> dict:
@@ -112,11 +122,16 @@ def _merged_section(file_cfg: dict, config_name: str) -> dict:
     return merged
 
 
-def _coerce(value: Any, cast: Callable[[Any], Any], default: Any) -> Any:
-    """Apply ``cast`` to ``value``, falling back to ``default`` on failure."""
+def _coerce(value: Any, cast: Callable[[Any], Any], default: Any, field: str) -> Any:
+    """Apply ``cast`` to ``value``, warning and falling back on failure.
+
+    A config typo (e.g. ``max_pages: "50x"``) warns instead of silently being
+    ignored, so drift is not silent.
+    """
     try:
         return cast(value)
     except (TypeError, ValueError):
+        warnings.warn(f"config: ignoring invalid value for {field!r}: {value!r}")
         return default
 
 
@@ -127,13 +142,23 @@ def _field_value(field: str, merged: dict, default: Any, cast: Callable[[Any], A
     names), since many tunables have no environment variable.
     """
     if field in merged and merged[field] is not None:
-        return _coerce(merged[field], cast, default)
+        return _coerce(merged[field], cast, default, field)
     env_name = _ENV_FALLBACK.get(field)
     if env_name is not None:
         env = os.getenv(env_name)
         if env is not None and env != "":
-            return _coerce(env, cast, default)
+            return _coerce(env, cast, default, field)
     return default
+
+
+def get_run_config(config_path: Path = DEFAULT_CONFIG_PATH) -> "RunConfig":
+    """Resolve the run selected by the RUN_CONFIG env var (default: 'default').
+
+    Called at point-of-use (not import time) so the pipeline's ``--config
+    <name>`` selection reaches every consumer. Direct CLIs honor ``RUN_CONFIG``
+    too when exported.
+    """
+    return load_run_config(os.getenv("RUN_CONFIG") or "default", config_path=config_path)
 
 
 def load_run_config(
@@ -151,6 +176,9 @@ def load_run_config(
     file_cfg = load_config_file(config_path)
     merged = _merged_section(file_cfg, config_name)
 
+    if config_name != "default" and config_name not in (file_cfg.get("runs") or {}):
+        warnings.warn(f"config: unknown run {config_name!r}; using defaults")
+
     def val(field: str, cast: Callable[[Any], Any]) -> Any:
         return _field_value(field, merged, getattr(_DEFAULTS, field), cast)
 
@@ -166,4 +194,6 @@ def load_run_config(
         kwargs[field] = val(field, int)
     for field in _FLOAT_FIELDS:
         kwargs[field] = val(field, float)
+    for field in _STR_FIELDS:
+        kwargs[field] = str(val(field, str))
     return RunConfig(**kwargs)

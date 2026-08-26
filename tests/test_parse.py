@@ -251,3 +251,28 @@ def test_fetch_other_4xx_no_retry():
         fetch_page("https://www.linkedin.com/jobs/view/x", client=client)
     assert exc_info.value.status_code == 403
     assert len(calls) == 1
+
+
+def test_fetch_page_uses_run_config_at_call_time(monkeypatch):
+    """fetch_page must read retries/backoff/timeout from get_run_config() at
+    call time (not a module-level freeze) so a runtime RUN_CONFIG applies."""
+    import job_search_toolkit.scrapers.linkedin.fetch as fetch_module
+    from types import SimpleNamespace
+
+    from job_search_toolkit.run_config import RunConfig
+
+    captured: dict[str, object] = {"timeout": None}
+
+    def fake_client(**kwargs):
+        captured["timeout"] = kwargs.get("timeout")
+        return httpx.Client(transport=httpx.MockTransport(lambda req: httpx.Response(200, text="ok")), **kwargs)
+
+    monkeypatch.setattr(fetch_module, "httpx", SimpleNamespace(Client=fake_client))
+    monkeypatch.setattr(
+        fetch_module,
+        "get_run_config",
+        lambda: RunConfig(http_retries=0, http_backoff=0, http_timeout=42),
+    )
+    body = fetch_page("https://www.linkedin.com/jobs/view/x")
+    assert body == "ok"
+    assert captured["timeout"] == 42

@@ -124,13 +124,30 @@ def run_pipeline(
 
     ensure_data_dirs()
 
-    # Thread the run selection into the scrape assets.
+    # Thread the run selection into the scrape assets, and restore the env on
+    # exit so a second run in the same process does not inherit stale values.
+    prev_run_config = os.environ.get("RUN_CONFIG")
+    prev_run_max_pages = os.environ.get("RUN_MAX_PAGES")
     os.environ["RUN_CONFIG"] = config_name
     if max_pages is not None:
         os.environ["RUN_MAX_PAGES"] = str(max_pages)
     else:
         os.environ.pop("RUN_MAX_PAGES", None)
+    try:
+        return _materialize(enrich, boards)
+    finally:
+        if prev_run_config is None:
+            os.environ.pop("RUN_CONFIG", None)
+        else:
+            os.environ["RUN_CONFIG"] = prev_run_config
+        if prev_run_max_pages is None:
+            os.environ.pop("RUN_MAX_PAGES", None)
+        else:
+            os.environ["RUN_MAX_PAGES"] = prev_run_max_pages
 
+
+def _materialize(enrich: bool, boards: list[str] | None) -> bool:
+    """Materialize the DAG (the env-run portion of run_pipeline)."""
     if boards:
         unknown = [b for b in boards if b not in BOARD_SCRAPE_ASSETS]
         if unknown:
