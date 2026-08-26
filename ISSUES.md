@@ -27,20 +27,64 @@ but as-is it delivers ~3 France job listings from a full discovery — not enoug
 to justify the pipeline surface (two boards + discovery cost). Closing the
 branch without resolving this ships a feature with negligible France value.
 
-**Resolution options (pick one before closing):**
-1. **Scope discovery to France** — add France/Paris (+ maybe `remote` France)
-   constraints to the Apify `apify~google-search-scraper` input (the `query` /
-   `country` fields) and/or the TAVILY query so hits are France-located. Low
-   effort; the parser already handles France locations.
-2. **Accept the low yield and close** — keep LinkedIn as a broad/global
-   secondary source and note it's not the France pipeline. Document expected
-   low France hit-rate.
-3. **Drop the LinkedIn boards** from the default pipeline (keep the adapter)
-   until discovery is France-scoped.
+**Partial fix applied (2026-08-25):** deterministic France filter
+(`_is_france_job`, committed `a4537c5`) + France-scoped/widened queries in
+`job_search_preferences.yaml` (gitignored). 243 tests green. Real Apify runs
+now keep 11–19 genuine France job listings (up from 3); all kept jobs have
+`location.country=FR`. Posts (49/run) are not country-filtered by design.
 
-See `tasks/plans/linkedin-source-adapter.md` for the adapter design and the
-discovery query source.
+**Diagnosis (2026-08-25) — why yield is still far below freework (138):**
+the discovery under-harvests. Google's `site:linkedin.com/jobs "<role>" France`
+returns ~120 results/run, of which only ~53 are individual `/jobs/view/`
+listings (fetched; ~40% parse full, the rest are login-walled partials the
+France filter drops for unknown location). The other ~64 results are LinkedIn
+SEO landing pages (`/jobs/<keyword>-<location>`, e.g.
+`/jobs/data-engineer-jobs-paris`) that `classify_url` marks "drop" — BUT each
+one embeds ~60 individual `/jobs/view/<id>` links (confirmed: leboncoin,
+neosoft, stellantis, voodoo…). Discarding them throws away the richest France
+job-link source.
 
+**Fix direction (harvest):** treat LinkedIn `/jobs/<keyword>-<location>` SEO
+pages as link-indexes — fetch them and extract the embedded `/jobs/view/`
+links into the fetch queue (dedup against existing URLs). This multiplies the
+France job pool by an order of magnitude (potentially freework-comparable).
+Secondary: reconsider the France filter for login-walled partials (they are
+France-scoped by query but currently dropped for unknown location).
+
+**If not harvesting:** accept LinkedIn as a low-volume supplementary France
+source (~10–20 jobs/run) and close the branch on that caveat.
+
+
+### LinkedIn posts → jobs: recruiter-region follow-up + regex-vs-LLM enrichment (ENHANCEMENT 2026-08-25)
+
+**Kind:** enhancement / exploration plan (not a bug). Plan:
+`tasks/plans/linkedin-posts-to-jobs.md`.
+
+**Context:** recruiter posts ARE job opportunities and already become jobs via
+`linkedin/posts/.../post_extract.py:extract_from_post` (regex), which returns a
+verdict: `land` (title + location/workplace found → becomes a `CanonicalJob`),
+`queue` (hiring signal but title/location not confidently extracted → kept with
+null title/location "for the enrichment LLM pass"), `drop` (no job signal →
+excluded). So the regex-pass→job / LLM-enrich-if-insufficient shape already
+exists for `queue`.
+
+**What to explore:**
+1. **Recruiter-region follow-up:** for posts without a usable location, fetch
+   the recruiter (author) profile / search the author to infer which region
+   they manage (APAC / EMEA / DACH / USA / FR…). Judge whether regex over the
+   post + profile text is sufficient, or whether LLM structured extraction is
+   needed for usable region signals. Also weigh cost (an extra fetch + possibly
+   an LLM call per `queue` post).
+2. **Confirm the `queue` LLM enrichment pass exists/runs** — today `queue`
+   posts land in silver with null title/location unless something enriches
+   them. Verify whether the deferred enrichment (`--enrich`) covers
+   `linkedin_posts`, and if not, scope that gap.
+3. **Posts→jobs quality bar:** define when a post is a usable job
+   (title + at least one of location/workplace/region) vs when to drop.
+
+**Decision needed:** regex-only vs LLM structured extraction for the
+recruiter-region inference, and whether the follow-up is per-post or
+per-author (cached). See the plan for the recommendation + DoD.
 
 ### CLI source-selection design review — enhancement, not a bug (OPEN 2026-08-25)
 
