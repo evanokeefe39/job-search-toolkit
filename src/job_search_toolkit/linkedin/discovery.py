@@ -147,6 +147,19 @@ def _open_client() -> httpx.Client:
     return httpx.Client()
 
 
+def _run_info_dict(run: object) -> dict:
+    """Coerce an apify-client Run (a pydantic model) or plain dict to a dict.
+
+    The SDK's ``start``/``wait_for_finish``/``get`` return a ``Run`` pydantic
+    model (not subscriptable); ``model_dump(by_alias=True)`` yields the API's
+    camelCase keys (``usageTotalUsd``, ``defaultDatasetId``). Plain dicts pass
+    through unchanged.
+    """
+    if hasattr(run, "model_dump"):
+        return run.model_dump(by_alias=True)  # type: ignore[attr-defined]
+    return dict(run)
+
+
 class ApifyBackend:
     """Google SERP discovery through the official Apify SDK (``apify-client``).
 
@@ -228,7 +241,7 @@ class ApifyBackend:
     def _start_run(self, client: object, run_input: dict[str, object]) -> str:
         """Start the actor and return the new run id."""
         run_info = client.actor(self.actor_id).start(run_input=run_input)  # type: ignore[attr-defined]
-        return run_info["id"]
+        return _run_info_dict(run_info)["id"]
 
     def _wait_for_run(self, client: object, run_id: str) -> float | None:
         """Poll the run until it finishes; return usageTotalUsd on success.
@@ -253,16 +266,16 @@ class ApifyBackend:
                 raise RuntimeError(f"Apify run {run_id} failed: {exc}") from exc
             if not run_info:
                 continue
-            status = run_info.get("status")
+            status = _run_info_dict(run_info).get("status")
             if status in _TERMINAL_STATUSES:
                 if status in _FAILED_STATUSES:
                     raise RuntimeError(f"Apify run {run_id} ended with status {status}")
-                return run_info.get("usageTotalUsd")
+                return _run_info_dict(run_info).get("usageTotalUsd")
 
     def _fetch_dataset(self, client: object, run_id: str) -> list[dict]:
         """Download the run's dataset items (the raw search pages)."""
         run_info = client.run(run_id).get()  # type: ignore[attr-defined]
-        dataset_id = (run_info or {}).get("defaultDatasetId")
+        dataset_id = (_run_info_dict(run_info) if run_info else {}).get("defaultDatasetId")
         if not dataset_id:
             raise RuntimeError(f"Apify run {run_id} has no default dataset")
         return list(client.dataset(dataset_id).iterate_items())  # type: ignore[attr-defined]
