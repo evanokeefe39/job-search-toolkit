@@ -76,6 +76,28 @@ supplementary France source (~10–20 jobs/run) and close the branch on that
 caveat.
 
 
+### TavilyBackend: use the official `tavily` SDK instead of raw httpx (ENHANCEMENT 2026-08-25, deferred)
+
+**Kind:** enhancement / refactor. **Deferred** (small; part of the standing
+"use client libraries for APIs" rule).
+
+**Trigger:** a repo-wide audit for raw HTTP against APIs that ship official
+client libraries. Result: **Apify is fully clean** — both Apify callers
+(`ApifyBackend` for google-search-scraper in `linkedin/discovery.py` and
+`LinkedInProfileScraper` for data-slayer in `linkedin/profile.py`) already use
+`apify-client`. The LinkedIn guest jobs API uses raw httpx but has **no official
+client** (undocumented endpoint) — that is correct. The one remaining gap:
+
+**Gap:** `TavilyBackend` (`linkedin/discovery.py`) posts raw `httpx` JSON to
+`https://api.tavily.com/search` (`_TAVILY_ENDPOINT`, ~line 326) instead of using
+Tavily's official Python SDK (`tavily`). Refactor to the SDK: construct with the
+API key, call the search method, and flatten its response (keep the
+`DiscoveryBackend.search` contract + the existing `flatten_tavily_response`
+behavior). The `tavily` package is not yet a dependency — add it.
+
+**Note:** this is a fallback backend only (posts use Apify; jobs use the LinkedIn
+guest API) — low priority, hence deferred.
+
 ### Config cleanup/refactor: YAML run configs, kill magic numbers (NEXT ACTIVITY, deferred 2026-08-25)
 
 **Kind:** enhancement / refactor. **Deferred** — out of scope of the LinkedIn
