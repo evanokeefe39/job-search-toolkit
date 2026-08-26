@@ -242,6 +242,11 @@ Highest score first. Re-score quarterly.
   jobs via a regex verdict (`land`/`queue`/`drop`); explore recruiter-region
   inference (APAC/EMEA/DACH/USA) via regex vs LLM, and close the `queue` LLM
   pass gap. See `tasks/plans/linkedin-posts-to-jobs.md`.
+- **Config cleanup/refactor (NEXT ACTIVITY, deferred 2026-08-25):** many named
+  run configs in YAML, `.env` for secrets only, eliminate magic numbers
+  (`timeout=30`, `PAGE_SIZE=50`, `DEFAULT_RADIUS=30`, `max_pages=50`,
+  `_GUEST_DEFAULT_MAX_RESULTS=100`), CLI overrides. See ISSUES.md +
+  `tasks/plans/config-cleanup.md`.
 - **Per-board Dagster partitions** (future): if the pipeline becomes scheduled
   or multi-user, model each board as a static partition for native selective
   runs + backfill (see `docs/pipeline-streaming-research.md`). Requires a

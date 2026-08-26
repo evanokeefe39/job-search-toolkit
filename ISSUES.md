@@ -76,6 +76,39 @@ supplementary France source (~10–20 jobs/run) and close the branch on that
 caveat.
 
 
+### Config cleanup/refactor: YAML run configs, kill magic numbers (NEXT ACTIVITY, deferred 2026-08-25)
+
+**Kind:** enhancement / refactor. **Deferred** — out of scope of the LinkedIn
+source adapter. This is the NEXT feature branch/activity. Plan:
+`tasks/plans/config-cleanup.md`.
+
+**Goal:** capture run configuration + tunable constants in YAML config files
+(many named run configs), keep `.env` for secrets only, eliminate magic
+numbers in code, and let CLI args override where appropriate.
+
+**Audit finding (2026-08-25) — not currently met.** Run config is split
+across `.env` (secrets + LLM), `job_search_preferences.yaml` (LinkedIn,
+location, roles), code module constants, and env vars, with many hardcoded
+magic numbers that are not configurable or CLI-overridable:
+- `linkedin/discovery.py`: `_GUEST_DEFAULT_MAX_RESULTS=100` (total job cap),
+  `_GUEST_PAGE_SIZE=10`, `_GUEST_START_STEP=25`, `_TAVILY_RATE_LIMIT_SLEEP=1.0`,
+  `_BODY_PREFIX_CHARS=200`, `_APIFY_BASE`, `_TAVILY_ENDPOINT`, `_GONE={404,410}`,
+  `_RETRYABLE={429,500-599}`, `_DEFAULT_LOCATION_BY_COUNTRY`.
+- `linkedin/fetch.py`: `_GONE`, `_RETRYABLE` again.
+- Scrapers: `timeout=30` (and `15`) inline in ~10 files, faruse `PAGE_SIZE=50`,
+  freework `DEFAULT_RADIUS=30`, hiringcafe `max_pages=50` (internal cap,
+  ignores `MAX_PAGES`).
+- `MAX_PAGES` env is the only global pagination override and is not applied to
+  freework (leak) or hiringcafe; not CLI-overridable.
+
+**Target shape:** a `config/` (or prefs) YAML per named run (board set,
+queries, limits, timeouts, retry), merged with env (secrets) + CLI overrides
+(CLI > YAML > env > defaults). Many run configs in YAML, not relying on .env
+defaults.
+
+**Deferred:** this is intentionally not done now — out of scope of the
+LinkedIn source adapter branch. Tracked as the next activity.
+
 ### LinkedIn posts → jobs: recruiter-region follow-up + regex-vs-LLM enrichment (ENHANCEMENT 2026-08-25)
 
 **Kind:** enhancement / exploration plan (not a bug). Plan:
