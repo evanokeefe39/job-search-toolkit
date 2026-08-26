@@ -2,8 +2,12 @@
 
 Precedence (highest first):
     1. explicit CLI args (passed in by scripts/tailor_resume.py)
-    2. environment variables (LLM_MODEL, LLM_BASE_URL, LLM_API_KEY, LLM_CLIENT)
-    3. config.yaml at repo root (gitignored) — ``tailor:`` section
+    2. environment variables (LLM_MODEL, LLM_BASE_URL, LLM_API_KEY, LLM_CLIENT,
+       TAILOR_LEVEL, ...)
+    3. tailor_resume_preferences.yaml at repo root (gitignored; template
+       tailor_resume_preferences.example.yaml is tracked) — user-facing
+       resume-tailoring preferences, kept separate from the mechanical
+       run config (config.yaml)
     4. built-in defaults
 
 Exported dataclass ``TailorConfig`` carries every tunable so callers never
@@ -20,7 +24,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from job_search_toolkit.configutil import (
-    DEFAULT_CONFIG_PATH,
+    DEFAULT_TAILOR_PREFERENCES_PATH,
     load_config_file,
     pick,
 )
@@ -30,6 +34,10 @@ PKG_DIR = Path(__file__).resolve().parent
 # Backward-compatible aliases for callers that referenced the old names.
 _load_config_file = load_config_file
 _pick = pick
+
+# Backward-compatible alias: the tailor preferences file replaced config.yaml
+# as the tailor settings source.
+DEFAULT_CONFIG_PATH = DEFAULT_TAILOR_PREFERENCES_PATH
 
 REPO_ROOT = Path.cwd()
 
@@ -70,19 +78,6 @@ class TailorConfig:
 _DEFAULTS = TailorConfig()
 
 
-def _tailor_section(path: Path = DEFAULT_CONFIG_PATH) -> dict:
-    """Return the ``tailor:`` section of config.yaml, else the flat keys.
-
-    Newer config.yaml files nest tailor keys under ``tailor:``; older ones
-    keep them at the top level. Both load correctly.
-    """
-    file_cfg = load_config_file(path)
-    section = file_cfg.get("tailor")
-    if isinstance(section, dict):
-        return section
-    return file_cfg
-
-
 def load_config(
     config_path: Path = DEFAULT_CONFIG_PATH,
     *,
@@ -99,12 +94,12 @@ def load_config(
     tone_file: str | None | object = None,
     master_yaml: Path | None = None,
 ) -> TailorConfig:
-    """Merge config.yaml + env + explicit CLI values into a TailorConfig.
+    """Merge tailor_resume_preferences.yaml + env + CLI into a TailorConfig.
 
     A CLI value of ``None`` means "not provided" and falls through to
     env/config/default. ``tone_file=TONE_NONE`` means "explicitly no tone".
     """
-    file_cfg = _tailor_section(config_path)
+    file_cfg = load_config_file(config_path)
 
     cfg = TailorConfig(
         model=str(pick(model, "LLM_MODEL", file_cfg, _DEFAULTS.model)),

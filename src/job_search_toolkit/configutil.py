@@ -22,31 +22,45 @@ import yaml
 PKG_DIR = Path(__file__).resolve().parent
 
 
-def resolve_config_path() -> Path:
-    """Locate config.yaml: JOB_SEARCH_CONFIG > XDG > ./config.yaml > package.
+def resolve_yaml_path(filename: str, env_var: str | None) -> Path:
+    """Locate ``filename``: $ENV_VAR > XDG > ./filename > package.
 
-    - Explicit: ``JOB_SEARCH_CONFIG=/path/to/config.yaml``
-    - pip install: ``~/.config/job-search-toolkit/config.yaml`` (XDG)
-    - repo checkout: ``./config.yaml`` (cwd) — preserves the repo-root file
-    - last resort: ``config.yaml`` next to this module
+    - Explicit: ``$ENV_VAR=/path/to/filename``
+    - pip install: ``~/.config/job-search-toolkit/filename`` (XDG)
+    - repo checkout: ``./filename`` (cwd)
+    - last resort: ``filename`` next to this module
     """
-    env_path = os.getenv("JOB_SEARCH_CONFIG")
-    if env_path:
-        return Path(env_path)
+    if env_var is not None:
+        env_path = os.getenv(env_var)
+        if env_path:
+            return Path(env_path)
     xdg = (
         Path(os.getenv("XDG_CONFIG_HOME", Path.home() / ".config"))
         / "job-search-toolkit"
-        / "config.yaml"
+        / filename
     )
     if xdg.exists():
         return xdg
-    cwd_config = Path.cwd() / "config.yaml"
-    if cwd_config.exists():
-        return cwd_config
-    return PKG_DIR / "config.yaml"
+    cwd_path = Path.cwd() / filename
+    if cwd_path.exists():
+        return cwd_path
+    return PKG_DIR / filename
+
+
+def resolve_config_path() -> Path:
+    """Locate config.yaml (run mechanics): JOB_SEARCH_CONFIG > XDG > cwd > pkg."""
+    return resolve_yaml_path("config.yaml", "JOB_SEARCH_CONFIG")
 
 
 DEFAULT_CONFIG_PATH = resolve_config_path()
+
+
+def resolve_tailor_preferences_path() -> Path:
+    """Locate tailor_resume_preferences.yaml: TAILOR_RESUME_CONFIG > XDG > cwd > pkg."""
+    return resolve_yaml_path("tailor_resume_preferences.yaml", "TAILOR_RESUME_CONFIG")
+
+
+DEFAULT_TAILOR_PREFERENCES_PATH = resolve_tailor_preferences_path()
 
 
 def load_config_file(path: Path = DEFAULT_CONFIG_PATH) -> dict:

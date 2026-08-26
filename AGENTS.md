@@ -27,9 +27,9 @@ with human review gates — no fully automated ATS pipeline.
   produces `cv_tailored.yaml` + `cv_tailored.pdf` via a single DeepSeek call
   with Pydantic-validated structured output through **pydantic-ai**
   (`OpenAIChatModel`; json_mode fallback via `--llm-client json_mode`).
-  Config precedence: CLI > env > `config.yaml` (gitignored user override,
-  template at `automation/tailor/config.example.yaml`) > defaults; the
-  package-bundled `TONE.txt` injects tone guidance.
+  Config precedence: CLI > env > `tailor_resume_preferences.yaml` (gitignored
+  user override; template `tailor_resume_preferences.example.yaml` at repo
+  root) > defaults; the package-bundled `TONE.txt` injects tone guidance.
 - **Run config is YAML-driven.** Run *mechanics* (timeouts, page sizes, limits,
   LLM rate limits) come from `config.yaml` (gitignored; template
   `config.example.yaml` at repo root) via `src/job_search_toolkit/run_config.py`
@@ -37,7 +37,9 @@ with human review gates — no fully automated ATS pipeline.
   `pipeline run --config <name>` and `--max-pages N`. Precedence: CLI > named
   run > `defaults` > env fallback > built-in. Search *criteria* (roles,
   locations, LinkedIn queries) stay in `job_search_preferences.yaml`; API
-  secrets stay in `.env`. Shared resolution/precedence helpers in `configutil.py`.
+  secrets stay in `.env`. User-facing resume-tailoring preferences live in
+  `tailor_resume_preferences.yaml`. Shared resolution/precedence helpers in
+  `configutil.py`.
   Resume-Matcher is DEPRECATED (CP1252 mojibake, keyword-padding, 3-page bloat).
   The submission artifact is `cv_tailored.pdf` rendered by RenderCV from LLM-tailored YAML.
 
@@ -70,7 +72,7 @@ src/job_search_toolkit/          # Installable PyPI package: `job-search-toolkit
 │       ├── enrich_canonical.py, adapt_freework.py, score_engine.py, smoke_utils.py
 │       └── _legacy/             # stage*.py — superseded; stage5 promoted to score_engine.py
     └── tailor/                  # Resume tailoring engine (client, prompts, merge, audit, render)
-                                # + config.example.yaml (template) + TONE.txt (package-bundled)
+                                # + TONE.txt (package-bundled)
 
 skills/                          # Plugin-standard agent skills (skills/<name>/SKILL.md)
 ├── jd-refresh/SKILL.md          # Refresh jobs, report delta, stop for shortlist
