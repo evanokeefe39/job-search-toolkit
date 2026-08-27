@@ -8,6 +8,7 @@ import dagster as dg
 from dagster import AssetExecutionContext
 
 from .common import (
+    BUILTIN_RAW,
     DATASCIENCEJOBS_RAW,
     ENGLISHJOBS_RAW,
     FARUSE_RAW,
@@ -16,6 +17,7 @@ from .common import (
     HIRINGCAFE_RAW,
     REMOTEOK_RAW,
     WWR_RAW,
+    WTTJ_RAW,
     append_bronze_run,
     bronze_timestamped_path,
     iso_timestamp,
@@ -280,6 +282,64 @@ def linkedin_posts(context: AssetExecutionContext) -> dg.MaterializeResult:
     return dg.MaterializeResult(metadata={"total": len(canonical)})
 
 
+@dg.asset(
+    group_name="sources",
+    description="Welcome to the Jungle France job offers via the deployed Apify actor (opt-in)",
+)
+def wttj_jobs(context: AssetExecutionContext) -> dg.MaterializeResult:
+    """Scrape WTTJ France offers via Apify and normalize to canonical format."""
+    from ..adapt_wttj import normalize_wttj_job
+
+    if not os.getenv("APIFY_API_TOKEN"):
+        context.log.warning(
+            "APIFY_API_TOKEN is not set; writing empty wttj snapshot."
+        )
+        _write_bronze_snapshot("wttj", context.run_id, [])
+        return dg.MaterializeResult(metadata={"total": 0})
+
+    from apify_client import ApifyClient
+
+    ensure_data_dirs()
+    rc = get_run_config()
+    client = ApifyClient(os.environ["APIFY_API_TOKEN"])
+    run = client.actor("xSJbryo1TaOba9s9T").call(run_input={"maxItems": rc.wttj_max_jobs})
+    if run is None:
+        raise RuntimeError("WTTJ Apify actor call returned no run")
+    raw = client.dataset(run.default_dataset_id).list_items().items
+    WTTJ_RAW.write_text(json.dumps(raw), encoding="utf-8")
+    canonical = [normalize_wttj_job(j) for j in raw]
+    skipped = len(raw) - len(canonical)
+    if skipped:
+        context.log.warning(f"wttj: skipped {skipped} of {len(raw)} records that failed normalization (e.g. missing title).")
+    else:
+        context.log.info(f"wttj: normalized all {len(raw)} records.")
+    _write_bronze_snapshot("wttj", context.run_id, canonical)
+    return dg.MaterializeResult(metadata={"total": len(canonical)})
+
+
+@dg.asset(
+    group_name="sources",
+    description="Built In France tech job listings (opt-in)",
+)
+def builtin_jobs(context: AssetExecutionContext) -> dg.MaterializeResult:
+    """Scrape builtin.com/jobs/eu/france and normalize to canonical format."""
+    from job_search_toolkit.scrapers.builtin import scrape
+    from ..adapt_builtin import normalize_builtin_job
+
+    ensure_data_dirs()
+    rc = get_run_config()
+    scrape(BUILTIN_RAW, max_pages=rc.builtin_max_pages, fmt="json")
+    raw = json.loads(BUILTIN_RAW.read_text(encoding="utf-8")) if BUILTIN_RAW.exists() else []
+    canonical = [normalize_builtin_job(j) for j in raw]
+    skipped = len(raw) - len(canonical)
+    if skipped:
+        context.log.warning(f"builtin: skipped {skipped} of {len(raw)} records that failed normalization (e.g. missing title).")
+    else:
+        context.log.info(f"builtin: normalized all {len(raw)} records.")
+    _write_bronze_snapshot("builtin", context.run_id, canonical)
+    return dg.MaterializeResult(metadata={"total": len(canonical)})
+
+
 # CLI board name -> scrape asset, for `pipeline run --boards <name> ...`.
 # The board name doubles as the bronze ``board`` field each asset writes (e.g.
 # board ``linkedin_jobs`` -> bronze ``board=linkedin_jobs``), so the per-board
@@ -298,4 +358,6 @@ BOARD_SCRAPE_ASSETS: dict[str, dg.AssetsDefinition] = {
     "datasciencejobs": datasciencejobs_jobs,
     "linkedin_jobs": linkedin_jobs,
     "linkedin_posts": linkedin_posts,
+    "wttj": wttj_jobs,
+    "builtin": builtin_jobs,
 }

@@ -305,9 +305,11 @@ already in this file. Worth tracking directly.
 
 ### Updated game plan (merged priority)
 
-Already implemented: Free-work, Hiring Cafe.
+Already implemented (Phase A complete + LinkedIn): Free-work, Hiring Cafe, Remote OK,
+We Work Remotely, HelloWork, DataScienceJobs, faruse, englishjobs.fr, LinkedIn
+(jobs + posts).
 
-**Phase A (TRIVIAL, high volume):**
+**Phase A (TRIVIAL, high volume) — DONE:**
 1. Remote OK — public JSON API
 2. We Work Remotely — RSS feeds
 3. HelloWork — French market, 1K+ data jobs
@@ -329,3 +331,59 @@ Already implemented: Free-work, Hiring Cafe.
 **Phase D (HARD, user decision):**
 14. Wellfound — cf_clearance cookie bootstrap
 15. LinkedIn — auth-gated + legal risk (SKIP)
+
+---
+
+## ChooseYourBoss (talenti) — French platform (evaluated 2026-08-27)
+
+Recruitment marketplace for digital/IT roles in France ("choose your boss" — companies
+approach anonymized candidates; direct applications + matching). Has a dedicated
+**data science** section (Chef de Projet Data, Data Engineer, Data Scientist roles).
+
+- **Domain:** `chooseyourboss.com` (`talenti.io` is a parked domain — not the real site; `talent.io` is a separate, unreachable platform). `chooseyourboss.fr` does not resolve.
+- **Relevance:** **HIGH** — French market, explicit data roles. Both families.
+- **Scrape-viability:** **HARD** — served behind a **Cloudflare "Just a moment" JS challenge** (`cf_chl`); plain browser UA returns 403. Not a simple IP block. Needs a challenge-solving path (Apify Cloudflare-bypass actor, or Playwright + `cf_clearance`), ideally combined with a residential proxy to stabilise IP reputation.
+- **Verdict:** worth adding for France depth, but only via the residential-proxy + challenge-solving route (below), not a plain httpx scraper.
+
+---
+
+## Re-assessment with Apify residential proxies (2026-08-27)
+
+Capability added to the model: requests can be routed through **Apify residential proxy IPs**
+(and, where a board needs it, Apify actors that pair the proxy with a browser +
+challenge solving). This changes verdicts for every source whose blocker was IP-reputation
+or a naive 403 — but **does not** by itself solve JavaScript/Cloudflare challenges, which
+still need a browser + challenge solver. Probed live today.
+
+### Reclassified up (now feasible, no extra tooling)
+
+|Board|Before|After (residential proxy)|Evidence|
+|---|---|---|---|
+|**Welcome to the Jungle**|LIKELY TRIVIAL|**DOABLE — verified 200**|`welcometothejungle.com/fr/jobs` returns 200, 559KB server-rendered HTML, no WAF markers, plain browser UA. French general board.|
+|**Built In (France)**|DOABLE|**DOABLE — verified 200**|`builtin.com/jobs/eu/france` returns 200, 269KB, no WAF.|
+|**EuropeRemotely**|403 BLOCKED|**DOABLE**|403 was a plain IP block; a residential proxy should pass directly. Still design-skewed / low volume per IG notes.|
+
+### Reclassified feasible (proxy + challenge-solving actor)
+
+|Board|Before|After|Why|
+|---|---|---|---|
+|**ChooseYourBoss**|(new)|**FEASIBLE (medium-hard)**|Cloudflare JS challenge; residential proxy + Apify CF-bypass / Playwright `cf_clearance`.|
+|**Wellfound**|HARD|**FEASIBLE (medium-hard)**|Cloudflare `cf_clearance`; same challenge-solving + proxy route. High-value startup roles.|
+|**Glassdoor**|403/CAPTCHA — skip|**FEASIBLE via Apify actor**|Existing Apify Glassdoor actors bundle residential proxy + CAPTCHA solving.|
+|**Indeed France**|CAPTCHA — skip|**FEASIBLE via Apify actor**|Existing Apify Indeed actors bundle proxy + CAPTCHA solving.|
+
+### Unchanged
+
+- **Jobgether** — already DOABLE via `curl_cffi` (TLS impersonation), no proxy needed.
+- **Just Join IT** — DOABLE via sitemap → server-rendered, crawler-sanctioned.
+- **LinkedIn** — auth-gated + legal risk; **still SKIP** (hiQ precedent, account flagging). Proxy does not change the legal/ToS exposure.
+- **Remote OK / WWR / HelloWork / DataScienceJobs / faruse / englishjobs / free-work / hiring-cafe** — already built or native API/RSS; unaffected.
+
+### Net effect on the game plan
+
+The build order for France depth is unchanged at the top: **Jobgether + Just Join IT**
+(no proxy needed) then **Welcome to the Jungle + Built In** (verified DOABLE). The
+residential-proxy capability upgrades the *previously-skipped* boards — **ChooseYourBoss,
+Wellfound, Glassdoor, Indeed France** — from "not worth it" to "feasible via an Apify actor
+that bundles proxy + challenge solving," so they become candidates once the Phase A/B board
+is saturated or if specific volume is wanted. They are still not plain-httpx scrapers.

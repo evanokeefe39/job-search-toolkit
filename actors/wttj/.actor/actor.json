@@ -1,0 +1,13 @@
+{
+    "actorSpecification": 1,
+    "name": "wttj-france-jobs",
+    "title": "Welcome to the Jungle — France Job Offers",
+    "description": "Scrapes Welcome to the Jungle France job offers via the crawler-sanctioned sitemap route, fetching each offer page through Apify's RESIDENTIAL proxy to bypass WTTJ's HTTP-202 rate limit.",
+    "version": "0.1.0",
+    "buildTag": "latest",
+    "meta": {
+        "templateId": "python-crawlee-http"
+    },
+    "input": "./INPUT_SCHEMA.json",
+    "dockerfile": "./Dockerfile"
+}

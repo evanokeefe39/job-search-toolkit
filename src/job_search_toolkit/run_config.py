@@ -71,6 +71,10 @@ class RunConfig:
     faruse_page_size: int = 50
     freework_radius: int = 30
     hiringcafe_max_pages: int = 50
+    # WTTJ (sitemap crawl) / Built In France (listing crawl) — both opt-in and
+    # result-capped so a run never balloons (see tasks/plans/new-sources-*.md).
+    wttj_max_jobs: int = 200  # max offer pages fetched per run
+    builtin_max_pages: int = 5  # max listing pages crawled per run
 
 
 _DEFAULTS = RunConfig()
@@ -99,6 +103,8 @@ _INT_FIELDS = {
     "faruse_page_size",
     "freework_radius",
     "hiringcafe_max_pages",
+    "wttj_max_jobs",
+    "builtin_max_pages",
 }
 _FLOAT_FIELDS = {
     "http_timeout",
