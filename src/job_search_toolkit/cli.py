@@ -26,7 +26,7 @@ app = typer.Typer(no_args_is_help=True, add_completion=False)
 
 scrape_app = typer.Typer(help="Scrape job boards into data/bronze/.")
 
-from job_search_toolkit.scrapers import datasciencejobs_app, englishjobs_app, faruse_app, freework_app, hellowork_app, hiringcafe_app, remoteok_app, weworkremotely_app  # noqa: E402
+from job_search_toolkit.scrapers import datasciencejobs_app, englishjobs_app, faruse_app, freework_app, hellowork_app, hiringcafe_app, remoteok_app, weworkremotely_app, builtin_app, wttj_app  # noqa: E402
 
 scrape_app.add_typer(datasciencejobs_app, name="datasciencejobs", help="Scrape datasciencejobs.com (data-only board)")
 scrape_app.add_typer(faruse_app, name="faruse", help="Scrape faruse.com (English-speaking jobs in Europe)")
@@ -37,6 +37,8 @@ scrape_app.add_typer(hellowork_app, name="hellowork", help="Scrape hellowork.com
 scrape_app.add_typer(hiringcafe_app, name="hiringcafe", help="Scrape hiringcafe.com")
 scrape_app.add_typer(remoteok_app, name="remoteok", help="Scrape remoteok.com")
 scrape_app.add_typer(weworkremotely_app, name="wwr", help="Scrape weworkremotely.com")
+scrape_app.add_typer(builtin_app, name="builtin", help="Scrape builtin.com/jobs/eu/france (opt-in)")
+scrape_app.add_typer(wttj_app, name="wttj", help="Scrape welcometothejungle.com France (opt-in)")
 app.add_typer(scrape_app, name="scrape")
 
 # ---------------------------------------------------------------------------

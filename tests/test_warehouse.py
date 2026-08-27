@@ -260,7 +260,8 @@ def test_gold_views_delta(tmp_path, monkeypatch):
 def test_ensure_dims_creates_tables_and_seeds_board(wh):
     con, _ = wh
     S.ensure_dims(con)
-    assert con.execute("SELECT COUNT(*) FROM silver.dim_board").fetchone()[0] == 10
+    # Count tracks silver.BOARD_DIMENSIONS: 2 new opt-in boards (wttj, builtin) added.
+    assert con.execute("SELECT COUNT(*) FROM silver.dim_board").fetchone()[0] == 12
     for bid in S.BOARD_DIMENSIONS:
         assert con.execute(
             f"SELECT COUNT(*) FROM silver.dim_board WHERE board_id = '{bid}'"

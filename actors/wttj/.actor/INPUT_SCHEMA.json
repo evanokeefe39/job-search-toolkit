@@ -1,0 +1,23 @@
+{
+    "title": "WTTJ France Jobs Input",
+    "type": "object",
+    "schemaVersion": 1,
+    "properties": {
+        "maxItems": {
+            "title": "Max offers",
+            "type": "integer",
+            "minimum": 1,
+            "description": "Maximum number of offer pages to fetch and push.",
+            "default": 200,
+            "editor": "number"
+        },
+        "location": {
+            "title": "Location",
+            "type": "string",
+            "description": "Target country filter for offers (only 'France' is implemented).",
+            "default": "France",
+            "editor": "textfield"
+        }
+    },
+    "required": []
+}

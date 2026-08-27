@@ -17,6 +17,8 @@ FARUSE_RAW = BRONZE_DIR / "faruse_jobs.json"
 WWR_RAW = BRONZE_DIR / "wwr_jobs.json"
 REMOTEOK_RAW = BRONZE_DIR / "remoteok_jobs.json"
 DATASCIENCEJOBS_RAW = BRONZE_DIR / "datasciencejobs_jobs.json"
+WTTJ_RAW = BRONZE_DIR / "wttj_jobs.json"
+BUILTIN_RAW = BRONZE_DIR / "builtin_jobs.json"
 
 # Per-board bronze history directories (immutable timestamped snapshots).
 BRONZE_BOARD_DIRS = {
@@ -30,6 +32,8 @@ BRONZE_BOARD_DIRS = {
     "datasciencejobs": BRONZE_DIR / "datasciencejobs",
     "linkedin_jobs": BRONZE_DIR / "linkedin_jobs",
     "linkedin_posts": BRONZE_DIR / "linkedin_posts",
+    "wttj": BRONZE_DIR / "wttj",
+    "builtin": BRONZE_DIR / "builtin",
 }
 
 

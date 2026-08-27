@@ -36,10 +36,11 @@ from .assets import (
 from .assets.scrape import BOARD_SCRAPE_ASSETS
 from .assets.merge import SILVER_BOARD_ASSETS, silver_ingest
 
-# Boards on the default ranking path. datasciencejobs is deliberately excluded
-# (long-running, brittle — see ISSUES.md) but reachable as an explicit opt-in
-# via `--boards datasciencejobs`.
-RANKING_BOARDS = tuple(b for b in BOARD_SCRAPE_ASSETS if b != "datasciencejobs")
+# Boards on the default ranking path. Opt-in boards (datasciencejobs — long,
+# brittle; wttj/builtin — large or bot-protected, see plans) are deliberately
+# excluded but reachable via `--boards <name>`.
+OPT_IN_BOARDS = frozenset({"datasciencejobs", "wttj", "builtin"})
+RANKING_BOARDS = tuple(b for b in BOARD_SCRAPE_ASSETS if b not in OPT_IN_BOARDS)
 
 # Ranking path: scrape -> upsert -> score -> export -> gold. No LLM assets.
 RANKING_ASSETS = (
@@ -74,12 +75,16 @@ INGEST_ASSETS = (
     + [scored_jobs, ranked_csv, gold_views, merged_jobs_export, freework_enriched_export]
 )
 
-# datasciencejobs is in the registry (so `--boards datasciencejobs` can select
-# its scrape + silver asset) but is not part of either named job, keeping it
-# off the default pipeline.
+# Opt-in boards are in the registry (so `--boards <name>` can select their
+# scrape + silver asset) but not part of either named job, keeping them off the
+# default pipeline.
 ALL_ASSETS = (
     RANKING_ASSETS
-    + [BOARD_SCRAPE_ASSETS["datasciencejobs"], SILVER_BOARD_ASSETS["datasciencejobs"]]
+    + [
+        asset
+        for b in sorted(OPT_IN_BOARDS)
+        for asset in (BOARD_SCRAPE_ASSETS[b], SILVER_BOARD_ASSETS[b])
+    ]
     + [silver_ingest]
     + ENRICH_ASSETS
 )

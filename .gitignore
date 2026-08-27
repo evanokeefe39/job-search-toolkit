@@ -15,9 +15,9 @@ wheels/
 freework_jobs
 jobs_ranked.csv
 
-# Plugin/marketplace manifests are committed (the *.json glob above is for scraper output)
-!.claude-plugin/plugin.json
-!.claude-plugin/marketplace.json
+# Apify actor config/schema are committed (the *.json glob above is for scraper output)
+!actors/wttj/.actor/actor.json
+!actors/wttj/.actor/INPUT_SCHEMA.json
 !.omp-plugin/marketplace.json
 !tests/fixtures/*.json
 
@@ -36,8 +36,10 @@ data/market_*
 data/outreach_*
 data/contacts*
 data/linkedin/
-# Node dependencies (vendored ATSFlow source)
 node_modules/
+
+# Actor-local run artifacts (regenerated per run)
+actors/wttj/storage/
 
 # Personal application workspace — PUBLIC repo: PII, target companies, salary data
 # Must stay ignored before any real content is created (gitignore is not retroactive)

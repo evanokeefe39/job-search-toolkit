@@ -67,6 +67,8 @@ BOARD_DIMENSIONS: dict[str, tuple[str, str, str]] = {
     "datasciencejobs": ("DataScienceJobs", "en", "https://datasciencejobs.com"),
     "linkedin_jobs": ("LinkedIn Jobs", "en", "https://www.linkedin.com/jobs/"),
     "linkedin_posts": ("LinkedIn Posts", "en", "https://www.linkedin.com/posts/"),
+    "wttj": ("Welcome to the Jungle", "fr", "https://www.welcometothejungle.com"),
+    "builtin": ("Built In", "en", "https://builtin.com/jobs/eu/france"),
 }
 
 # dim_company columns mirroring the canonical CompanyInfo dict (schemas.py):
