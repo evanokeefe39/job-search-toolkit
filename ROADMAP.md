@@ -119,11 +119,104 @@ offerings.
 - [ ] **Proposal/rate card templates** — standardize the "here's my rate, here's what I deliver" response. Not automated — human fills in specifics per opportunity
 - [ ] **Contract templates** — French freelance contract templates (portage salarial, auto-entrepreneur, EURL). Legal boilerplate, not advice
 
-### Productized Services
+### Apify Actor Store (income generators) — NEW 2026-08-28
 
-- [ ] **One-off consultations** — "Fabric architecture review" or "data platform health check." Fixed-price, fixed-scope engagement. Lead source: inbound from portfolio content + cold outreach to companies posting Fabric job ads (they have Fabric, they may need help before hiring)
-- [ ] **Training / workshops** — "Microsoft Fabric for Data Engineers" (1-day workshop). Target: ESNs training their consultants, companies adopting Fabric. Lead source: companies posting Fabric roles (they're building Fabric teams → training demand)
-- [ ] **Guides / courses** — written or video content monetized directly. Examples: "From SSIS to Fabric: a migration playbook," "DAX for data engineers" (leverage existing Power BI knowledge). Distribution: Gumroad, self-hosted, or platform-specific
+Re-sell our working board scrapers + build the identified European gaps as pay-per-use
+Apify Store actors. Same code powers our pipeline and sells to third parties — the
+scrapers already exist and run.
+
+**Economic model (grounded):** 80% to creator, 20% Apify commission, monthly payouts
+(pay-per-result: net = 0.8 × revenue − platform usage; rental: 80% of monthly fee).
+Realistic $30–80/mo net per *successful* actor; a portfolio of ~8–12 actors → roughly
+$500–1,000/mo net at maturity. Top independent creators make $1k–10k/mo, but the
+platform average is "a few hundred $/mo" and most actors earn little. **Verdict: GO as
+a low-capital portfolio experiment, not income-replacing.** The real cost is upkeep
+(boards change), not the build.
+
+**Republish candidates — our existing integrations → actors (near-zero build):**
+- [ ] **free-work.com** — confirmed GAP (no dedicated Apify actor)
+- [ ] **datasciencejobs.com** — confirmed GAP
+- [ ] **englishjobs.fr** — confirmed GAP
+- [ ] **faruse.com** — confirmed GAP
+- [ ] **LinkedIn guest-API jobs** — DIFFERENTIATED (no-login, free discovery; existing
+      LinkedIn actors need auth/cookies) — highest upside, but fragile (undocumented
+      endpoint) + legal exposure (hiQ); price accordingly
+- [ ] **wttj** — already built + deployed (private); optional: make public/priced
+      (saturated — compete on price/features)
+
+**New-build gaps (full analysis: `docs/apify-actor-gap-analysis.md`, 32 markets):**
+- [ ] Iceland — entire country void (Alfreð, Job.is, Störf.is, Starfatorg, Atvinna)
+- [ ] Cyprus — near-void (Ergodotisi, Carierista, CyprusWork, CyprusJobs, CyprusTech.Careers)
+- [ ] Denmark — Jobzonen (one of the largest DK portals, ~35k ads, zero actor)
+- [ ] Sweden — Blocket Jobb (classifieds leader, only cars/classifieds actors exist)
+- [ ] Austria — jobs.at
+- [ ] Spain — Infoempleo (genuine top-5 generalist)
+- [ ] Portugal — Landing.Jobs (tech brand)
+- [ ] Belgium — Select HR; Netherlands — Joblift + ICTerGezocht (tech)
+
+**Scalping approach (build cheap, let demand self-select):** start with the four
+code-already-exists republishes (free-work, englishjobs, faruse, datasciencejobs),
+list them, then the highest-traffic new-build gaps (Iceland, Cyprus, Jobzonen,
+Blocket Jobb). **Drop any actor under ~$50/mo after 60–90 days** rather than
+maintaining the whole book.
+
+**Synergy (job search / lead magnet / side income):** the actors double as our own
+job-discovery infra (we already consume the data); public actor usage + GitHub/portfolio
+exposure is a lead magnet for the consulting/training/Fabric offerings in this phase;
+the scraped data feeds lead scoring (Phase 1). Three uses from one build.
+
+### Differentiation strategy (4-expert panel, 2026-08-28)
+
+Panel verdict — unanimous: **scalp to acquire, differentiate to keep.** Pay-per-result
+scalp launch is the right *sequencing*; the norm feature set (structured records +
+filters + export + proxy + incremental + API) is table stakes that buys nothing in the
+Store rankings. The money is the differentiated layer — and we already own most of it
+in `job_search_toolkit` infra (CanonicalJob schema + per-board adapters, silver
+first_seen/last_seen/is_active tombstoning, cross-board upsert dedup). Ship the
+differentiated surface from day one (it's nearly free for us), then convert repeat
+runners to flat-fee managed feeds / off-Store contracts.
+
+**Buildable differentiators (with willingness-to-pay):**
+- [ ] **Canonical schema + normalization layer** — one schema across all our boards:
+      normalized salary (currency/period), ISO-3166 country+region, ISO dates, remote
+      taxonomy, seniority enum. Data buyers / AI-training firms pay 2–5× raw. (We
+      already have this in `adapt_*.py`.)
+- [ ] **Cross-board dedup + company resolution, billed-once guarantee** — dedup before
+      the billable event, stable `job_key`/company fingerprint, "found on 3 boards
+      billed once". Underwrites price comparison (effective cost per unique job
+      drops 30–60%). Data resellers, TA/CRM vendors; 5–10× pricing vs raw.
+- [ ] **Coverage manifest + data-quality score + liveness** — per-run manifest
+      (requests, rows, field-population %, parse errors, dedup counts) + verify apply
+      URLs aren't dead / reqs not stale. The #1 rating killer is silent failure; this
+      is the trust/moat surface. Resellers pay $50–150/mo uplift.
+- [ ] **Tombstone + change tracking** — first_seen/last_seen/delisted + field diffs.
+      We already have this (silver.jobs is_active, last_seen_at). Salary-benchmark /
+      labor-analytics buyers pay $300–1k/mo; delisting data is uniquely monetizable.
+- [ ] **Apply-URL resolution + ATS detection** — follow redirects, identify
+      Greenhouse/Workday/Lever/SmartRecruiters, canonical req ID. Turns "a link" into
+      "an integration point"; 3–5× per-result premium + retention.
+- [ ] **Jobs-as-a-feed + white-label resale** — scheduled normalized output to
+      webhook/BigQuery/Sheets/Slack/n8n at flat €49–299/mo; white-label/API tier at
+      €500–2000/mo/account (3 accounts > a year of Store scalping). Off-Store, needs
+      contracts/SLAs — culturally foreign to Apify-native builders.
+
+**Underserved users to target (with WTP):**
+- Boutique/contingency recruiting agencies (single-country FR/DE) — verified daily
+  feed of NEW deduped reqs at target companies, live apply links + ATS info. €150–500/mo/agency.
+- Bootstrapped job-data SaaS (alert newsletters, remote-jobs sites, relocation) —
+  reliable continuous multi-board feed, stable schema, breakage monitoring. €99–299/mo flat.
+- Salary-benchmarking / comp-data startups — clean normalized salary layer (raw
+  "salary" strings kill ~60% of actor output). $0.01–0.05/record.
+- AI/LLM training-data teams — volume + provenance + licensing + dedup + delisting
+  dates. $500–5k/quarterly B2B invoiced.
+- Data resellers / market-intel — manifest, tombstones, SLAs. $200–2k/mo.
+
+**Sequencing (expert-recommended):** (1) ship the 4 cheap republishes as PPE scalp
+actors now, exposing canonical schema + manifest from day one; (2) within ~1 quarter,
+add the feed/destination layer + tombstoning on the boards with most repeat runners;
+(3) land 1–2 white-label resale contracts. **Warning:** don't differentiate before the
+scrapers are reliable across all boards — a clean schema on a flaky scraper is
+worthless; reliability is the license to differentiate.
 
 ### Lead Generation for Services
 
@@ -222,6 +315,7 @@ Highest score first. Re-score quarterly.
 | Contact discovery automation | 3 | 3 | 3 | 3.0 | 2 |
 | Market research reports as lead magnet | 4 | 3 | 2 | 6.0 | 3 |
 | Fabric architecture review service | 3 | 3 | 2 | 4.5 | 3 |
+| Apify actor portfolio (scalping) | 3 | 3 | 1 | 9.0 | 3 |
 | Pipeline velocity dashboard | 2 | 4 | 2 | 4.0 | 5 |
 
 ---
