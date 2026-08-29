@@ -268,7 +268,98 @@ def tracker_outcomes(
             print(f"{e['ts']} | {e['job_id']} | {e['stage']}{note}")
 
 
-app.add_typer(tracker_app, name="tracker")
+# application
+# ---------------------------------------------------------------------------
+
+application_app = typer.Typer(help="Application workflow & lifecycle: status.yaml records, follow-ups, per-job reports.")
+
+
+@application_app.command("record")
+def application_record(
+    folder: str = typer.Option(..., "--folder", help="Application folder (e.g. applications/YYYY-MM-DD_company_role)."),
+    stage: str = typer.Option(..., "--stage", help="Stage from the tracker vocabulary."),
+    ts: str = typer.Option(..., "--ts", help="ISO-8601 timestamp of the transition."),
+    note: Optional[str] = typer.Option(None, "--note", help="Optional note (source, context, decision)."),
+) -> None:
+    """Record one outcome: append to the folder's status.yaml AND the tracker feed.
+
+    The folder's status.yaml keeps the append-only transition history; the
+    tracker event (keyed on the folder slug) sinks into the warehouse via
+    WS1. Both write from the same transition, so they cannot diverge.
+    """
+    from job_search_toolkit.status import record_outcome
+
+    record_outcome(Path(folder), stage, ts, note=note)
+    print(f"recorded {Path(folder).name} -> {stage} @ {ts} (status.yaml + tracker)")
+
+
+@application_app.command("current")
+def application_current(
+    folder: str = typer.Option(..., "--folder", help="Application folder."),
+) -> None:
+    """Print the current stage from the folder's status.yaml (or 'none')."""
+    from job_search_toolkit.status import current_stage
+
+    stage = current_stage(Path(folder))
+    print(stage if stage else "none")
+
+
+@application_app.command("followups-due")
+def application_followups_due(
+    days: int = typer.Option(10, "--days", help="Follow-up threshold in calendar days."),
+) -> None:
+    """List applications in 'applied' past the follow-up threshold with no outcome.
+
+    Applies the max-two-per-application cap. Drafts are human-sent; this
+    tool never sends.
+    """
+    from job_search_toolkit.followup import MAX_FOLLOWUPS, followups_due
+    from job_search_toolkit.tracker import get_tracker
+
+    rows = followups_due(Path("applications"), get_tracker(), days=days)
+    if not rows:
+        print("No follow-ups due.")
+        return
+    for r in rows:
+        print(
+            f"{r['slug']}: applied {r['days_since_applied']}d ago, "
+            f"{r['followup_count']}/{MAX_FOLLOWUPS} follow-ups"
+        )
+
+
+@application_app.command("followup-draft")
+def application_followup_draft(
+    folder: str = typer.Option(..., "--folder", help="Application folder."),
+    note: str = typer.Option(..., "--note", help="Draft text (human sends; tool never sends)."),
+) -> None:
+    """Record a follow-up DRAFT for an application (refused past the cap of 2).
+
+    Drafts are recorded in the folder's status.yaml only — nothing is ever
+    sent by the tool; the human sends manually.
+    """
+    from datetime import UTC, datetime
+
+    from job_search_toolkit.followup import draft_followup
+
+    draft_followup(Path(folder), datetime.now(UTC).isoformat(), note)
+    print(f"recorded follow-up draft for {Path(folder).name} (draft-only, human sends)")
+
+
+@application_app.command("report")
+def application_report(
+    job_id: str = typer.Option(..., "--job-id", help="silver.jobs id."),
+) -> None:
+    """Render a deterministic per-job dossier from warehouse features."""
+    from job_search_toolkit.pipelines.jd.config import WAREHOUSE_DB
+    from job_search_toolkit.report import fetch_job, render_job_report
+
+    job = fetch_job(WAREHOUSE_DB, job_id)
+    if job is None:
+        raise typer.Exit(f"no job with id {job_id!r} in the warehouse")
+    print(render_job_report(job))
+
+
+app.add_typer(application_app, name="application")
 
 # ---------------------------------------------------------------------------
 # tailor

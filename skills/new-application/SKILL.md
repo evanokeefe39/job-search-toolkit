@@ -237,13 +237,13 @@ section.
    events). Run:
 
 ```bash
-job-search-toolkit tracker record --job 'applications/YYYY-MM-DD_company-slug_role-slug' --stage 'researching' --ts '<today ISO-8601>' --note 'source=freework url=https://... role="Role Title" company="Company Name"'
+job-search-toolkit application record --folder 'applications/YYYY-MM-DD_company-slug_role-slug' --stage 'researching' --ts '<today ISO-8601>' --note 'source=freework url=https://... role="Role Title" company="Company Name"'
 ```
 
    Substitute the actual company, role, source, url, and folder slug.
 
 3. If no-go: do not record an event for the job (or record the existing
-   record as `withdrawn` via `tracker record` if one was already there), and
+   record as `withdrawn` via `application record` if one was already there), and
    report the decision and reason back.
 
 ## Failure handling

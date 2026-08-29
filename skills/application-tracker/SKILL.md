@@ -22,7 +22,7 @@ Application state lives in the tracker's append-only event feed, written through
 the repo's own CLI:
 
 ```
-job-search-toolkit tracker record --job '<folder>' --stage '<stage>' --ts '<ISO-8601 timestamp>' [--note '<text>']
+job-search-toolkit application record --folder '<folder>' --stage '<stage>' --ts '<ISO-8601 timestamp>' [--note '<text>']
 ```
 
 The backend is selected by `config.yaml` (`tracker.backend`): `sqlite` (default,
@@ -81,7 +81,7 @@ If no record exists for the folder, record it at stage `shortlisted` (unless
 the human states otherwise):
 
 ```
-job-search-toolkit tracker record --job 'applications/2026-08-06_acme-saas_data-engineer' --stage 'shortlisted' --ts '2026-08-06T12:00:00' --note 'source=freework url=https://example.com/jobs/123 role="Data Engineer" company="ACME SaaS"'
+job-search-toolkit application record --folder 'applications/2026-08-06_acme-saas_data-engineer' --stage 'shortlisted' --ts '2026-08-06T12:00:00' --note 'source=freework url=https://example.com/jobs/123 role="Data Engineer" company="ACME SaaS"'
 ```
 
 Only create records for applications that actually exist (a folder was
@@ -113,7 +113,7 @@ Record one event per transition. Side rules:
 Example (ready → applied):
 
 ```
-job-search-toolkit tracker record --job 'applications/2026-08-06_acme-saas_data-engineer' --stage 'applied' --ts '2026-08-10T12:00:00'
+job-search-toolkit application record --folder 'applications/2026-08-06_acme-saas_data-engineer' --stage 'applied' --ts '2026-08-10T12:00:00'
 ```
 
 Verify after every write: re-run `tracker current --job '<folder>'` and confirm
