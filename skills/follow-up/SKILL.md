@@ -1,6 +1,6 @@
 ---
 name: follow-up
-description: Draft (never send) polite follow-up nudges for job applications that have been sitting in `applied` past the 10-day threshold with no reply — present the due queue to the human, draft copy using only claims already in the submitted materials, record the draft via the CLI, and stop for human approval before any send.
+description: Draft (never send) polite follow-up nudges for job applications that have been sitting in `applied` past the 10-day threshold with no reply — present the due queue to the human, draft copy using only claims already in the submitted materials, the human sends it manually, then record the sent follow-up via the CLI (capped at 2 sent per application).
 ---
 
 # follow-up
@@ -44,20 +44,27 @@ For a chosen application, open its folder
 
 STOP and show the draft to the human for approval before recording it.
 
-## 4. Record the approved draft
+## 4. The human sends first
+
+The HUMAN sends the follow-up manually through their own channel (email,
+LinkedIn, ATS portal). Never send, never auto-send — the tool has no send
+path at all.
+
+## 5. Record the sent follow-up
+
+After the human has actually sent it, record the follow-up so the cap counts
+follow-ups **sent** (the plan caps at two *sent* per application):
 
 ```
 job-search-toolkit application followup-draft --folder '<folder>' --note '<draft text>'
 ```
 
-This appends `{ts, note}` to the folder's `status.yaml` under `followups`.
-It does not touch the tracker's event feed and does not send anything. After
-2 drafts the tool refuses further drafts (cap) — do not work around it.
-
-## 5. The human sends
-
-The HUMAN sends the follow-up manually. Never send, never auto-send, and
-never claim a follow-up was sent — only that it was drafted and recorded.
+This appends `{ts, note}` to the folder's `status.yaml` under `followups`
+(the same source `followups-due` reads, so the cap and the due-query cannot
+drift). It does not touch the tracker's event feed and does not send
+anything. After 2 recorded sent follow-ups the tool refuses a third (cap) —
+do not work around it, and do not record a follow-up that was drafted but not
+sent.
 
 ## Failure handling
 
