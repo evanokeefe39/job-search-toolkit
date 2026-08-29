@@ -627,3 +627,36 @@ not a regression.
 as a code regression; kill orphans (taskkill/powershell) — they lock the
 warehouse and slow every subsequent run; warm dagster (`uv run python -c
 "import dagster"`) before timing a suite. See WATCHDOG.md.
+
+## 2026-08-29: WS5 — subagent LLM-provider credit failure + test-helper schema gotcha
+
+**Problem 1 — subagents hit a provider credit wall.** Three WS5 implementers ran
+in parallel (Epics 5.1/5.2/5.3); 5.1 and 5.2 finished cleanly, but a corrective
+subagent to rewrite a mangled test file failed immediately with
+`[openrouter/z-ai/glm-5.3-flash] 402 ... exceed your available credits ...
+retry-after-ms=120000` — it did nothing (248ms). The subagent LLM provider was
+out of credits, so re-dispatch kept failing; the fix had to be done by the
+orchestrator inline.
+**Rule:** before assuming a subagent failure is a code issue, check whether it
+returned an infra/credit error (402, rate-limit). A provider credit outage is an
+environment fault, not a spec gap — re-dispatching burns retries; right-size to
+an inline fix when the intended change is small and fully specified.
+
+**Problem 2 — the edit tool mangled `tests/test_job_report.py` mid-write** (dead
+code after `return`, a missing `def test_per_job_report_missing_fields():`
+header leaving an orphaned docstring → IndentationError). The agent had been
+warned to use full-file write; it didn't, and the tool corrupted the file. Only
+`ast.parse` caught it (the file was otherwise plausibly shaped).
+**Rule:** the full-file-write-after-any-mangle rule applies to TEST files too,
+and `ast.parse` every file a subagent produces before running it — a mangled
+test file is a silent no-op at best, a false-red at worst.
+
+**Problem 3 — test helper passed `company_id` into `ensure_jobs_table`.** The
+temp-warehouse helper in `test_job_report.py` added `company_id` to the job
+dicts fed to `ensure_jobs_table`, whose DDL already adds `company_id` → DuckDB
+`Catalog Error: Column with name company_id already exists!`. Fix: build the
+schema from jobs WITHOUT `company_id`, then insert rows that carry it.
+**Rule:** `ensure_jobs_table` derives its DDL from the incoming dict keys and
+always appends `company_id` itself — never pass a job dict that contains
+`company_id` to it. Cross-check test fixtures against the REAL `silver.jobs`
+schema (PK `(id, source_board)`), per the standing WS1 rule.

@@ -74,3 +74,22 @@ as a code regression, and kill orphans (they accumulate and slow everything).
   never hardcode `../crm` / `crm-bridge`.
 - At T2 (`tracker.backend: twenty`) Twenty is authoritative; the SQLite store is
   a best-effort mirror, never a fork that overrides iter_outcomes().
+
+## Subagent LLM-provider credit wall (HIGH — WS5 2026-08-29)
+
+Subagents run on a different provider than the main harness
+(`openrouter/z-ai/glm-5.3-flash`). When that provider is out of credits,
+subagents fail in ~250ms with `402 ... exceed your available credits ...`, doing
+nothing — not a code regression. Watch for the 402 signature before attributing
+a failed subagent to the work itself. If the provider is down, right-size to an
+inline orchestrator fix for a small, fully-specified change rather than
+re-dispatching into a credit wall.
+
+## Report / test-helper schema trap (WS5 2026-08-29)
+
+`silver.jobs` is PK `(id, source_board)` and `ensure_jobs_table` derives its DDL
+from the incoming job-dict keys, then ALWAYS appends `company_id` itself. A test
+helper that passes a `company_id` key in the job dicts it hands to
+`ensure_jobs_table` raises DuckDB `Catalog Error: Column with name company_id
+already exists!`. Build the schema from `company_id`-free dicts, then insert
+rows that carry it.
