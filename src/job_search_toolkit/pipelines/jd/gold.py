@@ -45,7 +45,111 @@ _DAYS_SINCE_SEEN = (
     "CAST(DATEDIFF('day', CAST(last_seen_at AS DATE), CURRENT_DATE) AS INTEGER)"
 )
 _NOT_STALE = f"{_DAYS_SINCE_SEEN} <= {STALE_AFTER_DAYS}"
-_STALE = f"{_DAYS_SINCE_SEEN} > {STALE_AFTER_DAYS}"
+
+# Feature dimensions scored in ``silver.jobs.scores`` (JSON), used by
+# ``gold.score_calibration``. A job with fewer than this many *applied*
+# outcomes in a band cannot support a trustworthy advance rate.
+CALIBRATION_FEATURES = (
+    "pay",
+    "flexibility",
+    "low_responsibility",
+    "tech_match",
+    "company_quality",
+)
+MIN_ADVANCE_COUNT = 5
+
+_CALIBRATION_SQL = f"""
+CREATE OR REPLACE VIEW gold.score_calibration AS
+WITH features(feature) AS (
+    VALUES {", ".join(f"({sql_literal(f)})" for f in CALIBRATION_FEATURES)}
+),
+bands(band_start, band_end) AS (
+    VALUES (0.0, 0.25), (0.25, 0.5), (0.5, 0.75), (0.75, 1.0)
+),
+scored AS (
+    -- One row per (job, feature): the feature score pulled from the
+    -- ``scores`` JSON. NULL feature scores (unscored dimension) drop out.
+    SELECT j.id AS job_id,
+           f.feature,
+           TRY_CAST(json_extract_string(j.scores, '$.' || f.feature) AS DOUBLE)
+             AS feature_score
+    FROM silver.jobs j
+    CROSS JOIN features f
+    WHERE j.scores IS NOT NULL
+),
+applied AS (
+    SELECT DISTINCT job_id FROM silver.fact_outcome_event WHERE stage = 'applied'
+),
+advanced AS (
+    -- Reached interview/offer AND had an applied event first.
+    SELECT DISTINCT e.job_id
+    FROM silver.fact_outcome_event e
+    JOIN applied a ON a.job_id = e.job_id
+    WHERE e.stage IN ('interview', 'offer')
+),
+banded AS (
+    -- Left half-open bands; the top band is closed so 1.0 lands in 0.75-1.0.
+    SELECT s.feature,
+           b.band_start,
+           b.band_end,
+           s.job_id,
+           (a.job_id IS NOT NULL) AS did_apply,
+           (adv.job_id IS NOT NULL) AS did_advance
+    FROM scored s
+    CROSS JOIN bands b
+    LEFT JOIN applied a ON a.job_id = s.job_id
+    LEFT JOIN advanced adv ON adv.job_id = s.job_id
+    WHERE s.feature_score >= b.band_start
+      AND (s.feature_score < b.band_end
+           OR (b.band_end = 1.0 AND s.feature_score <= 1.0))
+),
+counts AS (
+    SELECT feature, band_start, band_end,
+           COUNT(job_id) AS jobs_in_band,
+           COUNT(*) FILTER (WHERE did_apply) AS applied_count,
+           COUNT(*) FILTER (WHERE did_apply AND did_advance) AS advanced_count
+    FROM banded
+    GROUP BY feature, band_start, band_end
+)
+SELECT f.feature,
+       b.band_start,
+       b.band_end,
+       COALESCE(c.jobs_in_band, 0) AS jobs_in_band,
+       COALESCE(c.applied_count, 0) AS applied_count,
+       COALESCE(c.advanced_count, 0) AS advanced_count,
+       CASE
+           WHEN COALESCE(c.applied_count, 0) < {MIN_ADVANCE_COUNT} THEN NULL
+           ELSE COALESCE(c.advanced_count, 0)::DOUBLE
+                / COALESCE(c.applied_count, 0)::DOUBLE
+       END AS advance_rate,
+       CASE
+           WHEN COALESCE(c.applied_count, 0) < {MIN_ADVANCE_COUNT}
+               THEN 'not enough data'
+           ELSE 'ok'
+       END AS confidence_note
+FROM features f
+CROSS JOIN bands b
+LEFT JOIN counts c
+  ON c.feature = f.feature
+ AND c.band_start = b.band_start
+ AND c.band_end = b.band_end
+ORDER BY f.feature, b.band_start
+"""
+
+
+
+
+def build_score_calibration(con: duckdb.DuckDBPyConnection) -> None:
+    """Create or replace ``gold.score_calibration`` (run-independent).
+
+    Per-feature advance rates by score band with an honest confidence note
+    (``not enough data`` below ``MIN_ADVANCE_COUNT``; ``advance_rate`` NULL
+    when there is not enough data — never a fabricated rate). Split out of
+    ``build_gold`` so it is testable against a minimal warehouse that only
+    needs ``silver.jobs`` + ``silver.fact_outcome_event``.
+    """
+    con.execute("CREATE SCHEMA IF NOT EXISTS gold")
+    con.execute(_CALIBRATION_SQL)
 
 
 def latest_run(con: duckdb.DuckDBPyConnection) -> str | None:
@@ -152,6 +256,10 @@ def build_gold(db_path: Path, run_id: str | None = None) -> None:
             WHERE {_STALE}
             """
         )
+
+        # score_calibration is run-independent: per-feature advance rates
+        # by score band, with an honest confidence note (no fabricated power).
+        build_score_calibration(con)
 
         run = run_id or latest_run(con)
         if run is None:

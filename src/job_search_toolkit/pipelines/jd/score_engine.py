@@ -33,12 +33,22 @@ load_dotenv()
 ENRICHED_JOBS = Path("data/silver/freework_jobs_enriched.json")
 
 # --- Scoring weights (sum to 1.0) ---
-# Defaults live in scoring_config.yaml (versioned); pass `weights=` to score_jobs()
-# to override at call time.
+# Bundled defaults live in scoring_config.yaml (version 1). If the user-level
+# active-override file written by `pipeline score-report --apply-calibration`
+# exists (env JST_ACTIVE_WEIGHTS_FILE, default data/scoring_active.yaml), its
+# weights take precedence; the packaged default stays intact and restorable.
 def _load_default_weights() -> dict[str, float]:
-    """Load the versioned default weights from the bundled scoring_config.yaml."""
+    """Load active override weights if present, else the bundled defaults."""
     import yaml
 
+    from .calibration import active_weights_file
+
+    active = active_weights_file()
+    if active.is_file():
+        with open(active, "r", encoding="utf-8") as f:
+            config = yaml.safe_load(f)
+        if config and config.get("weights"):
+            return dict(config["weights"])
     with resources.as_file(resources.files(__package__) / "scoring_config.yaml") as p:
         with open(p, "r", encoding="utf-8") as f:
             config = yaml.safe_load(f)
