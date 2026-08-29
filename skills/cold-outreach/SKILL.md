@@ -88,6 +88,25 @@ Sort contacts by priority (highest first):
 2. Data team member at target company (similar role)
 3. Internal recruiter at target company
 4. External recruiter at known agency
+### 2b. Route by score
+
+Before drafting, route the contact list by the deterministic lead score
+(zero-LLM; Epic 7.2) so outreach targets the highest-value relationships
+first:
+
+```
+job-search-toolkit bd leads
+```
+
+It prints `person_id | company_id | intent | fit | access | urgency |
+lead_score` from `gold.lead_rank`, ordered by `lead_score DESC`. Prioritize
+contacts in score order for drafting, with special attention to:
+- referrals (boosted access — a warm intro is not buried by cold-score)
+- inbound contacts (higher intent baseline)
+
+The actual send is ALWAYS human-approved (step 4); scoring only orders the
+queue. Scores are recomputed on demand; a lead with no data scores neutral,
+it is never dropped.
 
 ### 3. Draft outreach messages
 

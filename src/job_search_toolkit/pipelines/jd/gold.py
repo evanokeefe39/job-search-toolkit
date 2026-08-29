@@ -287,6 +287,43 @@ _BD_VIEWS: tuple[tuple[tuple[str, ...], str], ...] = (
         LEFT JOIN silver.dim_person tp ON tp.person_id = r.target_person_id
         """,
     ),
+    (
+        ("lead",),
+        """
+        CREATE OR REPLACE VIEW gold.lead_rank AS
+        SELECT person_id,
+               company_id,
+               intent,
+               fit,
+               access,
+               urgency,
+               lead_score
+        FROM silver.lead
+        ORDER BY lead_score DESC
+        """,
+    ),
+    (
+        ("lead",),
+        """
+        CREATE OR REPLACE VIEW gold.lead_score_calibration AS
+        WITH bands(band_start, band_end) AS (
+            VALUES (0.0, 0.25), (0.25, 0.5), (0.5, 0.75), (0.75, 1.0)
+        ),
+        scored AS (
+            SELECT lead_score FROM silver.lead WHERE lead_score IS NOT NULL
+        )
+        SELECT COUNT(s.lead_score) AS lead_count,
+               b.band_start,
+               b.band_end
+        FROM bands b
+        LEFT JOIN scored s
+          ON s.lead_score >= b.band_start
+         AND (s.lead_score < b.band_end
+              OR (b.band_end = 1.0 AND s.lead_score <= 1.0))
+        GROUP BY b.band_start, b.band_end
+        ORDER BY b.band_start
+        """,
+    ),
 )
 
 
@@ -328,9 +365,12 @@ def build_gold(db_path: Path, run_id: str | None = None) -> None:
     with duckdb.connect(str(db_path)) as con:
         con.execute("CREATE SCHEMA IF NOT EXISTS gold")
 
-        # BD/CRM gold views (WS7 Epic 7.1): no-op per view when the silver
-        # tables are absent; independent of ranked_jobs output.
+        # BD/CRM + lead gold views (WS7 Epic 7.1/7.2): each view no-ops when
+        # its source silver table is absent; independent of ranked_jobs.
         ensure_bd_tables(con)
+        from .score_engine import ensure_lead_table
+
+        ensure_lead_table(con)
         build_bd_views(con)
 
         con.execute(

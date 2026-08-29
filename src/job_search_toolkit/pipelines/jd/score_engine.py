@@ -20,6 +20,7 @@ Usage (legacy CLI — prefer the Dagster asset):
 from __future__ import annotations
 
 import re
+import os
 from datetime import date, datetime
 from importlib import resources
 from pathlib import Path
@@ -351,7 +352,7 @@ def score_jobs(jobs: list[dict], weights: dict[str, float] | None = None) -> lis
             "company_quality": _score_company_quality(job),
             "freshness": _score_freshness(job),
         }
-        base = sum(scores[k] * w[k] for k in w)
+        base = _weighted_base(scores, w)
         overall = base * scores["freshness"]
         job["scores"] = scores
         job["overall_score"] = round(overall, 3)
@@ -370,5 +371,223 @@ def score_jobs(jobs: list[dict], weights: dict[str, float] | None = None) -> lis
             job["recommendation_tier"] = "medium"
         else:
             job["recommendation_tier"] = "low"
-
     return jobs
+
+# ============================================================================
+# Lead scoring (WS7 Epic 7.2) — score_engine as a second consumer
+# ============================================================================
+# Deterministic, zero-LLM: lead_score is a weighted sum over intent/fit/
+# access/urgency, computed from warehouse signals (dim_company / dim_person /
+# fact_touch / fact_referral). Weights live in versioned lead_scoring_config.
+# yaml and change only via the gated lead-calibration path (never LLM).
+# A MISSING signal contributes 'neutral' (0.5), never 0 — a thin contact is
+# not penalized as disqualification.
+
+LEAD_FEATURES = ("intent", "fit", "access", "urgency")
+LEAD_MIN_EVIDENCE = 5
+
+
+def _load_lead_config() -> dict:
+    """Full lead-scoring config: weights + boost/neutral constants.
+
+    Active override (env JST_LEAD_ACTIVE_WEIGHTS_FILE, default
+    data/lead_scoring_active.yaml) overrides only the ``weights`` sub-dict;
+    the boost/neutral constants stay from the bundled default. Mirrors
+    score_jobs' versioned weight precedence (WS1).
+    """
+    import yaml
+
+    from importlib import resources
+
+    active = Path(os.environ.get(
+        "JST_LEAD_ACTIVE_WEIGHTS_FILE", "data/lead_scoring_active.yaml"))
+    if active.is_file():
+        with open(active, "r", encoding="utf-8") as f:
+            cfg = yaml.safe_load(f) or {}
+        if cfg.get("weights"):
+            bundled = _load_lead_config_bundled()
+            bundled["weights"] = dict(cfg["weights"])
+            return bundled
+    return _load_lead_config_bundled()
+
+
+def _load_lead_config_bundled() -> dict:
+    import yaml
+
+    from importlib import resources
+
+    with resources.as_file(
+        resources.files(__package__) / "lead_scoring_config.yaml"
+    ) as p:
+        with open(p, "r", encoding="utf-8") as f:
+            return yaml.safe_load(f)
+
+
+def _load_lead_weights() -> dict[str, float]:
+    """Active lead weights (override wins, else bundled defaults)."""
+    return dict(_load_lead_config()["weights"])
+
+
+def _load_default_lead_weights() -> dict[str, float]:
+    """Bundled default lead weights (never affected by an override file)."""
+    return dict(_load_lead_config_bundled()["weights"])
+
+
+LEAD_WEIGHTS = _load_lead_weights()
+
+
+def _weighted_base(scores: dict[str, float], weights: dict[str, float]) -> float:
+    """Weighted sum of per-feature scores — shared by score_jobs and score_leads."""
+    return sum(scores[k] * w for k, w in weights.items())
+
+
+def validate_lead_weights(weights: dict[str, float]) -> None:
+    """Fail loudly unless the weight vector covers every dimension and sums
+    to 1.0 (never silently default on a corrupt/invalid config)."""
+    missing = [f for f in LEAD_FEATURES if f not in weights]
+    if missing:
+        raise ValueError(f"lead weights missing dimensions: {missing}")
+    total = sum(weights[f] for f in LEAD_FEATURES)
+    if abs(total - 1.0) > 1e-6:
+        raise ValueError(f"lead weights must sum to 1.0, got {total}")
+
+
+def _clamp(v: float) -> float:
+    return max(0.0, min(1.0, v))
+
+
+def _score_lead_intent(lead: dict, cfg: dict) -> float:
+    """Intent: sector/role overlap; an inbound touch raises the baseline."""
+    if lead.get("inbound_touch"):
+        base = lead.get("sector_overlap")
+        base = cfg["neutral"] if base is None else float(base)
+        return _clamp(base + cfg["inbound_intent_boost"])
+    v = lead.get("sector_overlap")
+    return cfg["neutral"] if v is None else _clamp(float(v))
+
+
+def _score_lead_fit(lead: dict, cfg: dict) -> float:
+    v = lead.get("tech_overlap")
+    return cfg["neutral"] if v is None else _clamp(float(v))
+
+
+def _score_lead_access(lead: dict, cfg: dict) -> float:
+    """Access: contact availability + referral boost + recent engagement."""
+    ca = lead.get("contact_available")
+    base = cfg["neutral"] if ca is None else (cfg["neutral"] if ca else 0.3)
+    if lead.get("has_referral"):
+        base += cfg["referral_boost"]
+    rtd = lead.get("recent_touch_days")
+    if rtd is not None and int(rtd) <= 30:
+        base += 0.1
+    return _clamp(base)
+
+
+def _score_lead_urgency(lead: dict, cfg: dict) -> float:
+    """Urgency: recent funding + active hiring + recent inbound/event."""
+    funding = lead.get("funding_amount_usd")
+    funding_score = (
+        cfg["neutral"] if funding is None
+        else _clamp(float(funding) / 100_000_000)
+    )
+    hiring = lead.get("active_hiring")
+    hiring_score = cfg["neutral"] if hiring is None else (0.8 if hiring else 0.3)
+    rtd = lead.get("recent_touch_days")
+    engagement = cfg["neutral"] if rtd is None else (0.7 if int(rtd) <= 30 else 0.3)
+    return _clamp(0.5 * funding_score + 0.3 * hiring_score + 0.2 * engagement)
+
+
+def score_leads(leads: list[dict], weights: dict[str, float] | None = None) -> list[dict]:
+    """Score all leads deterministically; add lead_scores + lead_score, rank
+    by lead_score DESC. Missing signals score neutral (0.5), never a crash."""
+    cfg = _load_lead_config()
+    w = weights if weights is not None else LEAD_WEIGHTS
+    validate_lead_weights(w)
+    for lead in leads:
+        lead_scores = {
+            "intent": _score_lead_intent(lead, cfg),
+            "fit": _score_lead_fit(lead, cfg),
+            "access": _score_lead_access(lead, cfg),
+            "urgency": _score_lead_urgency(lead, cfg),
+        }
+        lead["lead_scores"] = lead_scores
+        lead["lead_score"] = round(_weighted_base(lead_scores, w), 3)
+    leads.sort(key=lambda l: l.get("lead_score", 0), reverse=True)
+    return leads
+
+
+# --- warehouse write path (gold.lead_rank / gold.lead_score_calibration) ---
+
+LEAD_COLUMNS: list[tuple[str, str]] = [
+    ("person_id", "VARCHAR"),
+    ("company_id", "VARCHAR"),
+    ("intent", "DOUBLE"),
+    ("fit", "DOUBLE"),
+    ("access", "DOUBLE"),
+    ("urgency", "DOUBLE"),
+    ("lead_score", "DOUBLE"),
+    ("scored_at", "TIMESTAMP"),
+]
+
+
+def ensure_lead_table(con) -> None:
+    """Create ``silver.lead`` if missing (idempotent)."""
+    from .silver import sql_literal  # noqa: F401  (kept for symmetry)
+
+    con.execute("CREATE SCHEMA IF NOT EXISTS silver")
+    cols = ", ".join(f"{n} {t}" for n, t in LEAD_COLUMNS)
+    con.execute(f"CREATE TABLE IF NOT EXISTS silver.lead ({cols}, PRIMARY KEY (person_id))")
+
+
+def upsert_lead_scores(con, leads: list[dict]) -> int:
+    """Score leads deterministically and upsert into silver.lead (idempotent)."""
+    from .silver import sql_literal
+
+    ensure_lead_table(con)
+    scored = score_leads(leads)
+    updated = 0
+    for lead in scored:
+        dims = lead["lead_scores"]
+        con.execute(
+            "INSERT INTO silver.lead (person_id, company_id, intent, fit, access, "
+            "urgency, lead_score, scored_at) VALUES "
+            f"({sql_literal(lead.get('person_id'))}, "
+            f"{sql_literal(lead.get('company_id'))}, "
+            f"{sql_literal(dims['intent'])}, {sql_literal(dims['fit'])}, "
+            f"{sql_literal(dims['access'])}, {sql_literal(dims['urgency'])}, "
+            f"{sql_literal(lead['lead_score'])}, NOW()) "
+            "ON CONFLICT (person_id) DO UPDATE SET "
+            "company_id = EXCLUDED.company_id, intent = EXCLUDED.intent, "
+            "fit = EXCLUDED.fit, access = EXCLUDED.access, "
+            "urgency = EXCLUDED.urgency, lead_score = EXCLUDED.lead_score, "
+            "scored_at = NOW()"
+        )
+        updated += 1
+    return updated
+
+
+def lead_apply_calibration(db_path) -> dict:
+    """Gated lead-weight calibration (Epic 7.2).
+
+    Mirrors WS1's job calibration: weights change only via this explicit
+    gated path, promoted from SQL evidence in gold.lead_score_calibration.
+    The versioned-config + active-override-file write machinery is reused;
+    outcome-LINKED advance evidence is gated until lead outcomes exist, so
+    with no scored leads it refuses ('not enough data') and writes nothing.
+    """
+    import duckdb
+
+    con = duckdb.connect(str(db_path), read_only=True)
+    try:
+        total = con.execute(
+            "SELECT COALESCE(SUM(lead_count), 0) FROM gold.lead_score_calibration"
+        ).fetchone()[0]
+    except duckdb.Error:
+        total = 0
+    finally:
+        con.close()
+    if int(total) < LEAD_MIN_EVIDENCE:
+        raise RuntimeError("not enough data — no calibration")
+    # Outcome-linked advance evidence gates the write; deferred until lead
+    # outcome labels exist (per lead-scoring.md assumption log).
+    raise RuntimeError("not enough data — no outcome evidence for calibration")

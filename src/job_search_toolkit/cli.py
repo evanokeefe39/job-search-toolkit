@@ -210,6 +210,48 @@ def pipeline_score_report(
 
 app.add_typer(pipeline_app, name="pipeline")
 
+@pipeline_app.command("lead-score-report")
+def pipeline_lead_score_report(
+    apply_calibration: bool = typer.Option(
+        False, "--apply-calibration",
+        help="Apply the suggested lead weights (gated: requires SQL evidence "
+             "from gold.lead_score_calibration).",
+    ),
+) -> None:
+    """Lead-score band distribution + gated weight calibration (Epic 7.2).
+
+    Reads gold.lead_score_calibration: lead-count per lead-score band. Lead
+    weights change only via this explicit gated path, promoted from SQL
+    evidence — never LLM-proposed. Without outcome-linked advance evidence
+    (lead outcomes are deferred), it refuses and writes nothing.
+    """
+    from job_search_toolkit.pipelines.jd import score_engine
+    from job_search_toolkit.pipelines.jd.config import WAREHOUSE_DB
+
+    if not WAREHOUSE_DB.is_file():
+        print(f"Warehouse not found: {WAREHOUSE_DB}")
+        raise typer.Exit(code=1)
+
+    from job_search_toolkit.pipelines.jd import gold, silver
+    con = silver.connect()
+    try:
+        gold.build_bd_views(con)
+        rows = con.execute(
+            "SELECT band_start, band_end, lead_count FROM gold.lead_score_calibration"
+        ).fetchall()
+    finally:
+        con.close()
+    print(f"{'band':<18} {'leads':>6}")
+    for start, end, count in rows:
+        print(f"{start:.2f}-{end:.2f} {count:>6}")
+
+    if not apply_calibration:
+        print("\n(dry run — pass --apply-calibration to apply)")
+        return
+    result = score_engine.lead_apply_calibration(WAREHOUSE_DB)
+    print(f"\nApplied lead calibration v{result['version']}:")
+    print(f"  active weights:  {result['active_file']}")
+
 # ---------------------------------------------------------------------------
 # tracker
 # ---------------------------------------------------------------------------
@@ -496,6 +538,31 @@ def bd_cadence() -> None:
         return
     for person_id, name, days in rows:
         print(f"{person_id} | {name} | {days}")
+
+
+@bd_app.command("leads")
+def bd_leads(limit: int = typer.Option(20, "--limit", help="Max leads to print.")) -> None:
+    """Print scored leads from gold.lead_rank, in lead_score DESC order."""
+    from job_search_toolkit.pipelines.jd import gold, silver
+    from job_search_toolkit.pipelines.jd import score_engine
+
+    con = silver.connect()
+    try:
+        silver.ensure_bd_tables(con)
+        score_engine.ensure_lead_table(con)
+        gold.build_bd_views(con)
+        rows = con.execute(
+            f"SELECT person_id, company_id, intent, fit, access, urgency, lead_score "
+            f"FROM gold.lead_rank LIMIT {int(limit)}"
+        ).fetchall()
+    finally:
+        con.close()
+    if not rows:
+        print("none")
+        return
+    print("person_id | company_id | intent | fit | access | urgency | lead_score")
+    for person_id, company_id, intent, fit, access, urgency, lead_score in rows:
+        print(f"{person_id} | {company_id} | {intent} | {fit} | {access} | {urgency} | {lead_score}")
 
 
 app.add_typer(bd_app, name="bd")
