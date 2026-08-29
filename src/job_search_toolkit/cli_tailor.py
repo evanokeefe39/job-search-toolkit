@@ -398,6 +398,11 @@ def run(
                       file=sys.stderr)
         else:
             print("[REVIEW] No changes — first pass accepted as-is.", file=sys.stderr)
+    elif with_review:
+        _reason = ("--no-audit disables the guard" if no_audit
+                   else "the first pass has HARD fabrications")
+        print(f"[REVIEW] Skipped: reviewer needs the fabrication guard ({_reason}).",
+              file=sys.stderr)
 
 
 @app.command("verify")

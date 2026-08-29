@@ -115,9 +115,8 @@ def test_reviewer_bounded_loop_single_revise():
 
     def revising_reviewer(draft_text, master_text, jd_text, verify_text):
         calls["n"] += 1
-        # Targeted revision: surface a supported-but-missing keyword (Airflow,
-        # present in JD + master's model-fabrication-free text? — supported via
-        # the JD term being rewordable, so keep it a supported skill add).
+        # Targeted revision: surface a supported-but-missing keyword (Airflow),
+        # which the JD lists and the draft missed.
         revision = deepcopy(_draft_content())
         revision["skills"] = [
             {"label": "Languages", "details": "Python, SQL"},
