@@ -668,3 +668,45 @@ def fetch_jobs(
     return out
 
 
+# --- Outcome events (WS1 Epic 1.2) ------------------------------------------
+
+OUTCOME_EVENT_COLUMNS: list[tuple[str, str]] = [
+    ("outcome_event_id", "VARCHAR"),
+    ("job_id", "VARCHAR"),
+    ("stage", "VARCHAR"),
+    ("ts", "VARCHAR"),
+    ("note", "VARCHAR"),
+    ("provenance", "VARCHAR"),
+    ("recorded_at", "VARCHAR"),
+    ("synced_at", "TIMESTAMP"),
+]
+
+
+def outcome_event_id(job_id: str, stage: str, ts: str, note: str | None,
+                     provenance: str) -> str:
+    """SHA-1 surrogate key over the event identity (repo convention)."""
+    payload = "|".join((str(job_id), str(stage), str(ts),
+                        str(note or ""), str(provenance)))
+    return hashlib.sha1(payload.encode("utf-8")).hexdigest()[:16]
+
+
+def ensure_outcomes_table(con: duckdb.DuckDBPyConnection) -> None:
+    """Create ``silver.fact_outcome_event`` if missing (idempotent).
+
+    ``job_id`` is deliberately NOT a foreign key: an outcome may be recorded
+    for an application folder that has no warehouse job yet (nullable join).
+    The UNIQUE index mirrors the tracker's own idempotency so re-syncing the
+    same events never duplicates rows (NULL note handled via COALESCE).
+    """
+    con.execute("CREATE SCHEMA IF NOT EXISTS silver")
+    cols = ", ".join(f"{name} {typ}" for name, typ in OUTCOME_EVENT_COLUMNS)
+    con.execute(
+        f"CREATE TABLE IF NOT EXISTS silver.fact_outcome_event ({cols})"
+    )
+    con.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS ux_outcome_event_payload "
+        "ON silver.fact_outcome_event(job_id, stage, ts, "
+        "COALESCE(note, ''), provenance)"
+    )
+
+

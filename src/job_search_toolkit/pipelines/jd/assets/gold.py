@@ -4,12 +4,13 @@ import dagster as dg
 from dagster import AssetExecutionContext
 
 from .score import scored_jobs
+from .outcomes import warehouse_outcomes
 from ..config import WAREHOUSE_DB
 from ..gold import build_gold
 
 
 @dg.asset(
-    deps=[scored_jobs],
+    deps=[scored_jobs, warehouse_outcomes],
     group_name="analytics",
     description="Create or replace gold analytics views over silver.jobs",
 )

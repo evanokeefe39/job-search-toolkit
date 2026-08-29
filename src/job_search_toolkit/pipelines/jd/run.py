@@ -28,12 +28,15 @@ from .assets import (
     merged_jobs_export,
     ranked_csv,
     scored_jobs,
+    warehouse_outcomes,
 )
 
-# Downstream assets that consume silver: score + export + gold. When a subset
-# (``--boards``) is selected these run once after the chosen boards' silvers.
+# Downstream assets that consume silver: score + outcome sync + export + gold.
+# When a subset (``--boards``) is selected these run once after the chosen
+# boards' silvers.
 DOWNSTREAM_ASSETS = [
     scored_jobs,
+    warehouse_outcomes,
     ranked_csv,
     gold_views,
     merged_jobs_export,
