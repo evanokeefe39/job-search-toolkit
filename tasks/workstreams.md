@@ -32,12 +32,14 @@ live in `tasks/plans/`; this file is the durable summary and current-status reco
 - **Status:** `active` (opportunistic parallel track)
 - **Plans:** `tasks/plans/ws4-market-insights.md`
 
-## WS5 — Application Workflow & Lifecycle *(constant value while building)*
-- **Epic 5.1** Outcome recording (per-application `status.yaml`)
-- **Epic 5.2** Follow-up cadence (drafts-only, >10 days)
-- **Epic 5.3** Per-job structured report (from deterministic features)
-- **Epic 5.4** Gmail/reply-watch *(deferred until ~20 real outcomes)*
-- **Status:** `active` (rides alongside WS1; every application emits an outcome row)
+- **Status:** `implemented 2026-08-29` — Epics 5.1–5.3 landed (per-folder append-only
+  `status.yaml` + `application record` that sinks transitions into the warehouse via the WS1
+  tracker interface; follow-ups-due query + drafts-only cap-2 follow-ups; deterministic per-job
+  report with explicit "unknown" gaps; new `application` CLI group + record-outcome/follow-up
+  skills; application-tracker/new-application record via `application record`). 26 tests green,
+  `pipeline gold` + `pipeline run` smoke pass. Epic 5.4 (Gmail/reply-watch) is DEFERRED until ~20
+  real manually-recorded outcomes exist — noted in the plan, not implemented. WS7 consumes WS1's
+  tracker contract next.
 - **Plans:** `tasks/plans/ws5-application-workflow.md`
 
 ## WS6 — Productization & Growth
