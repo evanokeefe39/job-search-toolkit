@@ -20,6 +20,7 @@ Usage (legacy CLI — prefer the Dagster asset):
 from __future__ import annotations
 
 import os
+import re
 from datetime import date, datetime
 from importlib import resources
 from pathlib import Path
@@ -95,10 +96,15 @@ def _get_pay(job: dict) -> tuple[float, float]:
 
 
 def _score_pay(job: dict) -> float:
-    """Score pay: higher is better, normalized against market range."""
+    """Score pay: higher is better, normalized against market range.
+    Undisclosed salary is a MISSING signal: neutral 0.5, never a penalty
+    (most boards don't disclose, so scoring it low would tank ~90% of
+    jobs on data we don't have). Disclosed mid-range salaries still beat
+    unknown: 50k+ is a known, acceptable rate (0.6), 40k a known floor
+    (0.5)."""
     pay_min, pay_max = _get_pay(job)
     if pay_min == 0:
-        return 0.3  # unknown -> neutral
+        return 0.5  # undisclosed -> neutral (missing signal, never a penalty)
     avg = (pay_min + pay_max) / 2
     if avg >= 90000:
         return 1.0
@@ -107,12 +113,11 @@ def _score_pay(job: dict) -> float:
     elif avg >= 60000:
         return 0.6
     elif avg >= 50000:
-        return 0.4
+        return 0.6
     elif avg >= 40000:
-        return 0.2
+        return 0.5
     else:
-        return 0.1
-
+        return 0.4
 
 def _score_flexibility(job: dict) -> float:
     """Score flexibility: remote work, contract type, travel potential."""
@@ -139,27 +144,59 @@ def _score_flexibility(job: dict) -> float:
 
 
 def _score_low_responsibility(job: dict) -> float:
-    """Score for low-to-moderate responsibility."""
+    """Score low-to-moderate responsibility (the user prefers not to lead/manage).
+
+    Deterministic keyword heuristic over title, seniority, role category and
+    description. Tokens are normalized (lowercase, split on non-alphanumerics)
+    so hyphenated/compound titles (``data-lead``, ``staff-engineer``) match.
+    Phrase matching handles multi-word signals (``tech lead``, ``chef de
+    projet``, ``responsable d'équipe``). Missing signal stays neutral 0.5.
+    """
     title = (job.get("title") or "").lower()
     desc = (job.get("description_text") or "").lower()
     seniority = (job.get("seniority_level") or "").lower()
     role = (job.get("role_category") or "").lower()
 
+    def tokens(text: str) -> set[str]:
+        # split on anything not a letter/number/accent; keeps multi-char
+        return {t for t in re.split(r"[^a-zà-ÿ0-9]+", text) if t}
+
+    title_tokens = tokens(title)
+    desc_tokens = tokens(desc)
+
     score = 0.5  # baseline
 
-    # Title signals
-    high_responsibility = {
-        "lead", "architect", "manager", "head", "director",
-        "chef de projet", "tech lead", "principal",
+    # High-responsibility title tokens (lead/manage/own outcomes)
+    high_resp = {
+        "lead", "architect", "architecte", "manager", "head", "director",
+        "directeur", "principal", "staff", "chief", "vp", "cto", "cio",
+        "president", "owner", "coo",
     }
-    low_responsibility = {
-        "junior", "support", "analyst", "analytics", "consultant",
+    low_resp = {
+        "junior", "support", "analyst", "analytics", "analyste", "consultant",
+        "conseil", "assistant", "coordinator", "coordinator",
     }
 
-    title_words = set(title.split())
-    if title_words & high_responsibility:
+    high_hits = title_tokens & high_resp
+    low_hits = title_tokens & low_resp
+    if high_hits:
         score -= 0.25
-    if title_words & low_responsibility:
+    if low_hits:
+        score += 0.15
+
+    # Multi-word / phrase signals on the raw (lowercased) title
+    high_phrases = [
+        "tech lead", "team lead", "chef de projet", "chef de projet",
+        "responsable d'equipe", "responsable d'équipe", "lead engineer",
+        "engineering manager", "head of", "project manager", "chef de service",
+    ]
+    low_phrases = [
+        "data analyst", "data analyste", "support engineer", "junior engineer",
+        "data support",
+    ]
+    if any(ph in title for ph in high_phrases):
+        score -= 0.25
+    if any(ph in title for ph in low_phrases):
         score += 0.15
 
     # Seniority signal (canonical: entry, junior, mid, senior, lead, manager)
@@ -173,19 +210,22 @@ def _score_low_responsibility(job: dict) -> float:
     # Role category signal
     if role == "product_manager":
         score -= 0.15
-    if role == "data_analyst":
+    if role in ("data_analyst", "data_analytics", "support"):
         score += 0.1
 
-    # Management keywords in description
+    # Management / people responsibilities in description
     mgmt_keywords = [
         "manage a team", "lead a team", "mentor", "line management",
-        "gérer une équipe", "management d'équipe",
+        "gérer une équipe", "management d'équipe", "manage a team of",
+        "lead a team of", "people management", "hiring responsibilities",
+        "responsible for the team", "responsable d'une équipe",
     ]
     if any(kw in desc for kw in mgmt_keywords):
         score -= 0.2
 
     # On-call / production pressure
-    ops_pressure = ["on-call", "production incidents", "astreinte", "incident", "pager"]
+    ops_pressure = ["on-call", "production incidents", "astreinte",
+                    "incident", "pager", "sous responsabilité de"]
     if any(kw in desc for kw in ops_pressure):
         score -= 0.1
 
@@ -209,75 +249,6 @@ def _score_tech_match(job: dict) -> float:
     return max(min(score + 0.5, 1.0), 0.0)
 
 
-# --- Company engagement heuristic (non-LLM) ----------------------------------
-# Replaces the LLM classify signal on the ranking path. This is a heuristic,
-# not LLM-grade: it will misclassify some postings (e.g. an ESN whose name
-# has no signal and whose description is English) and is expected to be tuned
-# from data. Engagement from the source (hiringcafe ships "direct") wins when
-# present; freework rows fall back to this detector until enriched.
-ESN_NAME_SIGNALS = (
-    "consulting", "conseil", "esn", "ssii", "recruitment", "staffing",
-    "groupe", "holding",
-)
-ESN_DESC_SIGNALS = (
-    "chez notre client", "mission chez", "en mission", "client final",
-)
-
-
-def detect_engagement(company_name: str, description: str) -> str:
-    """Tabular ESN/direct detection from name + description patterns.
-
-    Returns ``"consulting"`` when the company name or the posting text shows
-    ESN/consulting signals, else ``"direct"``.
-    """
-    name = (company_name or "").lower()
-    desc = (description or "").lower()
-    if any(s in name for s in ESN_NAME_SIGNALS):
-        return "consulting"
-    if any(s in desc for s in ESN_DESC_SIGNALS):
-        return "consulting"
-    return "direct"
-
-
-def _score_company_quality(job: dict) -> float:
-    """Score company quality: product company > consulting, known name > obscure.
-
-    Consumes only tabular fields: ``engagement_type`` when the source
-    provides it (hiringcafe), otherwise the ``detect_engagement`` heuristic;
-    ``org_type`` / ``stock_symbol`` / funding come from the ``dim_company``
-    join (via ``company_info``). No LLM call on this path.
-    """
-    score = 0.5  # baseline
-
-    posting_type = (job.get("posting_company_type") or "").lower()
-    engagement = (job.get("engagement_type") or "").lower()
-    ci = job.get("company_info") or {}
-
-    if engagement not in ("direct", "consulting"):
-        # Source didn't classify (freework without enrich) — use the heuristic.
-        engagement = detect_engagement(
-            ci.get("name") or job.get("company") or "",
-            job.get("description_text") or "",
-        )
-    if engagement == "direct":
-        score += 0.2
-    if posting_type == "esn":
-        score -= 0.05
-
-    org_type = (ci.get("org_type") or "").lower()
-    if org_type == "enterprise":
-        score += 0.1
-    if org_type == "consulting_firm":
-        score -= 0.1
-
-    # Well-known company = has stock symbol or significant funding
-    if ci.get("stock_symbol") or (
-        ci.get("latest_funding_amount_usd") and ci["latest_funding_amount_usd"] > 50_000_000
-    ):
-        score += 0.05
-
-    return max(min(score, 1.0), 0.0)
-
 
 # Freshness decay curves (days). Age = since date_posted; seen = since
 # last_seen_at. Fresh (0-7d) scores 1.0 and decays linearly to 0.
@@ -285,7 +256,6 @@ _FRESH_DAYS = 7
 _MAX_AGE_DAYS = 90  # a post older than this is likely filled
 # seen-decay horizon == STALE_AFTER_DAYS (silver.py); a job not seen for this
 # long is treated as gone by the gold views too.
-
 
 def _coerce_date(value) -> date | None:
     """Coerce a stored date/timestamp (str, date, or datetime) to a date."""
@@ -348,7 +318,6 @@ def score_jobs(jobs: list[dict], weights: dict[str, float] | None = None) -> lis
             "flexibility": _score_flexibility(job),
             "low_responsibility": _score_low_responsibility(job),
             "tech_match": _score_tech_match(job),
-            "company_quality": _score_company_quality(job),
             "freshness": _score_freshness(job),
         }
         base = _weighted_base(scores, w)

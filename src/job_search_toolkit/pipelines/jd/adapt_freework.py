@@ -170,7 +170,6 @@ def normalize_freework_job(raw: dict) -> CanonicalJob:
             flexibility=scores.get("flexibility", 0),
             low_responsibility=scores.get("low_responsibility", 0),
             tech_match=scores.get("tech_match", 0),
-            company_quality=scores.get("company_quality", 0),
         )
 
     job = new_canonical_job("freework")

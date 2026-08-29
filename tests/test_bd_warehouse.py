@@ -401,7 +401,7 @@ def _seed_scored_jobs(con) -> None:
             "end_client_sector": "finance", "posting_company_type": "esn",
             "overall_score": 0.5, "recommendation_tier": "medium",
             "scores": {"pay": 0.3, "flexibility": 0.4, "low_responsibility": 0.4,
-                       "tech_match": 0.3, "company_quality": 0.4, "freshness": 0.9},
+                       "tech_match": 0.3, "freshness": 0.9},
         },
     ]
     silver.ensure_dims(con)

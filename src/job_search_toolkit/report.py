@@ -10,7 +10,7 @@ Real warehouse schema (see pipelines/jd/silver.py):
 - ``LINEAGE_COLUMNS`` carry date_posted/last_seen_at-style recency facts.
 - ``dim_company`` (keyed by ``company_id`` FK) carries org_type / industry.
 Score fields (pipelines/jd/score_engine.py::score_jobs): pay, flexibility,
-low_responsibility, tech_match, company_quality, freshness — plus
+low_responsibility, tech_match, freshness — plus
 ``overall_score`` and ``recommendation_tier`` (top/high/medium/low) stored
 as sibling columns.
 """
@@ -136,7 +136,7 @@ def render_job_report(job: dict) -> str:
     lines.append("--- Fit ---")
     if scores:
         for k in ("pay", "flexibility", "low_responsibility", "tech_match",
-                  "company_quality", "freshness"):
+                  "freshness"):
             lines.append(f"{k}: {_fmt(scores.get(k))}")
     else:
         lines.append(f"{flag('scores', UNKNOWN)}")

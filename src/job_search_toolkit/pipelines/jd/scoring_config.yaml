@@ -1,10 +1,13 @@
-# Default scoring weight set (version 1). Sum to 1.0.
+# Default scoring weight set (version 2). Sum to 1.0.
 # Tuned for: well-paid, not too demanding, flexible, interesting.
+# v2: company_quality removed from rank (consulting-vs-product comparison is
+#     not a reliable discriminator); remaining weights renormalized to 1.0.
+#     Company research (news/INSEE) is a post-shortlist enrichment, not a
+#     ranking dimension.
 # Future --apply-calibration (later phase) writes new versions under versions/.
-version: 1
+version: 2
 weights:
-  pay: 0.30
-  flexibility: 0.25
-  low_responsibility: 0.20
-  tech_match: 0.15
-  company_quality: 0.10
+  pay: 0.333
+  flexibility: 0.278
+  low_responsibility: 0.222
+  tech_match: 0.167

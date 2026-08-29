@@ -30,7 +30,6 @@ FEATURES = [
     "flexibility",
     "low_responsibility",
     "tech_match",
-    "company_quality",
 ]
 
 # --- Suggestion rule constants (deterministic) -------------------------------

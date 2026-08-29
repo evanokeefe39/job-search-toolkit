@@ -128,7 +128,6 @@ class Scores(TypedDict):
     flexibility: float
     low_responsibility: float
     tech_match: float
-    company_quality: float
 
 
 # ---------------------------------------------------------------------------
