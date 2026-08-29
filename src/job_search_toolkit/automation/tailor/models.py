@@ -21,3 +21,10 @@ class TailorResponse(BaseModel):
     summary: str = Field(min_length=50, max_length=1000)
     experiences: list[HighlightsEntry] = Field(min_length=1)
     skills: list[SkillEntry] = Field(min_length=1)
+
+
+class ReviewerResponse(BaseModel):
+    """Adversarial reviewer output: one critique + at most one targeted revision."""
+
+    critique: str = Field(min_length=10)
+    revision: TailorResponse | None = None

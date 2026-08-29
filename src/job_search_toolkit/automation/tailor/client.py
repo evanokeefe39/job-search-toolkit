@@ -18,7 +18,7 @@ import json
 import re
 import sys
 
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from job_search_toolkit.automation.tailor.models import TailorResponse
 
@@ -34,7 +34,7 @@ def _make_pai_agent(
     api_key: str,
     temperature: float,
     max_tokens: int,
-    max_highlights: int,
+    output_type: type[BaseModel],
 ):
     from pydantic_ai import Agent
     from pydantic_ai.models.openai import OpenAIChatModel
@@ -46,7 +46,7 @@ def _make_pai_agent(
     )
     agent = Agent(
         model,
-        output_type=TailorResponse,
+        output_type=output_type,
         system_prompt=system,
         model_settings={
             "temperature": temperature,
@@ -67,11 +67,11 @@ async def _call_pydantic_ai(
     api_key: str,
     temperature: float = 0.2,
     max_tokens: int = 8000,
-    max_highlights: int = 5,
+    output_type: type[BaseModel] = TailorResponse,
 ) -> dict:
-    """One pydantic-ai run; structured output validated to TailorResponse."""
+    """One pydantic-ai run; structured output validated to ``output_type``."""
     agent = _make_pai_agent(
-        system, model_name, base_url, api_key, temperature, max_tokens, max_highlights
+        system, model_name, base_url, api_key, temperature, max_tokens, output_type
     )
     result = await agent.run(user)
     data = result.output.model_dump()
@@ -105,6 +105,7 @@ async def _call_json_mode(
     api_key: str,
     temperature: float = 0.2,
     max_tokens: int = 8000,
+    output_type: type[BaseModel] = TailorResponse,
 ) -> dict:
     """Original json_mode call with retry-on-ValidationError."""
     from job_search_toolkit.pipelines.jd.resources.llm_client import LLMClient
@@ -127,7 +128,7 @@ async def _call_json_mode(
             print(f"[INFO] Response: {len(raw)} chars", file=sys.stderr)
             try:
                 data = json.loads(_extract_json(raw))
-                return TailorResponse.model_validate(data).model_dump()
+                return output_type.model_validate(data).model_dump()
             except (json.JSONDecodeError, ValidationError) as exc:
                 _last_error = str(exc)
                 if attempt == 2:
@@ -157,12 +158,14 @@ async def call_llm(
     temperature: float = 0.2,
     max_tokens: int = 8000,
     max_highlights: int = 5,
-) -> dict:
+    output_type: type[BaseModel] = TailorResponse,
+):
     """Tailored structured output: pydantic-ai, or json_mode fallback.
 
     All connection params, including ``client_kind``, are passed explicitly
     by the caller (resolved from CLI > env > config.yaml > defaults) so the
-    client stays transport-agnostic and config-symmetric.
+    client stays transport-agnostic and config-symmetric. ``output_type``
+    selects the validation schema (default TailorResponse).
     """
     print(f"[INFO] LLM client: {client_kind}", file=sys.stderr)
     if client_kind == "json_mode":
@@ -170,10 +173,11 @@ async def call_llm(
             system, user,
             model_name=model_name, base_url=base_url, api_key=api_key,
             temperature=temperature, max_tokens=max_tokens,
+            output_type=output_type,
         )
     return await _call_pydantic_ai(
         system, user,
         model_name=model_name, base_url=base_url, api_key=api_key,
         temperature=temperature, max_tokens=max_tokens,
-        max_highlights=max_highlights,
+        output_type=output_type,
     )

@@ -45,6 +45,8 @@ from job_search_toolkit.automation.tailor.config import (
     load_config,
 )
 from job_search_toolkit.automation.tailor.prompts import load_tone
+from job_search_toolkit.automation.tailor.verify import verify_pdf
+from job_search_toolkit.automation.tailor.reviewer import bounded_revise, review_draft
 
 
 _DEFAULT_MASTER = Path("resume") / "cv.yaml"
@@ -70,6 +72,68 @@ def _aggressive_exclude(master: dict) -> set[str] | None:
         if company and not any(k in company for k in _AGGRESSIVE_KEEP):
             excluded.add(company)
     return excluded or None
+
+
+def _print_verify_report(report) -> None:
+    """Print the verification report lines to stderr."""
+    if report.contact_missing:
+        print("[VERIFY] Contact missing from text layer:", file=sys.stderr)
+        for c in report.contact_missing:
+            print(f"  - {c}", file=sys.stderr)
+    else:
+        print("[VERIFY] Contact literal: OK", file=sys.stderr)
+    if report.mojibake:
+        print("[VERIFY] Mojibake in text layer:", file=sys.stderr)
+        for m in report.mojibake:
+            print(f"  - {m}", file=sys.stderr)
+    else:
+        print("[VERIFY] Glyphs: OK", file=sys.stderr)
+    if report.reading_order:
+        print("[VERIFY] Reading order:", file=sys.stderr)
+        for r in report.reading_order:
+            print(f"  - {r}", file=sys.stderr)
+    else:
+        print("[VERIFY] Reading order: OK", file=sys.stderr)
+    observed, target = report.page_count
+    print(f"[VERIFY] Page count: {observed} (target <= {target}) "
+          f"{'OK' if report.page_count_ok else 'OVER TARGET'}", file=sys.stderr)
+    cov = report.keyword_coverage or {}
+    covered = cov.get("covered", [])
+    supported_missing = cov.get("supported_missing", [])
+    genuine_gap = cov.get("genuine_gap", [])
+    print(f"[VERIFY] Keyword coverage: covered={len(covered)} "
+          f"supported-missing={len(supported_missing)} genuine-gap={len(genuine_gap)}",
+          file=sys.stderr)
+    if supported_missing:
+        print("  supported-missing (in master, absent from PDF): "
+              + ", ".join(supported_missing), file=sys.stderr)
+    if genuine_gap:
+        print("  genuine-gap (absent from master too): "
+              + ", ".join(genuine_gap), file=sys.stderr)
+    if cov.get("no_signal"):
+        print("  (no JD signal — no job description supplied or no terms extracted)",
+              file=sys.stderr)
+    for p in report.problems:
+        print(f"[VERIFY] Problem: {p}", file=sys.stderr)
+
+
+def _verify_report_text(report) -> str:
+    """Short text summary of a VerificationReport for the reviewer prompt."""
+    cov = report.keyword_coverage or {}
+    lines = [
+        f"page_count: {report.page_count[0]} (target <= {report.page_count[1]})"
+        + ("" if report.page_count_ok else " OVER TARGET"),
+        f"contact_missing: {', '.join(report.contact_missing) or 'none'}",
+        f"mojibake: {'; '.join(report.mojibake) or 'none'}",
+        f"reading_order: {'; '.join(report.reading_order) or 'OK'}",
+        "keyword_coverage: "
+        + ", ".join(
+            f"{bucket}={', '.join(cov.get(bucket, []) or []) or 'none'}"
+            for bucket in ("covered", "supported_missing", "genuine_gap")
+        ),
+    ]
+    lines.extend(report.problems)
+    return "\n".join(lines)
 
 
 @app.command("run")
@@ -139,6 +203,16 @@ def run(
     ] = False,
     no_audit: Annotated[
         bool, typer.Option("--no-audit", help="Skip fabrication audit")
+    ] = False,
+    verify_output: Annotated[
+        bool, typer.Option("--verify",
+                           help="Verify the rendered PDF text layer after render "
+                                "(blocks the ready transition on failure)")
+    ] = False,
+    with_review: Annotated[
+        bool, typer.Option("--with-review",
+                           help="Bounded drafter-reviewer: one critique + one "
+                                "targeted revision after the first pass")
     ] = False,
 ) -> None:
     """Tailor the master CV to a job description and render the PDF."""
@@ -266,12 +340,94 @@ def run(
         if not hard and not jd_adds:
             print("[AUDIT] Clean.", file=sys.stderr)
 
+    report_text = ""
     if not no_render:
         pdf = render_pdf(output_path)
+        if verify_output or with_review:
+            report = verify_pdf(pdf, master, jd_text, cfg.verify_page_target)
+            _print_verify_report(report)
+            report_text = _verify_report_text(report)
+            if verify_output and not report.ok:
+                print("[VERIFY] FAIL — this artifact cannot be marked ready.",
+                      file=sys.stderr)
+                raise typer.Exit(code=1)
         print(f"\nDone. {pdf}")
     else:
         print(f"\nDone. {output_path}")
         print("Run: uv run rendercv render " + str(output_path))
+        return
+
+    # --- Bounded drafter-reviewer pass (strictly opt-in) ---
+    if with_review and not no_audit and not hard:
+        def reviewer(d: str, m: str, j: str, v: str):
+            return review_draft(
+                d, m, j, v,
+                model_name=cfg.model, base_url=cfg.base_url, api_key=cfg.api_key,
+                client_kind=cfg.llm_client, temperature=cfg.temperature,
+                max_tokens=cfg.max_tokens,
+            )
+
+        final, review = bounded_revise(
+            original, merged, cv_text, jd_text, reviewer,
+            verify_text=report_text,
+            merge_kwargs={
+                "merge_low_value": cfg.merge_low_value,
+                "max_highlights": cfg.max_highlights,
+                "exclude_companies": (_aggressive_exclude(original)
+                                      if cfg.level == "aggressive" else None),
+            },
+        )
+        if review.changed and review.revision:
+            if final is not merged:
+                # a revision was applied (bounded_revise returns a NEW dict
+                # only when applied)
+                print(f"[REVIEW] One targeted revision applied. Critique: {review.critique}",
+                      file=sys.stderr)
+                merged = final
+                emit_yaml(merged, output_path)
+                pdf = render_pdf(output_path)  # re-render the revised artifact
+                if verify_output:
+                    report2 = verify_pdf(pdf, master, jd_text, cfg.verify_page_target)
+                    _print_verify_report(report2)
+                    if not report2.ok:
+                        print("[VERIFY] FAIL after review — cannot mark ready.",
+                              file=sys.stderr)
+                        raise typer.Exit(code=1)
+            else:
+                print("[REVIEW] Revision rejected by the fabrication guard — keeping first pass.",
+                      file=sys.stderr)
+        else:
+            print("[REVIEW] No changes — first pass accepted as-is.", file=sys.stderr)
+
+
+@app.command("verify")
+def verify(
+    pdf: Annotated[
+        Path, typer.Option("--pdf", help="Rendered cv_tailored.pdf to verify")
+    ] = ...,
+    yaml_path: Annotated[
+        Optional[Path],
+        typer.Option("--yaml", help="Master RenderCV YAML (default: resume/cv.yaml)"),
+    ] = None,
+    jd: Annotated[
+        Optional[Path],
+        typer.Option("--jd", help="Path to job description (jd.md) for keyword coverage"),
+    ] = None,
+    config: Annotated[
+        Path, typer.Option("--config", help="Path to tailor_resume_preferences.yaml")
+    ] = DEFAULT_TAILOR_PREFERENCES_PATH,
+) -> None:
+    """Verify the rendered PDF's text layer: contact literal, glyphs, reading order, page count, keyword coverage."""
+    cfg = load_config(config, master_yaml=yaml_path)
+    master_path = cfg.master_yaml.resolve()
+    master = load_yaml(master_path)
+    jd_text = load_text(jd) if jd else ""
+    report = verify_pdf(pdf, master, jd_text, cfg.verify_page_target)
+    _print_verify_report(report)
+    if not report.ok:
+        print("[VERIFY] FAIL — this artifact cannot be marked ready.", file=sys.stderr)
+        raise typer.Exit(code=1)
+    print("[VERIFY] OK — text layer intact.", file=sys.stderr)
 
 
 if __name__ == "__main__":

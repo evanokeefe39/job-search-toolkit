@@ -60,6 +60,11 @@ Playbook for one application folder.
        --yaml resume/cv.yaml \
        --jd applications/<folder>/inputs/jd.md \
        --output applications/<folder>/outputs/cv_tailored.yaml
+   # Opt-in additions:
+   #   --verify        verify the rendered PDF text layer after render
+   #                   (blocks the ready transition on failure)
+   #   --with-review   bounded drafter-reviewer: one critique + one
+   #                   targeted revision after the first pass
    ```
    - `--yaml` defaults to `resume/cv.yaml` (the master).
    - `--output` is required here (we want the canonical path, not a timestamped one).
@@ -96,10 +101,22 @@ Playbook for one application folder.
      prompt or different model (`--model` / config.yaml).
 
 4. **Verify PDF.**
-   - Confirm `applications/<folder>/outputs/cv_tailored.pdf` exists (rendered by RenderCV
-     in step 2, or manually in step 3).
-   - Check page count (should be 1-2 pages).
-   - Check for rendering artifacts (emoji, broken Unicode, overflow).
+   - Confirm `applications/<folder>/outputs/cv_tailored.pdf` exists (rendered by
+     RenderCV in step 2, or manually in step 3).
+   - Run the verification gate (required before `ready`):
+     ```bash
+     job-search-toolkit tailor verify \
+         --pdf applications/<folder>/outputs/cv_tailored.pdf \
+         --yaml resume/cv.yaml \
+         --jd applications/<folder>/inputs/jd.md
+     ```
+   - A **FAIL** result BLOCKS the `ready` transition: do NOT record `ready`
+     until verify passes. Fix the source (`cv_tailored.yaml`) or the render,
+     re-render, and re-run `tailor verify`.
+   - It checks: contact literals in the text layer, mojibake/private-use
+     glyphs, section reading order, page count vs `verify_page_target`, and
+     JD keyword coverage (covered / supported-missing / genuine-gap).
+   - A healthy PDF prints `[VERIFY] OK — text layer intact.` and exits 0.
 
 5. **Record the funnel event.**
    - Record the stage `ready` event via the tracker CLI (keyed on the folder
