@@ -30,6 +30,15 @@ with human review gates — no fully automated ATS pipeline.
   Config precedence: CLI > env > `tailor_resume_preferences.yaml` (gitignored
   user override; template `tailor_resume_preferences.example.yaml` at repo
   root) > defaults; the package-bundled `TONE.txt` injects tone guidance.
+  WS3 (2026-08-29) adds two opt-in quality stages: `tailor verify` (or `tailor run
+  --verify`) inspects the rendered PDF's text layer with **pypdf** (contact as literal
+  text, no mojibake/PUA glyphs, section reading order, page count ≤ `verify_page_target`
+  in `tailor_resume_preferences.yaml`, JD keyword coverage in covered /
+  supported-missing / genuine-gap buckets — honesty rule, never keyword-stuff) and FAILs
+  (exit 1), blocking the `ready` transition; `tailor run --with-review` runs a bounded
+  single-revise drafter-reviewer (fresh-context reviewer critiques vs master + JD +
+  verification report, ONE targeted revision; the fabrication guard is the ceiling).
+  Both flags are opt-in — the default single-pass `tailor run` is byte-identical.
 - **Run config is YAML-driven.** Run *mechanics* (timeouts, page sizes, limits,
   LLM rate limits + connection) come from `config.yaml` (gitignored; template
   `config.example.yaml` at repo root) via `src/job_search_toolkit/run_config.py`
@@ -50,7 +59,7 @@ with human review gates — no fully automated ATS pipeline.
 ```
 src/job_search_toolkit/          # Installable PyPI package: `job-search-toolkit`
 ├── cli.py                       # SINGLE CLI entry point: scrape | pipeline | tailor | skills
-├── cli_tailor.py                # Tailor CLI (`job-search-toolkit tailor run`)
+├── cli_tailor.py                # Tailor CLI (`job-search-toolkit tailor run` + `tailor verify`)
 ├── schemas.py                   # CanonicalJob schema shared by all boards
 ├── scrapers/                    # Board scrapers (Typer, httpx, bs4 / Next.js data route)
 │   ├── freework.py              # free-work.com
@@ -73,7 +82,8 @@ src/job_search_toolkit/          # Installable PyPI package: `job-search-toolkit
 │       ├── gold.py              # DuckDB gold views over silver.jobs
 │       ├── enrich_canonical.py, adapt_freework.py, score_engine.py, smoke_utils.py
 │       └── _legacy/             # stage*.py — superseded; stage5 promoted to score_engine.py
-    └── tailor/                  # Resume tailoring engine (client, prompts, merge, audit, render)
+    └── tailor/                  # Resume tailoring engine (client, prompts, merge, audit, render,
+                                #   verify — ATS text-layer check; reviewer — bounded drafter-reviewer)
                                 # + TONE.txt (package-bundled)
 
 skills/                          # Plugin-standard agent skills (skills/<name>/SKILL.md)
@@ -117,7 +127,8 @@ job-search-toolkit scrape freework [--format json] [--output data/bronze/freewor
 job-search-toolkit scrape hiringcafe [--output data/bronze/hiringcafe_jobs]
 job-search-toolkit pipeline run        # ranking path only (scrape -> upsert -> score -> exports -> gold, zero LLM); --enrich runs optional company-research LLM pass
 job-search-toolkit pipeline gold       # rebuild gold views over silver.jobs (data/warehouse/jobs.db)
-job-search-toolkit tailor run --yaml resume/cv.yaml --jd applications/FOLDER/inputs/jd.md
+job-search-toolkit tailor run --yaml resume/cv.yaml --jd applications/FOLDER/inputs/jd.md   # + --verify / --with-review opt-in
+job-search-toolkit tailor verify --pdf applications/FOLDER/outputs/cv_tailored.pdf --yaml resume/cv.yaml --jd applications/FOLDER/inputs/jd.md
 job-search-toolkit skills install --agent ompy|claude|codex
 ```
 
@@ -138,7 +149,7 @@ blocks carry the same instruction for external users.
 ```bash
 /skill:jd-refresh           # run discovery, report delta, stop for shortlist
 /skill:new-application      # scaffold + research + dealbreaker check + Twenty entry
-/skill:tailor-resume        # LLM pipeline: cv.yaml + JD → cv_tailored.yaml → human review → PDF
+/skill:tailor-resume        # LLM pipeline: cv.yaml + JD → cv_tailored.yaml → human review → PDF → tailor verify gate (blocks ready)
 /skill:application-tracker  # Twenty transitions and response-rate stats
 ```
 

@@ -11,7 +11,7 @@ Python 3.14+ and uv (package manager) are required. Install the toolkit with:
 # Tailor Resume (LLM-driven, per-application)
 
 Replacement: the `job-search-toolkit tailor run` CLI (Typer) + `src/job_search_toolkit/automation/tailor/`
-(models, prompts, merge, audit, render). A single DeepSeek API call with
+(models, prompts, merge, audit, render, verify, reviewer). A single DeepSeek API call with
 Pydantic-validated structured output via **pydantic-ai** (fallback: json_mode
 client, `--llm-client json_mode`). The LLM returns only content fields
 (summary, highlights per role, skills); `merge_content()` slots them into a

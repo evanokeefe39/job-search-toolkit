@@ -123,3 +123,23 @@ engine + views + write helper but nothing called `upsert_lead_scores` —
 caught it. Reviewer must check: does any src/ path write the table the new
 view reads? Is the full path (source tables -> output table -> view) exercised
 by a test, not just the pure function on hand-built dicts?
+
+## WS3 (2026-08-29) — tailoring quality: deterministic verify + reviewer guard-ceiling
+
+- `verify_pdf` (automation/tailor/verify.py) is DETERMINISTIC — pure pypdf text-layer
+  checks, no LLM. A reviewer should reject any attempt to make verification LLM-based
+  or to keyword-stuff (honesty rule: genuine gaps are reported, never stuffed). Contact
+  matching normalizes curly apostrophes and filters the cv block to string
+  `{name,email,phone,location}` — it must not crash on nested master fields
+  (social_networks/sections).
+- The drafter-reviewer (`automation/tailor/reviewer.py`, `tailor run --with-review`) is
+  the ONLY post-draft LLM call; `bounded_revise` runs EXACTLY one revise pass, and
+  `apply_revision` re-runs `check_fabrication` so the guard is the ceiling — a
+  reviewer-proposed unsupported skill/metric must be rejected with the first pass left
+  intact (verify the guard, not the reviewer's self-report).
+- Contract-test fixtures must use FICTIONAL PII (example.com email, 555 phone) — the
+  pre-push hook blocks real emails/phones in this public repo (see tasks/lessons.md
+  2026-08-29). Any new test that embeds an email-like string must allowlist the
+  synthetic value in scripts/hooks/pre-push.
+- Default single-pass `tailor run` (no `--verify`/`--with-review`) must stay
+  byte-identical; verify/reviewer are strictly opt-in flags.

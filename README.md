@@ -63,7 +63,7 @@ src/job_search_toolkit/
 │       ├── definitions.py  # dg.Definitions(assets=[...])
 │       ├── assets/         # scrape, merge, enrich, score
 │       └── resources/      # LLM client
-└── automation/tailor/      # resume tailoring engine (client, prompts, merge, audit, render)
+└── automation/tailor/      # resume tailoring engine (client, prompts, merge, audit, render, verify, reviewer)
 skills/                     # plugin-standard agent skills (skills/<name>/SKILL.md)
 ```
 
@@ -183,6 +183,21 @@ this repo is PUBLIC, never commit personal data). Render with
 the master: experience count, company names, fabricated skills (with synonym
 map), and fabricated metrics. Runs as a hard gate in the tailoring pipeline;
 the human reviews any JD-derived additions flagged as verify-with-human.
+
+### Text-layer verification + drafter-reviewer (WS3)
+
+`job-search-toolkit tailor verify` (opt-in `tailor run --verify`) inspects the
+rendered `cv_tailored.pdf` text layer with **pypdf** the way an ATS reads it:
+contact as literal text, no mojibake/private-use glyphs, section reading order,
+page count vs `verify_page_target`, and JD keyword coverage in covered /
+supported-missing / genuine-gap buckets (honesty rule — genuine gaps stay
+visible). A FAIL blocks the `ready` transition.
+
+`tailor run --with-review` adds a bounded drafter-reviewer: a fresh-context LLM
+critiques the first pass against the master + JD + verification report and
+proposes ONE targeted revision; the fabrication guard above is the ceiling, so
+a reviewer-proposed unsupported claim is rejected. Both flags are opt-in — the
+default single-pass `tailor run` is unchanged.
 
 See `docs/ats_matcher_catalog.md` for the researched tool inventory and
 `docs/matcher_contracts.md` for verified I/O contracts.
