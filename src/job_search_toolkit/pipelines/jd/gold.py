@@ -37,7 +37,7 @@ from pathlib import Path
 
 import duckdb
 
-from .silver import STALE_AFTER_DAYS, sql_literal
+from .silver import STALE_AFTER_DAYS, ensure_outcomes_table, sql_literal
 
 # Integer days since a job was last seen (never NULL — last_seen_at is set on
 # every upsert). Used to gate the non-stale views and define "disappeared".
@@ -45,6 +45,7 @@ _DAYS_SINCE_SEEN = (
     "CAST(DATEDIFF('day', CAST(last_seen_at AS DATE), CURRENT_DATE) AS INTEGER)"
 )
 _NOT_STALE = f"{_DAYS_SINCE_SEEN} <= {STALE_AFTER_DAYS}"
+_STALE = f"{_DAYS_SINCE_SEEN} > {STALE_AFTER_DAYS}"
 
 # Feature dimensions scored in ``silver.jobs.scores`` (JSON), used by
 # ``gold.score_calibration``. A job with fewer than this many *applied*
@@ -149,6 +150,10 @@ def build_score_calibration(con: duckdb.DuckDBPyConnection) -> None:
     needs ``silver.jobs`` + ``silver.fact_outcome_event``.
     """
     con.execute("CREATE SCHEMA IF NOT EXISTS gold")
+    # The view reads silver.fact_outcome_event; ensure it exists so pipeline
+    # gold works on a warehouse the outcome sync hasn't run on yet (empty ->
+    # "not enough data" bands, never a crash).
+    ensure_outcomes_table(con)
     con.execute(_CALIBRATION_SQL)
 
 
