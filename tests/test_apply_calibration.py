@@ -18,12 +18,11 @@ from job_search_toolkit.pipelines.jd import calibration
 
 runner = CliRunner()
 
-V1 = {  # bundled default (scoring_config.yaml version 1)
-    "pay": 0.30,
-    "flexibility": 0.25,
-    "low_responsibility": 0.20,
-    "tech_match": 0.15,
-    "company_quality": 0.10,
+V1 = {  # bundled default (scoring_config.yaml version 2; company_quality removed)
+    "pay": 0.333,
+    "flexibility": 0.278,
+    "low_responsibility": 0.222,
+    "tech_match": 0.167,
 }
 
 

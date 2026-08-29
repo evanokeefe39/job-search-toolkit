@@ -90,6 +90,12 @@ DIM_COMPANY_COLUMNS: list[tuple[str, str]] = [
     ("homepage_url", "VARCHAR"),
     ("enriched_at", "TIMESTAMP"),
     ("enrichment_version", "INTEGER"),
+    ("news_notes", "JSON"),
+    ("news_sentiment", "VARCHAR"),
+    ("news_checked_at", "TIMESTAMP"),
+    ("insee_employee_range", "VARCHAR"),
+    ("insee_legal_type", "VARCHAR"),
+    ("insee_checked_at", "TIMESTAMP"),
 ]
 
 # --- Enrichment stage gates -------------------------------------------------
@@ -264,6 +270,13 @@ def ensure_dims(con: duckdb.DuckDBPyConnection) -> None:
         + ", ".join(f'"{k}" {t}' for k, t in DIM_COMPANY_COLUMNS)
         + ', PRIMARY KEY ("company_id"))'
     )
+    # Idempotent migration: ALTER ADD COLUMN for dim_company fields added
+    # after the table's first creation (e.g. news_notes / insee_*). CREATE
+    # TABLE IF NOT EXISTS won't add columns to an existing table.
+    existing = {r[1] for r in con.execute("PRAGMA table_info('silver.dim_company')").fetchall()}
+    for name, typ in DIM_COMPANY_COLUMNS:
+        if name not in existing:
+            con.execute(f'ALTER TABLE silver.dim_company ADD COLUMN "{name}" {typ}')
     con.execute(
         """
         CREATE TABLE IF NOT EXISTS silver.dim_date (
@@ -594,6 +607,17 @@ def reset_stale(con: duckdb.DuckDBPyConnection, stage: str) -> None:
         con.execute(
             f"UPDATE silver.dim_company SET org_type = NULL, enriched_at = NULL "
             f"WHERE {stale} AND source_board <> 'hiringcafe'"
+        )
+    elif stage == "company_news":
+        # News/INSEE enrichment is dimension-scoped and off the rank; reset
+        # the news columns on stale rows so the ``news_checked_at IS NULL``
+        # gate re-selects them at the next version.
+        con.execute(
+            f"UPDATE silver.dim_company SET news_notes = NULL, "
+            f"news_sentiment = NULL, news_checked_at = NULL, "
+            f"insee_employee_range = NULL, insee_legal_type = NULL, "
+            f"insee_checked_at = NULL "
+            f"WHERE {stale}"
         )
     elif stage == "score":
         con.execute(f"UPDATE silver.jobs SET overall_score = NULL WHERE {stale}")

@@ -31,7 +31,7 @@ FULL_JOB: dict = {
     "years_experience_min": 5,
     "technologies": ["Python", "DuckDB", "dbt"],
     "scores": {"pay": 0.8, "flexibility": 0.5, "low_responsibility": 0.7,
-               "tech_match": 0.9, "company_quality": 0.6, "freshness": 0.95},
+               "tech_match": 0.9, "freshness": 0.95},
     "overall_score": 0.812,
     "recommendation_tier": "top",
     "company_info": {"org_type": "product", "industry": "Software"},

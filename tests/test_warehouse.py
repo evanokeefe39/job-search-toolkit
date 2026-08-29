@@ -68,7 +68,7 @@ def make_job(
     if scored:
         job["scores"] = {
             "pay": 0.6, "flexibility": 0.8, "low_responsibility": 0.7,
-            "tech_match": 0.6, "company_quality": 0.5,
+            "tech_match": 0.6,
         }
         job["overall_score"] = 0.62
         job["recommendation_tier"] = "high"

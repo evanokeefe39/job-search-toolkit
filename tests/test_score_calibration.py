@@ -75,8 +75,8 @@ def test_score_calibration_no_data(tmp_path: Path):
     _build_calibration(db)
 
     rows = _query(db, "SELECT * FROM gold.score_calibration")
-    # 5 features x 4 bands = 20 rows always emitted
-    assert len(rows) == 20
+    # 4 features x 4 bands = 16 rows always emitted
+    assert len(rows) == 16
     for r in rows:
         jobs_in_band, applied_count, advanced_count, rate, note = r[3:]
         if jobs_in_band == 0:
@@ -148,7 +148,7 @@ def test_score_calibration_join_nullable(tmp_path: Path):
     _build_calibration(db)
 
     rows = _query(db, "SELECT COUNT(*) FROM gold.score_calibration")
-    assert rows[0][0] == 20  # view still builds fully
+    assert rows[0][0] == 16  # view still builds fully
     # the orphan job contributes to no band
     orphan_rows = _query(
         db,

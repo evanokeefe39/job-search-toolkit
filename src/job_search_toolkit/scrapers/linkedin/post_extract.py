@@ -122,7 +122,7 @@ WORKPLACE_TERMS = (
     "on-site", "sur site", "onsite", "hybride", "hybrid", "remote",
 )
 
-# ESN / direct engagement signals (mirrors score_engine.detect_engagement).
+# ESN / direct engagement signals (heuristic, defined locally here).
 _ESN_NAME_SIGNALS = (
     "consulting", "conseil", "esn", "ssii", "recruitment", "staffing",
     "groupe", "holding",

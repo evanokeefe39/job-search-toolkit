@@ -66,7 +66,6 @@ CALIBRATION_FEATURES = (
     "flexibility",
     "low_responsibility",
     "tech_match",
-    "company_quality",
 )
 MIN_ADVANCE_COUNT = 5
 

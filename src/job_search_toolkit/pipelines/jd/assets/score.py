@@ -120,7 +120,7 @@ def ranked_csv(context: AssetExecutionContext) -> dg.MaterializeResult:
     fieldnames = [
         "overall_score", "recommendation_tier", "source_board",
         "scores_pay", "scores_flexibility", "scores_low_responsibility",
-        "scores_tech_match", "scores_company_quality",
+        "scores_tech_match",
         "title", "company", "apply_url",
         "location_raw", "workplace_type", "date_posted",
         "salary_min_annual_eur", "salary_max_annual_eur",
@@ -148,7 +148,6 @@ def ranked_csv(context: AssetExecutionContext) -> dg.MaterializeResult:
                 "scores_flexibility": s.get("flexibility"),
                 "scores_low_responsibility": s.get("low_responsibility"),
                 "scores_tech_match": s.get("tech_match"),
-                "scores_company_quality": s.get("company_quality"),
                 "title": job.get("title"),
                 "company": job.get("company"),
                 "apply_url": job.get("apply_url"),

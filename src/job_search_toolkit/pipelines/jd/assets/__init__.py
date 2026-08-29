@@ -21,7 +21,10 @@ from .merge import (
     IngestConfig,
     ingest_config,
 )
-from .enrich import translated, tech_extracted, vertical_classified, dim_company_enriched
+from .enrich import (
+    translated, tech_extracted, vertical_classified, dim_company_enriched,
+    dim_company_news_enriched,
+)
 from .post_enrich import linkedin_post_enriched
 from .poster_enrich import linkedin_post_poster_enriched
 from .score import scored_jobs, ranked_csv
@@ -51,6 +54,7 @@ __all__ = [
     "translated",
     "tech_extracted",
     "dim_company_enriched",
+    "dim_company_news_enriched",
     "vertical_classified",
     "scored_jobs",
     "warehouse_outcomes",

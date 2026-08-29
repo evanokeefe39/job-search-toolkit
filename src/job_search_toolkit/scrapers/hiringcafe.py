@@ -526,7 +526,6 @@ def flatten_canonical(job: CanonicalJob) -> dict:
         "scores_flexibility": sc.get("flexibility"),
         "scores_low_responsibility": sc.get("low_responsibility"),
         "scores_tech_match": sc.get("tech_match"),
-        "scores_company_quality": sc.get("company_quality"),
     }
 
 
