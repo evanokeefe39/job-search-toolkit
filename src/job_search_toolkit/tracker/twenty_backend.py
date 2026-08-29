@@ -9,15 +9,26 @@ never touches the network unless explicitly asked.
 dict shape the SQLite backend produces — identical keys, only
 ``provenance`` differs ("twenty") — so the two backends are drop-in
 interchangeable.
+
+T2 sync-cache semantics (WS1 Epic 1.3): at ``tracker.backend = twenty``
+Twenty is authoritative and the local SQLite store (default
+``data/tracker.db``) mirrors it. ``record()`` syncs to the crm-bridge
+first, then appends the event to the cache (best-effort: a cache
+failure is warned about, never fails the authoritative write).
+``iter_outcomes()`` reads only from the CRM — the cache is a mirror,
+never a fork.
 """
 
 from __future__ import annotations
 
 import json
 import subprocess
+import warnings
 from datetime import UTC, datetime
+from pathlib import Path
 
 from job_search_toolkit.tracker.protocol import STAGES, Tracker
+from job_search_toolkit.tracker.sqlite_backend import SQLiteTracker
 
 
 class CRMCommand:
@@ -60,10 +71,17 @@ class CRMCommand:
 
 
 class TwentyTracker:
-    """Tracker facade over the Twenty CRM via crm-bridge (read path)."""
+    """Tracker facade over the Twenty CRM via crm-bridge (read path),
+    with a best-effort local SQLite mirror of recorded events."""
 
-    def __init__(self, crm: CRMCommand | None = None) -> None:
+    def __init__(self, crm: CRMCommand | None = None,
+                 cache_path: Path | None = None) -> None:
         self.crm = crm if crm is not None else CRMCommand()
+        # Default mirror location; the cache DB is NOT created here —
+        # only on the first record(), so constructing the tracker (e.g.
+        # via get_tracker) has no filesystem side effects.
+        self.cache_path = (cache_path if cache_path is not None
+                           else Path("data/tracker.db"))
 
     def record(self, job_id: str, stage: str, ts: str,
                note: str | None = None) -> None:
@@ -74,6 +92,27 @@ class TwentyTracker:
         payload = json.dumps({"job_id": job_id, "stage": stage,
                               "ts": ts, "note": note})
         self.crm.run("sync", "--json", payload)
+        self._mirror(job_id, stage, ts, note)
+
+    def _mirror(self, job_id: str, stage: str, ts: str,
+                note: str | None) -> None:
+        """Best-effort append to the local SQLite cache.
+
+        Twenty (via crm-bridge) is the source of truth; this mirror only
+        supports warehouse sync and offline reads. Any cache failure is
+        warned about and swallowed so it never fails the authoritative
+        record.
+        """
+        try:
+            SQLiteTracker(self.cache_path).record(job_id, stage, ts, note,
+                                                  provenance="twenty")
+        except Exception as exc:  # noqa: BLE001 — mirror must never raise
+            warnings.warn(
+                f"twenty cache mirror to {self.cache_path} failed "
+                f"(Twenty record still succeeded): {exc}",
+                UserWarning,
+                stacklevel=2,
+            )
 
     def current(self, job_id: str) -> dict | None:
         events = [e for e in self.iter_outcomes() if e["job_id"] == job_id]

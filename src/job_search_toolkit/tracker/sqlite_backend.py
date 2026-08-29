@@ -137,7 +137,8 @@ class SQLiteTracker:
     # -- Tracker protocol --------------------------------------------------
 
     def record(self, job_id: str, stage: str, ts: str,
-               note: str | None = None) -> None:
+               note: str | None = None,
+               provenance: str = "sqlite") -> None:
         if stage not in STAGES:
             raise ValueError(
                 f"unknown stage {stage!r}; valid stages: {', '.join(STAGES)}"
@@ -150,7 +151,8 @@ class SQLiteTracker:
                 "INSERT OR IGNORE INTO events (job_id, stage, ts, note, "
                 "provenance, recorded_at) VALUES ("
                 f"{sql_literal(job_id)}, {sql_literal(stage)}, "
-                f"{sql_literal(ts)}, {sql_literal(note)}, 'sqlite', "
+                f"{sql_literal(ts)}, {sql_literal(note)}, "
+                f"{sql_literal(provenance)}, "
                 f"{sql_literal(recorded_at)})"
             )
             con.commit()
