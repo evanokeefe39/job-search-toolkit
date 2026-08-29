@@ -43,7 +43,7 @@ done
 hits=$(git grep -nE \
     '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}|(0[67]([ .-]?[0-9]){8}|\+33[67]([ .-]?[0-9]){8})|sk-[A-Za-z0-9]{20,}' \
     -- . ':(exclude)uv.lock' 2>/dev/null | \
-    grep -vE 'noreply@anthropic\.com|users\.noreply\.github\.com' || true)
+    grep -vE 'noreply@anthropic\.com|users\.noreply\.github\.com|ada\.lovelace@example\.com' || true)
 if [ -n "$hits" ]; then
     echo "pre-push: BLOCKED — possible PII in tracked files:" >&2
     echo "$hits" >&2

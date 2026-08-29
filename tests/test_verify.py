@@ -73,10 +73,10 @@ def make_pdf(path: Path, pages_text: list[str], page_size: tuple[int, int] = (61
 
 
 CONTACT = {
-    "name": "Evan O'Keefe",
-    "email": "evan.okeefe39@gmail.com",
-    "phone": "+61 405 848 494",
-    "location": "Paris, France",
+    "name": "Ada Lovelace",
+    "email": "ada.lovelace@example.com",
+    "phone": "+1 555 010 0199",
+    "location": "London, UK",
 }
 
 JD_TEXT = """## Technologies
@@ -93,7 +93,7 @@ MASTER_TEXT = "Python\nSQL\nData Engineering\nGCP\nBigQuery"
 def test_ats_check_contact_literal(tmp_path):
     """Email/phone/location as real text passes; an icon-glyph email fails."""
     good = make_pdf(tmp_path / "good.pdf", [
-        "Evan O'Keefe\nParis, France\nevan.okeefe39@gmail.com\n+61 405 848 494\n\nEXPERIENCE\n",
+        "Ada Lovelace\nLondon, UK\nada.lovelace@example.com\n+1 555 010 0199\n\nEXPERIENCE\n",
     ])
     text = extract_pdf_text(good)
     # pypdf may render the straight apostrophe as a curly one — contact
@@ -103,7 +103,7 @@ def test_ats_check_contact_literal(tmp_path):
 
     # Icon-glyph email: the glyph box is not the literal address.
     bad = make_pdf(tmp_path / "bad.pdf", [
-        "Evan O'Keefe\nParis, France\n[\u25a1 glyph]\n+61 405 848 494\n",
+        "Ada Lovelace\nLondon, UK\n[\u25a1 glyph]\n+1 555 010 0199\n",
     ])
     missing = check_contact_literal(extract_pdf_text(bad), CONTACT)
     assert any("email" in m for m in missing)
@@ -121,19 +121,19 @@ def test_ats_check_mojibake():
 def test_ats_check_reading_order():
     """name -> contact -> experience -> skills must hold; a reorder fails."""
     correct = (
-        "Evan O'Keefe\nParis, France\nevan.okeefe39@gmail.com\n"
+        "Ada Lovelace\nLondon, UK\nada.lovelace@example.com\n"
         "EXPERIENCE\nBuilt pipelines\nSKILLS\nPython SQL"
     )
     assert check_reading_order(correct, [
-        "Evan O'Keefe", "evan.okeefe39@gmail.com", "EXPERIENCE", "SKILLS",
+        "Ada Lovelace", "ada.lovelace@example.com", "EXPERIENCE", "SKILLS",
     ]) == []
 
     reordered = (
         "SKILLS\nPython SQL\nEXPERIENCE\nBuilt pipelines\n"
-        "Evan O'Keefe\nevan.okeefe39@gmail.com"
+        "Ada Lovelace\nada.lovelace@example.com"
     )
     problems = check_reading_order(reordered, [
-        "Evan O'Keefe", "evan.okeefe39@gmail.com", "EXPERIENCE", "SKILLS",
+        "Ada Lovelace", "ada.lovelace@example.com", "EXPERIENCE", "SKILLS",
     ])
     assert problems, "reordered sections must be flagged"
 
@@ -155,7 +155,7 @@ def test_ats_check_page_count(tmp_path):
 
 def test_keyword_coverage_buckets():
     """covered / supported-but-missing / genuine-gap, honesty rule (no stuffing)."""
-    text = "Evan O'Keefe\nPython\nEXPERIENCE\nBuilt pipelines with Apache Airflow"
+    text = "Ada Lovelace\nPython\nEXPERIENCE\nBuilt pipelines with Apache Airflow"
     cov = keyword_coverage(text, JD_TEXT, MASTER_TEXT)
     assert cov["covered"] == ["Python", "Apache Airflow"]
     assert cov["supported_missing"] == ["Data Engineering"]  # in master, missed
@@ -166,7 +166,7 @@ def test_keyword_coverage_buckets():
 
 def test_keyword_coverage_no_jd_signal():
     """A JD with no extractable keywords reports 'no signal', not a failing 0%."""
-    cov = keyword_coverage("Evan O'Keefe\nPython\nSKILLS", "no structured sections here", MASTER_TEXT)
+    cov = keyword_coverage("Ada Lovelace\nPython\nSKILLS", "no structured sections here", MASTER_TEXT)
     assert cov.get("no_signal") is True
     assert cov["genuine_gap"] == []
 
@@ -174,7 +174,7 @@ def test_keyword_coverage_no_jd_signal():
 def test_verify_pdf_ok(tmp_path):
     """A well-formed text layer passes the full verification gate."""
     pdf = make_pdf(tmp_path / "cv.pdf", [
-        "Evan O'Keefe\nParis, France\nevan.okeefe39@gmail.com\n+61 405 848 494\n\n"
+        "Ada Lovelace\nLondon, UK\nada.lovelace@example.com\n+1 555 010 0199\n\n"
         "EXPERIENCE\nBuilt pipelines with Apache Airflow in Python\nSKILLS\nPython Apache Airflow"
     ])
     report = verify_pdf(pdf, {"cv": CONTACT}, JD_TEXT, 2)
@@ -193,7 +193,7 @@ def test_verify_pdf_no_extractable_text(tmp_path):
 def test_verify_pdf_fails_on_mojibake(tmp_path):
     """Broken glyphs in the text layer fail verification (never reach the ATS)."""
     bad = make_pdf(tmp_path / "bad.pdf", [
-        "Evan O'Keefe\nParis, France\nevan.okeefe39@gmail.com\n+61 405 848 494\n"
+        "Ada Lovelace\nLondon, UK\nada.lovelace@example.com\n+1 555 010 0199\n"
         "EXPERIENCE\nBuilt \ufffd pipelines\nSKILLS\nPython"
     ])
     report = verify_pdf(bad, {"cv": CONTACT}, JD_TEXT, 2)

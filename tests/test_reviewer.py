@@ -33,10 +33,10 @@ from job_search_toolkit.automation.tailor.reviewer import (  # noqa: E402
 def _master() -> dict:
     return {
         "cv": {
-            "name": "Evan O'Keefe",
-            "email": "evan.okeefe39@gmail.com",
-            "phone": "+61 405 848 494",
-            "location": "Paris, France",
+            "name": "Ada Lovelace",
+            "email": "ada.lovelace@example.com",
+            "phone": "+1 555 010 0199",
+            "location": "London, UK",
             "sections": {
                 "summary": ["Data engineer building secure, scalable data platforms."],
                 "experience": [
