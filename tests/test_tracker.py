@@ -199,8 +199,11 @@ def test_tracker_missing_db_recreated(tmp_path: Path) -> None:
     t2.record("j1", "applied", "2026-08-05T10:00:00+00:00")
     assert len(t2.iter_outcomes()) == 1
 
-    # A directory where the DB should be is likewise handled.
+    # An EMPTY directory squatting on the DB path is recreated with a
+    # warning; a non-empty one is refused (deleting it would be destructive).
+    squat = tmp_path / "squat"
+    squat.mkdir()
     with pytest.warns(UserWarning):
-        t3 = SQLiteTracker(db_path=tmp_path)
+        t3 = SQLiteTracker(db_path=squat)
     t3.record("j1", "interview", "2026-08-20T10:00:00+00:00")
     assert len(t3.iter_outcomes()) == 1

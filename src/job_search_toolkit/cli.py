@@ -12,6 +12,7 @@ Invocation:
     job-search-toolkit tailor run --yaml resume/cv.yaml --jd applications/FOLDER/jd.md
     job-search-toolkit skills install --agent ompy
 """
+import json
 import shutil
 from pathlib import Path
 from typing import Annotated, Optional
@@ -152,6 +153,68 @@ def pipeline_gold() -> None:
 
 
 app.add_typer(pipeline_app, name="pipeline")
+
+# ---------------------------------------------------------------------------
+# tracker
+# ---------------------------------------------------------------------------
+
+tracker_app = typer.Typer(help="Outcome tracker: append-only event feed (SQLite or Twenty).")
+
+
+@tracker_app.command("record")
+def tracker_record(
+    job: str = typer.Option(..., "--job", help="Job identifier."),
+    stage: str = typer.Option(..., "--stage", help="Stage (e.g. applied, interview)."),
+    ts: str = typer.Option(..., "--ts", help="ISO-8601 timestamp of the event."),
+    note: str | None = typer.Option(None, "--note", help="Optional free-text note."),
+) -> None:
+    """Record one outcome event."""
+    from job_search_toolkit.tracker import STAGES, get_tracker
+
+    if stage not in STAGES:
+        raise typer.BadParameter(
+            f"unknown stage {stage!r}; valid stages: {', '.join(STAGES)}"
+        )
+    try:
+        get_tracker().record(job, stage, ts, note)
+    except ValueError as exc:  # unknown backend
+        raise typer.BadParameter(str(exc)) from exc
+    print(f"recorded {job} {stage} @ {ts}")
+
+
+@tracker_app.command("current")
+def tracker_current(
+    job: str = typer.Option(..., "--job", help="Job identifier."),
+) -> None:
+    """Print the latest event for a job, or "none"."""
+    from job_search_toolkit.tracker import get_tracker
+
+    cur = get_tracker().current(job)
+    if cur is None:
+        print("none")
+    else:
+        print(json.dumps(cur, ensure_ascii=False))
+
+
+@tracker_app.command("outcomes")
+def tracker_outcomes(
+    json_out: bool = typer.Option(False, "--json", help="Print a JSON array."),
+) -> None:
+    """Print all recorded outcome events."""
+    from job_search_toolkit.tracker import get_tracker
+
+    events = get_tracker().iter_outcomes()
+    if json_out:
+        print(json.dumps(events, ensure_ascii=False, indent=2))
+    elif not events:
+        print("none")
+    else:
+        for e in events:
+            note = f" | {e['note']}" if e.get("note") else ""
+            print(f"{e['ts']} | {e['job_id']} | {e['stage']}{note}")
+
+
+app.add_typer(tracker_app, name="tracker")
 
 # ---------------------------------------------------------------------------
 # tailor
