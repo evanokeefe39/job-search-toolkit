@@ -61,6 +61,7 @@ class RunConfig:
     llm_max_rpm: int = 30
     llm_concurrency: int = 5
     enrichment_version: int = 1
+    enrich_company_max: int = 50  # cap on the auto-created company-news queue per run
 
     # LLM connection (pipeline; env LLM_PROVIDER/LLM_MODEL/LLM_BASE_URL fallback)
     llm_provider: str = "deepseek"
@@ -100,6 +101,7 @@ _INT_FIELDS = {
     "llm_max_rpm",
     "llm_concurrency",
     "enrichment_version",
+    "enrich_company_max",
     "faruse_page_size",
     "freework_radius",
     "hiringcafe_max_pages",

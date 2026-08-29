@@ -27,6 +27,7 @@ from .assets import (
     tech_extracted,
     vertical_classified,
     dim_company_enriched,
+    dim_company_news_enriched,
     scored_jobs,
     warehouse_outcomes,
     ranked_csv,
@@ -65,6 +66,7 @@ ENRICH_ASSETS = [
     tech_extracted,
     vertical_classified,
     dim_company_enriched,
+    dim_company_news_enriched,
     linkedin_post_enriched,
     linkedin_post_poster_enriched,
 ]

@@ -170,3 +170,68 @@ def dim_company_enriched(context: AssetExecutionContext) -> dg.MaterializeResult
             )
             updated += 1
     return dg.MaterializeResult(metadata={"researched": updated, "pending": len(companies)})
+
+
+@dg.asset(
+    deps=["scored_jobs"],
+    group_name="enrichment",
+    description="Auto-created company-news queue: enrich top-ranked companies (batched, capped)",
+)
+def dim_company_news_enriched(context: AssetExecutionContext) -> dg.MaterializeResult:
+    """Enrich top-ranked companies with news sentiment + INSEE size/legal.
+
+    The queue is implicit in the selection: distinct companies from the
+    current top-ranked fresh jobs (the ranking defines priority), ordered by
+    best overall score DESC, capped at ``enrich_company_max`` (default 50).
+    Incremental: rows with ``news_checked_at IS NOT NULL`` are skipped, so
+    repeated runs only process newly-top-ranked companies. Batched news
+    (N companies per DeepSeek call) + sequential INSEE. Never on the ranking
+    path — ``scored_jobs`` does not depend on this asset.
+    """
+    from ..company_news import enrich_companies as do_news
+    from ..company_insee import enrich_companies_insee as do_insee
+    from ..config import get_enrichment_version
+    from job_search_toolkit.run_config import get_run_config
+
+    cap = get_run_config().enrich_company_max
+    with connect() as con:
+        reset_stale(con, "company_news")
+        # Distinct companies from top-ranked fresh jobs, not yet news-enriched.
+        rows = con.execute(
+            "SELECT c.company_id, c.name, MAX(j.overall_score) AS best_score "
+            "FROM gold.ranked_jobs j "
+            "JOIN silver.dim_company c ON j.company_id = c.company_id "
+            "WHERE j.days_since_seen <= 6 AND j.days_since_posted <= 60 "
+            "  AND c.news_checked_at IS NULL "
+            "GROUP BY c.company_id, c.name "
+            "ORDER BY best_score DESC "
+            f"LIMIT {int(cap)}"
+        ).fetchall()
+        companies = [{"company_id": r[0], "name": r[1]} for r in rows]
+
+        news_results = do_news(companies) if companies else []
+        insee_results = do_insee(companies) if companies else []
+        insee_by_id = {r["company_id"]: r for r in insee_results}
+
+        updated = 0
+        for r in news_results:
+            cid = r["company_id"]
+            notes = r.get("notes") or []
+            sentiment = r.get("sentiment") or "inconclusive"
+            insee = insee_by_id.get(cid, {})
+            sets = (
+                f"news_notes = {sql_json(notes)}, "
+                f"news_sentiment = {sql_literal(sentiment)}, "
+                f"news_checked_at = NOW(), "
+                f"insee_employee_range = "
+                f"{sql_literal(insee.get('employee_range'))}, "
+                f"insee_legal_type = {sql_literal(insee.get('legal_type'))}, "
+                f"insee_checked_at = NOW()"
+            )
+            con.execute(
+                f"UPDATE silver.dim_company SET {sets} "
+                f"WHERE company_id = {sql_literal(cid)}"
+            )
+            updated += 1
+
+    return dg.MaterializeResult(metadata={"enriched": updated, "queued": len(companies)})

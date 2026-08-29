@@ -51,8 +51,26 @@ with human review gates — no fully automated ATS pipeline.
   `job_search_preferences.yaml`; API secrets stay in `.env`. User-facing
   resume-tailoring preferences live in `tailor_resume_preferences.yaml`. Shared
   resolution/precedence helpers in `configutil.py`.
-  Resume-Matcher is DEPRECATED (CP1252 mojibake, keyword-padding, 3-page bloat).
-  The submission artifact is `cv_tailored.pdf` rendered by RenderCV from LLM-tailored YAML.
+     Resume-Matcher is DEPRECATED (CP1252 mojibake, keyword-padding, 3-page bloat).
+   The submission artifact is `cv_tailored.pdf` rendered by RenderCV from LLM-tailored YAML.
+- **Ranking is pure heuristic + freshness (no LLM).** `score_engine.py` scores
+  four dimensions (pay, flexibility, low_responsibility, tech_match — weights
+  in `scoring_config.yaml`, v2) × a multiplicative freshness factor. `company_quality`
+  was REMOVED from the rank (v2): consulting-vs-product isn't a reliable discriminator,
+  so company reputation lives in post-shortlist enrichment, not the rank. Pay's
+  undisclosed floor is neutral 0.5 (never a penalty); disclosed bands re-anchored so
+  known-mid beats hidden. `low_responsibility` normalizes titles on non-alphanumerics
+  so compound/hyphenated titles (`Data-Lead`) and French phrases (`Chef de Projet`)
+  match.
+- **Company-news enrichment is dimension-scoped, auto-queued, off the rank.**
+  `dim_company_news_enriched` (assets/enrich.py) auto-creates a queue of distinct
+  companies from top-ranked fresh jobs (the rank defines priority), capped at
+  `enrich_company_max` (RunConfig, default 50), and enriches via `company_news.py`
+  (Google+Bing RSS → batched DeepSeek `{sentiment, notes[]}`) + `company_insee.py`
+  (INSEE size/legal). Writes `news_sentiment`/`news_notes`/`news_checked_at`/
+  `insee_*` to `dim_company`. Honesty guard: no headlines → `inconclusive` + empty
+  notes. Never on the ranking path (`scored_jobs` doesn't depend on it); extend
+  beyond the auto-50 with `/skill:company-enrich`.
 
 ## Architecture
 
@@ -71,7 +89,7 @@ src/job_search_toolkit/          # Installable PyPI package: `job-search-toolkit
 │       ├── assets/              # Asset definitions (one module per stage)
 │       │   ├── scrape.py        # freework_jobs, hiringcafe_jobs (writes timestamped bronze + runs.json)
 │       │   ├── merge.py         # silver_upsert (bronze -> silver.jobs, ON CONFLICT preserving enrichment)
-│       │   ├── enrich.py        # translated, tech_extracted, vertical_classified, company_stats (incremental gates)
+│       │   ├── enrich.py        # translated, tech_extracted, vertical_classified, dim_company_enriched, dim_company_news_enriched
 │       │   ├── score.py         # scored_jobs (pending rows only), ranked_csv (bridge export)
 │       │   ├── gold.py          # gold_views (CREATE OR REPLACE analytics views)
 │       │   └── exports.py       # merged_jobs_export, freework_enriched_export (bridge exports)
@@ -80,6 +98,8 @@ src/job_search_toolkit/          # Installable PyPI package: `job-search-toolkit
 │       ├── run.py               # run_pipeline() convenience entry
 │       ├── config.py            # Medallion paths + LLM env config
 │       ├── gold.py              # DuckDB gold views over silver.jobs
+│       ├── company_news.py      # Google+Bing RSS -> batched DeepSeek {sentiment, notes[]}
+│       ├── company_insee.py     # INSEE employee_range + legal_type (recherche-entreprises.api.gouv.fr)
 │       ├── enrich_canonical.py, adapt_freework.py, score_engine.py, smoke_utils.py
 │       └── _legacy/             # stage*.py — superseded; stage5 promoted to score_engine.py
     └── tailor/                  # Resume tailoring engine (client, prompts, merge, audit, render,
@@ -88,6 +108,7 @@ src/job_search_toolkit/          # Installable PyPI package: `job-search-toolkit
 
 skills/                          # Plugin-standard agent skills (skills/<name>/SKILL.md)
 ├── jd-refresh/SKILL.md          # Refresh jobs, report delta, stop for shortlist
+├── company-enrich/SKILL.md      # Manual company-news + INSEE enrichment beyond the auto-50 queue
 ├── new-application/SKILL.md     # Scaffold application folder + company research
 ├── tailor-resume/SKILL.md       # `job-search-toolkit tailor run` + human review + RenderCV PDF
 ├── application-tracker/SKILL.md # Twenty funnel transitions + response-rate stats
