@@ -672,3 +672,26 @@ schema (PK `(id, source_board)`), per the standing WS1 rule.
 **Rule:** for any "second consumer / gold view over X" feature, the DoD must include a producer that reads the source tables and writes the output table, wired to a CLI/asset AND exercised end-to-end by a test (BD tables -> silver.lead -> gold.lead_rank). A contract test that only exercises score_leads() on hand-built dicts won't catch a missing producer.
 
 **Problem 3 — subagents worked this session (no credit wall), but only after the orchestrator verified every slice.** SilverBD/GoldBD/CliSkill each self-reported "pure append / 0 deletions" and each was genuine (I confirmed 0 deletions + ran the tests). The subagent self-reports were accurate this time, but I still re-read + re-tested per the standing rule.
+
+
+## 2026-08-29: WS3 — test fixtures must use FICTIONAL PII in a public repo
+
+**Problem:** I wrote WS3 contract-test fixtures (tests/test_verify.py, tests/test_reviewer.py)
+using the candidate's REAL personal data (their actual name, personal email address,
+phone number, and location) as the `CONTACT`/master fixture. The pre-push PII hook blocked
+the push — correctly — flagging the real email/phone in tracked files of a PUBLIC repo.
+
+**Root cause:** for deterministic contact-literal tests I reused the "real" contact block as
+the fixture without considering the repo's public + PII-guard constraints. The guard caught
+it, but fixtures should never carry real PII in the first place.
+
+**Fix:** scrubbed fixtures to clearly-fictional values (Ada Lovelace / `ada.lovelace@example.com`
+— IANA-reserved example.com domain / US 555 reserved number / London, UK) and allowlisted the
+synthetic example.com email in `scripts/hooks/pre-push` (its documented verified-non-PII
+mechanism). Tests are internally consistent, so behavior is unchanged.
+
+**Rule:** any test fixture for this PUBLIC repo — even a contract test whose subject is
+"contact fields" — must use fictional PII (example.com email, 555 phone, a fictional name/
+location), never the user's real data. The pre-push hook is the safety net, not the primary
+control. When a fixture needs an email-like string, use an IANA-reserved domain and allowlist
+it in the hook with a comment; prefer a non-French, non-real phone.
