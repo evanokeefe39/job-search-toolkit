@@ -585,3 +585,45 @@ standing rule:
 a "broken actor" one. With the SDK (or after adding the actor to the account),
 the same actor resolves and runs. Verify API access via the client, not by
 guessing slugs against a REST endpoint.
+---
+
+## 2026-08-29: WS1 outcome loop — edit-mangle dropped a used constant; subagent runtime cap
+
+**Problem 1 — a silent constant deletion that only the smoke caught.** Building
+`gold.score_calibration` (Epic 1.2), an `edit` added the `CALIBRATION_FEATURES`
+block in the same hunk where the module constant `_STALE` was defined — the edit
+dropped `_STALE` and the file still compiled. `pipeline gold` failed with
+`NameError: name '_STALE' is not defined` at the `disappeared_this_run` view.
+The full test suite did not exercise that real-warehouse view path, so only the
+`pipeline gold` smoke surfaced it. A second mangle pulled `latest_run`'s body
+into a newly inserted function (repaired with a clean block rewrite).
+**Rule:** after any multi-line `edit` that touches a region with module
+constants, re-read the region and run the module's execution smoke (`pipeline
+gold`), not just `pytest`. A compiling file with a silently-dropped used symbol
+is the edit-tool's signature failure on this machine.
+
+**Problem 2 — the 10-min subagent runtime cap vs slow dagster import.**
+`import dagster` is ~180 s cold on this machine. Four of five substantial WS1
+subagents hit `task.maxRuntimeMs=600000` mid-work: their edits landed but were
+unverified and often wrong (a dropped constant; a calibration test fixture that
+mirrored a code bug — both the test and code used `silver.jobs.job_id`, but the
+real schema column is `id`). A subagent reporting "code written" was frequently
+NOT done.
+**Rules:** (a) don't accept a subagent's self-report of completion — run the
+module smoke + the tests yourself; (b) when a subagent's code and its test share
+the same wrong assumption (e.g. both query `job_id`), the test won't catch it —
+cross-check the fixture schema against the REAL schema (`silver.jobs` columns
+come from `ensure_jobs_table`, the PK is `id`); (c) split implementation work so
+a subagent can finish + verify within 10 min, or budget for finishing the tail
+after the cap aborts it.
+
+**Problem 3 — orphaned test processes hang the warehouse.** `timeout` on
+git-bash does NOT kill the python child; each timed-out `uv run pytest` left an
+orphaned `python.exe` still importing/connecting. Accumulated orphans contended
+and one held the DuckDB warehouse open (single-writer) — `connect()` hangs.
+The full-suite slowness (~8 min) was traced to dagster's ~180 s cold import,
+not a regression.
+**Rules:** check `ps aux` for stray `pytest`/`python` before diagnosing a hang
+as a code regression; kill orphans (taskkill/powershell) — they lock the
+warehouse and slow every subsequent run; warm dagster (`uv run python -c
+"import dagster"`) before timing a suite. See WATCHDOG.md.

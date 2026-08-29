@@ -12,6 +12,7 @@ Invocation:
     job-search-toolkit tailor run --yaml resume/cv.yaml --jd applications/FOLDER/jd.md
     job-search-toolkit skills install --agent ompy
 """
+import json
 import shutil
 from pathlib import Path
 from typing import Annotated, Optional
@@ -151,7 +152,123 @@ def pipeline_gold() -> None:
     print(f"Gold views rebuilt: {WAREHOUSE_DB}")
 
 
+
+@pipeline_app.command("score-report")
+def pipeline_score_report(
+    apply_calibration: bool = typer.Option(
+        False, "--apply-calibration",
+        help="Apply the suggested weights (writes a versioned history entry "
+             "and the active-override file). Refuses when there is not enough data.",
+    ),
+) -> None:
+    """Per-feature advance-rate evidence + deterministic weight suggestion.
+
+    Reads the warehouse directly (silver.fact_outcome_event JOIN silver.jobs):
+    per feature, the applied -> interview/offer advance rate in the high
+    score band vs the low band. Without --apply-calibration nothing changes.
+    """
+    from job_search_toolkit.pipelines.jd import calibration
+    from job_search_toolkit.pipelines.jd.config import WAREHOUSE_DB
+
+    if not WAREHOUSE_DB.is_file():
+        print(f"Warehouse not found: {WAREHOUSE_DB}")
+        raise typer.Exit(code=1)
+
+    print(f"{'feature':<20} {'low rate':>9} {'low n':>6} {'high rate':>10} {'high n':>7}")
+    for feature in calibration.FEATURES:
+        ev = calibration.band_evidence(WAREHOUSE_DB, feature)
+        print(
+            f"{feature:<20} {ev['low_rate']:>9.3f} {ev['low_count']:>6} "
+            f"{ev['high_rate']:>10.3f} {ev['high_count']:>7}"
+        )
+
+    suggestion = calibration.compute_suggestion(WAREHOUSE_DB)
+    if suggestion is None:
+        print("not enough data — no calibration")
+        if apply_calibration:
+            raise typer.Exit(code=1)
+        return
+
+    print("\nSuggested weight deltas (SQL-evidenced, deterministic):")
+    for feature, delta in suggestion["deltas"].items():
+        mark = "+" if delta > 0 else ("-" if delta < 0 else " ")
+        print(f"  {feature:<20} {mark}{abs(delta):.2f}")
+    print("Renormalized weights:")
+    for feature, w in suggestion["weights"].items():
+        print(f"  {feature:<20} {w:.4f}")
+
+    if not apply_calibration:
+        print("\n(dry run — pass --apply-calibration to apply)")
+        return
+
+    result = calibration.apply_calibration(WAREHOUSE_DB)
+    print(f"\nApplied calibration v{result['version']}:")
+    print(f"  version history: {result['version_file']}")
+    print(f"  active weights:  {result['active_file']}")
+
 app.add_typer(pipeline_app, name="pipeline")
+
+# ---------------------------------------------------------------------------
+# tracker
+# ---------------------------------------------------------------------------
+
+tracker_app = typer.Typer(help="Outcome tracker: append-only event feed (SQLite or Twenty).")
+
+
+@tracker_app.command("record")
+def tracker_record(
+    job: str = typer.Option(..., "--job", help="Job identifier."),
+    stage: str = typer.Option(..., "--stage", help="Stage (e.g. applied, interview)."),
+    ts: str = typer.Option(..., "--ts", help="ISO-8601 timestamp of the event."),
+    note: str | None = typer.Option(None, "--note", help="Optional free-text note."),
+) -> None:
+    """Record one outcome event."""
+    from job_search_toolkit.tracker import STAGES, get_tracker
+
+    if stage not in STAGES:
+        raise typer.BadParameter(
+            f"unknown stage {stage!r}; valid stages: {', '.join(STAGES)}"
+        )
+    try:
+        get_tracker().record(job, stage, ts, note)
+    except ValueError as exc:  # unknown backend
+        raise typer.BadParameter(str(exc)) from exc
+    print(f"recorded {job} {stage} @ {ts}")
+
+
+@tracker_app.command("current")
+def tracker_current(
+    job: str = typer.Option(..., "--job", help="Job identifier."),
+) -> None:
+    """Print the latest event for a job, or "none"."""
+    from job_search_toolkit.tracker import get_tracker
+
+    cur = get_tracker().current(job)
+    if cur is None:
+        print("none")
+    else:
+        print(json.dumps(cur, ensure_ascii=False))
+
+
+@tracker_app.command("outcomes")
+def tracker_outcomes(
+    json_out: bool = typer.Option(False, "--json", help="Print a JSON array."),
+) -> None:
+    """Print all recorded outcome events."""
+    from job_search_toolkit.tracker import get_tracker
+
+    events = get_tracker().iter_outcomes()
+    if json_out:
+        print(json.dumps(events, ensure_ascii=False, indent=2))
+    elif not events:
+        print("none")
+    else:
+        for e in events:
+            note = f" | {e['note']}" if e.get("note") else ""
+            print(f"{e['ts']} | {e['job_id']} | {e['stage']}{note}")
+
+
+app.add_typer(tracker_app, name="tracker")
 
 # ---------------------------------------------------------------------------
 # tailor

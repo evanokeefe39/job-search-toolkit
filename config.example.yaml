@@ -52,6 +52,11 @@ defaults:
   freework_radius: 30
   hiringcafe_max_pages: 50
 
+# Outcome tracker backend: "sqlite" (default, zero-install, ships in-package)
+# or "twenty" (reads/writes via ../crm crm-bridge).
+tracker:
+  backend: sqlite
+
 # Named run configs (deep-merged over `defaults`; selected via `-c <name>`).
 runs:
   default: {}

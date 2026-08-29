@@ -132,7 +132,8 @@ def test_ingest_assets_are_offline_recovery_path():
 
     names = {a.key.path[-1] for a in INGEST_ASSETS}
     assert names == {
-        "silver_ingest", "scored_jobs", "ranked_csv", "gold_views",
+        "silver_ingest", "scored_jobs", "warehouse_outcomes",
+        "ranked_csv", "gold_views",
         "merged_jobs_export", "freework_enriched_export",
     }
 

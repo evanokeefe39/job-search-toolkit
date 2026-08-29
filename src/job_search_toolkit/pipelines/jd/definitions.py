@@ -28,6 +28,7 @@ from .assets import (
     vertical_classified,
     dim_company_enriched,
     scored_jobs,
+    warehouse_outcomes,
     ranked_csv,
     gold_views,
     merged_jobs_export,
@@ -42,18 +43,20 @@ from .assets.merge import SILVER_BOARD_ASSETS, silver_ingest
 OPT_IN_BOARDS = frozenset({"datasciencejobs", "wttj", "builtin"})
 RANKING_BOARDS = tuple(b for b in BOARD_SCRAPE_ASSETS if b not in OPT_IN_BOARDS)
 
-# Ranking path: scrape -> upsert -> score -> export -> gold. No LLM assets.
+# Ranking path: scrape -> upsert -> score -> outcome sync -> export -> gold.
+# warehouse_outcomes is deterministic/offline (no LLM) and gold's
+# score_calibration (upcoming slice) reads fresh outcomes.
 RANKING_ASSETS = (
     [BOARD_SCRAPE_ASSETS[b] for b in RANKING_BOARDS]
     + [SILVER_BOARD_ASSETS[b] for b in RANKING_BOARDS]
-    + [scored_jobs, ranked_csv, gold_views, merged_jobs_export, freework_enriched_export]
+    + [scored_jobs, warehouse_outcomes, ranked_csv, gold_views, merged_jobs_export, freework_enriched_export]
 )
 
 # Per-board silver assets (scored_jobs/gold/export depend on them), used by
 # `pipeline run --boards <name>` to select the subset's ingest + downstream.
 PIPELINE_ASSETS = (
     [SILVER_BOARD_ASSETS[b] for b in RANKING_BOARDS]
-    + [scored_jobs, ranked_csv, gold_views, merged_jobs_export, freework_enriched_export]
+    + [scored_jobs, warehouse_outcomes, ranked_csv, gold_views, merged_jobs_export, freework_enriched_export]
 )
 
 # Deferred LLM enrichment: optional, never on the ranking path.
@@ -72,7 +75,7 @@ ENRICH_ASSETS = [
 # recovers an orphaned bronze snapshot offline.
 INGEST_ASSETS = (
     [silver_ingest]
-    + [scored_jobs, ranked_csv, gold_views, merged_jobs_export, freework_enriched_export]
+    + [scored_jobs, warehouse_outcomes, ranked_csv, gold_views, merged_jobs_export, freework_enriched_export]
 )
 
 # Opt-in boards are in the registry (so `--boards <name>` can select their

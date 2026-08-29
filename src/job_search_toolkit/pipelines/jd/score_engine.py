@@ -19,11 +19,9 @@ Usage (legacy CLI — prefer the Dagster asset):
 
 from __future__ import annotations
 
-import csv
-import json
 import re
-import sys
 from datetime import date, datetime
+from importlib import resources
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -35,14 +33,29 @@ load_dotenv()
 ENRICHED_JOBS = Path("data/silver/freework_jobs_enriched.json")
 
 # --- Scoring weights (sum to 1.0) ---
-# Tuned for: well-paid, not too demanding, flexible, interesting
-WEIGHTS = {
-    "pay": 0.30,
-    "flexibility": 0.25,
-    "low_responsibility": 0.20,
-    "tech_match": 0.15,
-    "company_quality": 0.10,
-}
+# Bundled defaults live in scoring_config.yaml (version 1). If the user-level
+# active-override file written by `pipeline score-report --apply-calibration`
+# exists (env JST_ACTIVE_WEIGHTS_FILE, default data/scoring_active.yaml), its
+# weights take precedence; the packaged default stays intact and restorable.
+def _load_default_weights() -> dict[str, float]:
+    """Load active override weights if present, else the bundled defaults."""
+    import yaml
+
+    from .calibration import active_weights_file
+
+    active = active_weights_file()
+    if active.is_file():
+        with open(active, "r", encoding="utf-8") as f:
+            config = yaml.safe_load(f)
+        if config and config.get("weights"):
+            return dict(config["weights"])
+    with resources.as_file(resources.files(__package__) / "scoring_config.yaml") as p:
+        with open(p, "r", encoding="utf-8") as f:
+            config = yaml.safe_load(f)
+    return dict(config["weights"])
+
+
+WEIGHTS = _load_default_weights()
 
 # High-value technologies for a modern data engineer
 HIGH_VALUE_TECH = {
@@ -67,11 +80,6 @@ LEGACY_TECH = {
     "talend", "informatica", "ssis", "ssrs", "msbi", "cobol", "sas",
     "oracle forms", "crystal reports", "qlikview",
 }
-
-
-def load_jobs(path: Path) -> list[dict]:
-    with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
 
 
 def _get_pay(job: dict) -> tuple[float, float]:
@@ -327,8 +335,13 @@ def _score_freshness(job: dict, today: date | None = None) -> float:
     return round(max(0.3, 0.5 * age + 0.5 * seen_score), 3)
 
 
-def score_jobs(jobs: list[dict]) -> list[dict]:
-    """Score all jobs and add scores + ranking."""
+def score_jobs(jobs: list[dict], weights: dict[str, float] | None = None) -> list[dict]:
+    """Score all jobs and add scores + ranking.
+
+    weights: optional per-dimension override; None uses the versioned
+    scoring_config.yaml defaults (module constant WEIGHTS).
+    """
+    w = weights if weights is not None else WEIGHTS
     for job in jobs:
         scores = {
             "pay": _score_pay(job),
@@ -338,7 +351,7 @@ def score_jobs(jobs: list[dict]) -> list[dict]:
             "company_quality": _score_company_quality(job),
             "freshness": _score_freshness(job),
         }
-        base = sum(scores[k] * WEIGHTS[k] for k in WEIGHTS)
+        base = sum(scores[k] * w[k] for k in w)
         overall = base * scores["freshness"]
         job["scores"] = scores
         job["overall_score"] = round(overall, 3)
@@ -359,149 +372,3 @@ def score_jobs(jobs: list[dict]) -> list[dict]:
             job["recommendation_tier"] = "low"
 
     return jobs
-
-
-def export_csv(jobs: list[dict], path: Path) -> None:
-    """Export scored jobs to CSV for spreadsheet analysis."""
-    fieldnames = [
-        "overall_score",
-        "recommendation_tier",
-        "scores_pay",
-        "scores_flexibility",
-        "scores_low_responsibility",
-        "scores_tech_match",
-        "scores_company_quality",
-        "scores_freshness",
-        "title",
-        "company",
-        "end_client_sector",
-        "end_client_name",
-        "engagement_type",
-        "seniority_level",
-        "role_category",
-        "contract_types",
-        "pay",
-        "rate",
-        "remote_type",
-        "location",
-        "duration",
-        "url",
-    ]
-
-    with open(path, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
-        writer.writeheader()
-        for job in jobs:
-            scores = job.get("scores", {})
-            row = {
-                "overall_score": job.get("overall_score"),
-                "recommendation_tier": job.get("recommendation_tier"),
-                "scores_pay": scores.get("pay"),
-                "scores_flexibility": scores.get("flexibility"),
-                "scores_low_responsibility": scores.get("low_responsibility"),
-                "scores_tech_match": scores.get("tech_match"),
-                "scores_company_quality": scores.get("company_quality"),
-                "scores_freshness": scores.get("freshness"),
-                "title": job.get("title"),
-                "company": job.get("company"),
-                "end_client_sector": job.get("end_client_sector"),
-                "end_client_name": job.get("end_client_name"),
-                "engagement_type": job.get("engagement_type"),
-                "seniority_level": job.get("seniority_level"),
-                "role_category": job.get("role_category"),
-                "contract_types": " | ".join(job.get("contract_types", [])),
-                "pay": job.get("pay"),
-                "rate": job.get("rate"),
-                "remote_type": job.get("remote_type"),
-                "location": job.get("location"),
-                "duration": job.get("duration"),
-                "url": job.get("url"),
-            }
-            writer.writerow(row)
-
-
-def print_summary(jobs: list[dict], top_n: int = 15) -> None:
-    """Print a ranked summary to stdout."""
-    print(f"\n{'='*80}")
-    print(f"JOB SCORING SUMMARY — {len(jobs)} jobs analyzed")
-    print(f"{'='*80}")
-    print(f"Weights: pay={WEIGHTS['pay']:.0%} flexibility={WEIGHTS['flexibility']:.0%} "
-          f"low_resp={WEIGHTS['low_responsibility']:.0%} tech={WEIGHTS['tech_match']:.0%} "
-          f"company={WEIGHTS['company_quality']:.0%}")
-    print()
-
-    # Tier distribution
-    tiers: dict[str, int] = {}
-    for j in jobs:
-        t = j.get("recommendation_tier", "?")
-        tiers[t] = tiers.get(t, 0) + 1
-    print(f"Tiers: top={tiers.get('top',0)} high={tiers.get('high',0)} "
-          f"medium={tiers.get('medium',0)} low={tiers.get('low',0)}")
-
-    # Sector distribution
-    sectors: dict[str, int] = {}
-    for j in jobs:
-        s = j.get("end_client_sector") or "unknown"
-        sectors[s] = sectors.get(s, 0) + 1
-    print(f"\nSectors: {dict(sorted(sectors.items(), key=lambda x: -x[1]))}")
-
-    print(f"\n{'─'*80}")
-    print(f"TOP {top_n} RECOMMENDATIONS")
-    print(f"{'─'*80}")
-    print(f"{'Score':>6} {'Tier':>6} {'Pay':>5} {'Flex':>5} {'LoResp':>6} "
-          f"{'Tech':>5} {'Co':>5} {'Fresh':>5} | {'Title':<50} | {'Company':<25} | Sector")
-    print(f"{'─'*80}")
-
-    for job in jobs[:top_n]:
-        s = job.get("scores", {})
-        title = (job.get("title") or "")[:48]
-        company = (job.get("company") or "")[:23]
-        sector = (job.get("end_client_sector") or "?")[:20]
-        print(
-            f"{job.get('overall_score',0):6.3f} "
-            f"{job.get('recommendation_tier','?'):>6} "
-            f"{s.get('pay',0):.2f} "
-            f"{s.get('flexibility',0):.2f} "
-            f"{s.get('low_responsibility',0):.2f} "
-            f"{s.get('tech_match',0):.2f} "
-            f"{s.get('company_quality',0):.2f} "
-            f"{s.get('freshness',0):.2f} "
-            f"| {title:<50} | {company:<25} | {sector}"
-        )
-
-
-def main() -> None:
-    import argparse
-
-    parser = argparse.ArgumentParser(
-        description="Stage 5: Score jobs and produce ranked recommendations"
-    )
-    parser.add_argument("--top", type=int, default=20, help="Number of top jobs to show")
-    parser.add_argument("--export-csv", type=Path, default=None, help="Export CSV path")
-    parser.add_argument("--input", type=Path, default=ENRICHED_JOBS)
-    parser.add_argument("--output", type=Path, default=ENRICHED_JOBS)
-    args = parser.parse_args()
-
-    jobs = load_jobs(args.input)
-    if not jobs:
-        print(f"No jobs found in {args.input}")
-        sys.exit(1)
-
-    # Quick pre-scoring using scraped data only (no LLM enrichment needed)
-    # This lets us get useful output even before LLM stages run
-    jobs = score_jobs(jobs)
-
-    print_summary(jobs, top_n=args.top)
-
-    if args.export_csv:
-        export_csv(jobs, args.export_csv)
-        print(f"\nExported CSV to {args.export_csv}")
-
-    # Save scored data back
-    with open(args.output, "w", encoding="utf-8") as f:
-        json.dump(jobs, f, ensure_ascii=False, indent=2)
-    print(f"Saved scored jobs to {args.output}")
-
-
-if __name__ == "__main__":
-    main()
