@@ -1,5 +1,9 @@
 # ISSUES.md — job_search_scraping
 
+> **Remote-mirror:** the GitHub issues (audit findings #19–26, workstream
+> closures #30/#34) are mirrored locally in `docs/github_issues.md` so they
+> are greppable offline — regenerate with `gh issue view N --json body,comments`.
+
 
 ## Open
 
