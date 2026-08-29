@@ -12,7 +12,7 @@ Python 3.14+ and uv (package manager) are required. Install the toolkit with:
 
 Goal: turn one shortlisted job into a complete application workspace:
 `applications/YYYY-MM-DD_<company-slug>_<role-slug>/` with `inputs/jd.md` and `inputs/research.md`,
-plus a Twenty opportunity — ending at a human go/no-go decision.
+plus a tracker event — ending at a human go/no-go decision.
 
 This skill researches and scaffolds only. It does NOT tailor the CV (see
 `tailor-resume`), does NOT run the discovery pipeline, and does NOT apply.
@@ -28,12 +28,14 @@ This skill researches and scaffolds only. It does NOT tailor the CV (see
   Example: company "Mon Consultant Indépendant" → `mon-consultant-independant`;
   title "Senior data analyst – CRM" → `senior-data-analyst-crm`.
   Folder: `applications/2026-08-06_mon-consultant-independant_senior-data-analyst-crm/`.
-- Tracker: Twenty CRM (`Opportunity` object), written via `crm-bridge sync` in the
-  sibling repo `../crm`. Status values: `shortlisted, researching, tailoring, ready,
-  applied, interview, offer, rejected, withdrawn`.
+- Tracker: the repo's `job-search-toolkit tracker` CLI (append-only event
+  feed; backend from `config.yaml` `tracker.backend` — local SQLite by
+  default, Twenty via config swap). Stage values: `shortlisted, researching,
+  tailoring, ready, applied, interview, offer, rejected, withdrawn`.
 - This repo is PUBLIC on GitHub. Personal data goes ONLY in gitignored paths:
-  `resume/`, `applications/`. Application state lives privately in Twenty — never
-  reference the CRM API key or personal data in this repo.
+  `resume/`, `applications/`. Application state lives in the tracker's
+  gitignored event feed (`data/tracker.db` by default; Twenty via config) —
+  never reference personal data in this repo.
 - Never run `job-search-toolkit pipeline run` from this skill; the discovery layer
   is read-only input here.
 
@@ -224,24 +226,25 @@ Rules: every factual claim carries a source; mark anything inferred or
 unverified as `[INFERENCE]` / `[UNVERIFIED]`; never invent a fact to fill a
 section.
 
-### 5. Human go/no-go, then Twenty
+### 5. Human go/no-go, then tracker
 
 1. STOP and present to the human: a one-screen summary — company, role, pay
    range, location/workplace, the red flags, and the questions to ask — and ask:
    "Proceed with this application (go) or skip (no-go)?" Do not tailor the CV,
    render PDFs, or apply until the human says go.
-2. If go: upsert the application into Twenty with status `researching` via the
-   bridge (keyed on `folder`; idempotent). Run:
+2. If go: record the application in the tracker with stage `researching`
+   (keyed on the folder slug; append-only and idempotent on identical
+   events). Run:
 
 ```bash
-uv --directory ../crm run crm-bridge sync --json '{"company":"Company Name","role":"Role Title","source":"freework","url":"https://...","status":"researching","folder":"applications/YYYY-MM-DD_company-slug_role-slug/"}'
+job-search-toolkit tracker record --job 'applications/YYYY-MM-DD_company-slug_role-slug' --stage 'researching' --ts '<today ISO-8601>' --note 'source=freework url=https://... role="Role Title" company="Company Name"'
 ```
 
    Substitute the actual company, role, source, url, and folder slug.
 
-3. If no-go: do not create a Twenty record for the job (or mark the existing
-   record `withdrawn` via the bridge if one was already there), and report the
-   decision and reason back.
+3. If no-go: do not record an event for the job (or record the existing
+   record as `withdrawn` via `tracker record` if one was already there), and
+   report the decision and reason back.
 
 ## Failure handling
 
@@ -263,5 +266,5 @@ automation, no alternative research APIs, no pipeline runs.
   the `tailor-resume` skill own those.
 - Never run the discovery pipeline (`job-search-toolkit pipeline run`) — this
   skill only consumes its outputs.
-- Never modify anything outside the application folder (application state is written to Twenty via the bridge).
+- Never modify anything outside the application folder (application state is recorded via the tracker CLI).
 - Never edit or summarize the JD text in `jd.md` — it must stay verbatim.

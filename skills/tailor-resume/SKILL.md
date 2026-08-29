@@ -1,6 +1,6 @@
 ---
 name: tailor-resume
-description: Tailor the master CV to a specific job description: run scripts/tailor_resume.py with cv.yaml + jd.md, present the audit report for human approval, render the final PDF, update the funnel in Twenty. Use when asked to tailor a resume/CV for a job posting, improve ATS fit/scoring against a JD, or produce the cv_tailored.pdf for an application folder.
+description: Tailor the master CV to a specific job description: run scripts/tailor_resume.py with cv.yaml + jd.md, present the audit report for human approval, render the final PDF, record the funnel event in the tracker. Use when asked to tailor a resume/CV for a job posting, improve ATS fit/scoring against a JD, or produce the cv_tailored.pdf for an application folder.
 ---
 ## Requirements
 
@@ -49,7 +49,8 @@ Playbook for one application folder.
 
 1. **Preflight — application folder.**
    - Determine the target folder `applications/YYYY-MM-DD_<company-slug>_<role-slug>/`
-     (from the caller, or the Twenty record with stage Tailoring).
+     (from the caller, or the tracker record with stage `tailoring` —
+     `job-search-toolkit tracker current --job 'applications/<folder>'`).
    - Verify the folder exists AND contains `inputs/jd.md`. If either is missing:
      `STOP: the application folder does not exist yet — run the new-application skill first.`
 
@@ -100,15 +101,18 @@ Playbook for one application folder.
    - Check page count (should be 1-2 pages).
    - Check for rendering artifacts (emoji, broken Unicode, overflow).
 
-5. **Update the funnel in Twenty.**
-   - Upsert the record to status `ready` via the bridge (keyed on `folder`):
+5. **Record the funnel event.**
+   - Record the stage `ready` event via the tracker CLI (keyed on the folder
+     slug; append-only and idempotent on identical events):
 
 ```bash
-uv --directory ../crm run crm-bridge sync --json '{"company":"Company Name","role":"Role Title","folder":"applications/YYYY-MM-DD_company-slug_role-slug/","status":"ready"}'
+job-search-toolkit tracker record --job 'applications/YYYY-MM-DD_company-slug_role-slug' --stage 'ready' --ts '<today ISO-8601>'
 ```
 
-   - If a real `ats_score` was produced, include `"ats_score": <n>` in the same payload.
-   - Never delete records.
+   - If a real `ats_score` was produced, add it to the same event as a note:
+     `--note 'ats_score=<n>'`. Never guess the number.
+   - Never delete records or rewrite history; corrections are new events with
+     an explanatory note.
 
 ## Do not
 
