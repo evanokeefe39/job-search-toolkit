@@ -19,7 +19,6 @@ Usage (legacy CLI — prefer the Dagster asset):
 
 from __future__ import annotations
 
-import re
 import os
 from datetime import date, datetime
 from importlib import resources
@@ -397,8 +396,6 @@ def _load_lead_config() -> dict:
     """
     import yaml
 
-    from importlib import resources
-
     active = Path(os.environ.get(
         "JST_LEAD_ACTIVE_WEIGHTS_FILE", "data/lead_scoring_active.yaml"))
     if active.is_file():
@@ -512,7 +509,7 @@ def score_leads(leads: list[dict], weights: dict[str, float] | None = None) -> l
         }
         lead["lead_scores"] = lead_scores
         lead["lead_score"] = round(_weighted_base(lead_scores, w), 3)
-    leads.sort(key=lambda l: l.get("lead_score", 0), reverse=True)
+    leads.sort(key=lambda lead: lead.get("lead_score", 0), reverse=True)
     return leads
 
 
@@ -539,12 +536,12 @@ def ensure_lead_table(con) -> None:
     con.execute(f"CREATE TABLE IF NOT EXISTS silver.lead ({cols}, PRIMARY KEY (person_id))")
 
 
-def upsert_lead_scores(con, leads: list[dict]) -> int:
+def upsert_lead_scores(con, leads: list[dict], weights: dict[str, float] | None = None) -> int:
     """Score leads deterministically and upsert into silver.lead (idempotent)."""
     from .silver import sql_literal
 
     ensure_lead_table(con)
-    scored = score_leads(leads)
+    scored = score_leads(leads, weights=weights)
     updated = 0
     for lead in scored:
         dims = lead["lead_scores"]
@@ -591,3 +588,61 @@ def lead_apply_calibration(db_path) -> dict:
     # Outcome-linked advance evidence gates the write; deferred until lead
     # outcome labels exist (per lead-scoring.md assumption log).
     raise RuntimeError("not enough data — no outcome evidence for calibration")
+
+
+# --- warehouse producer: BD tables -> silver.lead ---------------------------
+
+def score_leads_from_warehouse(con, weights: dict[str, float] | None = None) -> int:
+    """Fetch leads from the BD tables, score deterministically, write silver.lead.
+
+    A lead is a ``silver.dim_person`` row joined to ``silver.dim_company``
+    (via company_id) plus its ``fact_touch`` history and ``fact_referral``
+    presence. Warehouse signals map onto the four dimensions; a missing
+    signal stays neutral (0.5) so a thin contact is never dropped. Zero-LLM,
+    deterministically, idempotent (upsert on person_id). Returns the number of
+    leads written. Refinable in calibration (per lead-scoring.md).
+    """
+    rows = con.execute(
+        """
+        SELECT p.person_id, p.company_id, p.name, p.title,
+               p.contact_type, c.industry, c.latest_funding_amount_usd,
+               MAX(t.event_date) AS last_touch,
+               COUNT(t.event_date) FILTER (WHERE t.direction = 'in') AS inbound_touches,
+               EXISTS(
+                   SELECT 1 FROM silver.fact_referral r
+                   WHERE r.target_person_id = p.person_id
+                      OR r.referrer_person_id = p.person_id
+               ) AS has_referral
+        FROM silver.dim_person p
+        LEFT JOIN silver.dim_company c ON c.company_id = p.company_id
+        LEFT JOIN silver.fact_touch t ON t.person_id = p.person_id
+        GROUP BY p.person_id, p.company_id, p.name, p.title,
+                 p.contact_type, c.industry, c.latest_funding_amount_usd
+        """
+    ).fetchall()
+
+    leads = []
+    today = date.today()
+    for person_id, company_id, name, title, contact_type, industry, funding, last_touch, inbound, has_referral in rows:
+        recent_days = (
+            None if last_touch is None
+            else max(0, (today - _coerce_date(str(last_touch))).days)
+        )
+        leads.append({
+            "person_id": person_id,
+            "company_id": company_id,
+            "name": name,
+            # Intent: a known sector signal from dim_company.industry; a
+            # missing sector is neutral (the LLM never scores this path).
+            "sector_overlap": (0.6 if industry else None),
+            # Fit: no per-company tech signal yet -> neutral (not penalized).
+            "tech_overlap": None,
+            "has_referral": bool(has_referral),
+            "recent_touch_days": recent_days,
+            "inbound_touch": int(inbound or 0) > 0,
+            "funding_amount_usd": funding,
+            # Active hiring inferred from recent engagement; None -> neutral.
+            "active_hiring": (recent_days is not None and recent_days <= 30),
+            "contact_available": bool(name),
+        })
+    return upsert_lead_scores(con, leads, weights=weights)

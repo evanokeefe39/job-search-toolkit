@@ -92,13 +92,15 @@ Sort contacts by priority (highest first):
 
 Before drafting, route the contact list by the deterministic lead score
 (zero-LLM; Epic 7.2) so outreach targets the highest-value relationships
-first:
+first. Populate the scores from the recorded contacts, then view the ranked
+queue:
 
 ```
+job-search-toolkit bd score-leads
 job-search-toolkit bd leads
 ```
 
-It prints `person_id | company_id | intent | fit | access | urgency |
+`bd leads` prints `person_id | company_id | intent | fit | access | urgency |
 lead_score` from `gold.lead_rank`, ordered by `lead_score DESC`. Prioritize
 contacts in score order for drafting, with special attention to:
 - referrals (boosted access — a warm intro is not buried by cold-score)

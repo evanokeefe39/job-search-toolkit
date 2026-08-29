@@ -248,7 +248,12 @@ def pipeline_lead_score_report(
     if not apply_calibration:
         print("\n(dry run — pass --apply-calibration to apply)")
         return
-    result = score_engine.lead_apply_calibration(WAREHOUSE_DB)
+    try:
+        result = score_engine.lead_apply_calibration(WAREHOUSE_DB)
+    except RuntimeError as exc:
+        # Lead calibration is outcome-gated (no lead outcomes yet): refuse.
+        print(f"not applied — {exc}")
+        raise typer.Exit(code=1)
     print(f"\nApplied lead calibration v{result['version']}:")
     print(f"  active weights:  {result['active_file']}")
 
@@ -563,6 +568,22 @@ def bd_leads(limit: int = typer.Option(20, "--limit", help="Max leads to print."
     print("person_id | company_id | intent | fit | access | urgency | lead_score")
     for person_id, company_id, intent, fit, access, urgency, lead_score in rows:
         print(f"{person_id} | {company_id} | {intent} | {fit} | {access} | {urgency} | {lead_score}")
+
+
+@bd_app.command("score-leads")
+def bd_score_leads() -> None:
+    """Score all BD contacts into silver.lead (deterministic, zero-LLM)."""
+    from job_search_toolkit.pipelines.jd import silver
+    from job_search_toolkit.pipelines.jd import score_engine
+
+    con = silver.connect()
+    try:
+        silver.ensure_bd_tables(con)
+        score_engine.ensure_lead_table(con)
+        n = score_engine.score_leads_from_warehouse(con)
+    finally:
+        con.close()
+    print(f"scored {n} leads")
 
 
 app.add_typer(bd_app, name="bd")

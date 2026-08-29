@@ -176,3 +176,36 @@ def test_lead_score_calibration_view_surfaces_bands(tmp_path: Path):
         con.close()
     # Both scored leads appear across the score bands (counts sum to 2).
     assert sum(r[0] for r in rows) == 2
+
+
+def test_score_leads_from_warehouse_populates_lead(tmp_path: Path):
+    """The warehouse producer turns BD tables into silver.lead + gold.lead_rank."""
+    from job_search_toolkit.pipelines.jd import silver
+    from job_search_toolkit.pipelines.jd.gold import build_bd_views
+
+    db = tmp_path / "warehouse.db"
+    con = duckdb.connect(str(db))
+    try:
+        silver.ensure_dims(con)  # dim_company join target (created by the pipeline)
+        silver.ensure_bd_tables(con)
+        p1 = silver.upsert_person(con, {"name": "A", "linkedin_url": "https://x/a", "title": "DE"})
+        p2 = silver.upsert_person(con, {"name": "B", "linkedin_url": "https://x/b", "title": "HM"})
+        # p1 is inbound (direction=in); p2 is a recent cold outbound.
+        silver.record_touch(con, {
+            "person_id": p1, "direction": "in", "channel": "linkedin",
+            "status": "replied", "event_date": "2026-08-01", "provenance": "test",
+        })
+        silver.record_touch(con, {
+            "person_id": p2, "direction": "out", "channel": "linkedin",
+            "status": "sent", "event_date": "2026-08-26", "provenance": "test",
+        })
+        n = se.score_leads_from_warehouse(con)
+        assert n == 2
+        build_bd_views(con)
+        rows = con.execute(
+            "SELECT person_id, lead_score FROM gold.lead_rank ORDER BY lead_score DESC"
+        ).fetchall()
+        assert len(rows) == 2
+        assert rows[0][1] >= rows[1][1]  # deterministic, ranked DESC
+    finally:
+        con.close()
