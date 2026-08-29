@@ -93,3 +93,33 @@ helper that passes a `company_id` key in the job dicts it hands to
 `ensure_jobs_table` raises DuckDB `Catalog Error: Column with name company_id
 already exists!`. Build the schema from `company_id`-free dicts, then insert
 rows that carry it.
+
+
+## WS7 (2026-08-29) — edit-tool mangle variants + "no producer" gap
+
+The edit-tool mangle recurred on 5 files this session. New observed variants
+beyond the WS1 constant-drop:
+- **Append-after-function dropped the function's own tail** (score_engine.py:
+  appending the lead section after `return jobs` dropped `return jobs`; later
+  appending `score_leads_from_warehouse` after `lead_apply_calibration`
+  dropped that function's two `raise` lines).
+- **Add-command dropped the PRIOR function's tail + duplicated a line**
+  (cli.py `bd leads` lost its print loop; `app.add_typer(bd_app...)` doubled).
+- **Tuple edit dropped a tuple member's tail + duplicated a closing paren**
+  (gold.py `_BD_VIEWS` relationship view).
+- **Markdown edit dropped the header + duplicated the block** (workstreams.md).
+All parse fine (ast.parse is useless here); only grep/re-read of the anchor
+region + a behavioral smoke catches them. When the edit tool says "operation
+needs »" / "no change" / fuzzy no-marker replace, re-read — those are the
+mangle signals. For structural rewrites use full-file write or a fail-loud
+line-indexed python splice.
+
+## WS7 (2026-08-29) — "second consumer / gold view" must have a producer
+
+Implementing a gold view over new tables without wiring a producer that
+POPULATES the underlying table leaves it a dead end. Lead scoring shipped
+engine + views + write helper but nothing called `upsert_lead_scores` —
+`bd leads` returned none, `pipeline lead-score-report` showed 0. A reviewer
+caught it. Reviewer must check: does any src/ path write the table the new
+view reads? Is the full path (source tables -> output table -> view) exercised
+by a test, not just the pure function on hand-built dicts?
