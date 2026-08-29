@@ -41,7 +41,7 @@ scrape_app.add_typer(hiringcafe_app, name="hiringcafe", help="Scrape hiringcafe.
 scrape_app.add_typer(remoteok_app, name="remoteok", help="Scrape remoteok.com")
 scrape_app.add_typer(weworkremotely_app, name="wwr", help="Scrape weworkremotely.com")
 scrape_app.add_typer(builtin_app, name="builtin", help="Scrape builtin.com/jobs/eu/france (opt-in)")
-scrape_app.add_typer(wttj_app, name="wttj", help="Scrape welcometothejungle.com France (opt-in)")
+scrape_app.add_typer(wttj_app, name="wttj", help="Scrape welcometothejungle.com France")
 app.add_typer(scrape_app, name="scrape")
 
 # ---------------------------------------------------------------------------

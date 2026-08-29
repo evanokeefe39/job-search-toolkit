@@ -12,9 +12,11 @@ Views live in the ``gold`` schema of the warehouse database
 - ``weekly_snapshot``        — active job counts per ISO week (reconstructed from
   the first/last_seen interval)
 - ``new_this_run``           — jobs whose first_seen_run is the given run
-- ``disappeared_this_run``   — jobs whose ``last_seen_at`` is older than the
-  staleness horizon (``STALE_AFTER_DAYS``) — "likely gone" without a binary
-  active/inactive deactivation
+- ``market_pulse``           — per-day-per-board operational series: new jobs
+  (by ``first_seen_at``) and seen jobs (by ``last_seen_at``). Gauge how much
+  the market is moving day over day
+- ``active_recent``          — non-stale jobs whose ``date_posted`` is within
+  the last 30 days, per board (the "fresh, currently-listable" pool)
 
 Jobs are never deactivated: ``silver.jobs.is_active`` stays TRUE once seen,
 and staleness is inferred from time since last seen. This makes subset runs
@@ -449,6 +451,61 @@ def build_gold(db_path: Path, run_id: str | None = None) -> None:
             CREATE OR REPLACE VIEW gold.disappeared_this_run AS
             SELECT * FROM silver.jobs
             WHERE {_STALE}
+            """
+        )
+
+        # market_pulse: the day-over-day operational series, per board. "new"
+        # is a job's first_seen day (reliable — a genuinely new posting always
+        # sits at the top of a time-sorted window, so it is always captured);
+        # "seen" is a job's last_seen day. NOTE: seen is a lower bound, not the
+        # board's true total — every board caps its scrape window
+        # (hiringcafe_max_pages, wttj_max_jobs, --max-pages, ...), so a job past
+        # the cap is never re-scraped and its last_seen_at does not advance even
+        # while it is still live. Read a rising "new" series as real market
+        # movement; read "seen" as "what fit in the result window that day".
+        con.execute(
+            """
+            CREATE OR REPLACE VIEW gold.market_pulse AS
+            WITH new_by_day AS (
+                SELECT source_board,
+                       CAST(first_seen_at AS DATE) AS day,
+                       COUNT(*) AS new_jobs
+                FROM silver.jobs
+                WHERE first_seen_at IS NOT NULL
+                GROUP BY source_board, CAST(first_seen_at AS DATE)
+            ),
+            seen_by_day AS (
+                SELECT source_board,
+                       CAST(last_seen_at AS DATE) AS day,
+                       COUNT(*) AS seen_jobs
+                FROM silver.jobs
+                WHERE last_seen_at IS NOT NULL
+                GROUP BY source_board, CAST(last_seen_at AS DATE)
+            )
+            SELECT COALESCE(n.source_board, s.source_board) AS source_board,
+                   COALESCE(n.day, s.day) AS day,
+                   COALESCE(n.new_jobs, 0) AS new_jobs,
+                   COALESCE(s.seen_jobs, 0) AS seen_jobs
+            FROM new_by_day n
+            FULL OUTER JOIN seen_by_day s
+              ON n.source_board = s.source_board AND n.day = s.day
+            ORDER BY day, source_board
+            """
+        )
+
+        # active_recent: the "fresh, currently-listable" pool — non-stale jobs
+        # whose posting date is within the last 30 days, per board. Like all
+        # non-stale views this is bounded by what the scrape window re-saw, so
+        # a board with a small cap under-counts its truly-live fresh jobs.
+        con.execute(
+            f"""
+            CREATE OR REPLACE VIEW gold.active_recent AS
+            SELECT source_board, COUNT(*) AS active_recent_jobs
+            FROM silver.jobs
+            WHERE CAST(date_posted AS DATE) >= CURRENT_DATE - INTERVAL 30 DAY
+              AND {_NOT_STALE}
+            GROUP BY source_board
+            ORDER BY active_recent_jobs DESC, source_board
             """
         )
 

@@ -38,9 +38,9 @@ from .assets.scrape import BOARD_SCRAPE_ASSETS
 from .assets.merge import SILVER_BOARD_ASSETS, silver_ingest
 
 # Boards on the default ranking path. Opt-in boards (datasciencejobs — long,
-# brittle; wttj/builtin — large or bot-protected, see plans) are deliberately
-# excluded but reachable via `--boards <name>`.
-OPT_IN_BOARDS = frozenset({"datasciencejobs", "wttj", "builtin"})
+# brittle; builtin — large or bot-protected, see plans) are deliberately
+# excluded but reachable via `--boards <name>`. wttj is a core board.
+OPT_IN_BOARDS = frozenset({"datasciencejobs", "builtin"})
 RANKING_BOARDS = tuple(b for b in BOARD_SCRAPE_ASSETS if b not in OPT_IN_BOARDS)
 
 # Ranking path: scrape -> upsert -> score -> outcome sync -> export -> gold.

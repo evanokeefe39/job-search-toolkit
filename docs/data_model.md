@@ -1,295 +1,278 @@
-# Data Model — job_search_scraping
+# Data Model — job-search-toolkit
 
-Core entities and their relationships. Market research (headwinds/tailwinds,
-territory viability) is captured in prose in `data/market_state.md`, not as
-tabular data.
+Single, current authority for the data model across the **warehouse**, the
+**tracker event feed**, and the **Twenty CRM**. This doc supersedes the
+pre-warehouse model (flat `tracker.csv` / `merged_jobs.json`) and is the
+reference for any code, skill, or plan that reads or writes application,
+outcome, or job data. When a plan or doc disagrees with this file, this file
+wins — update it first, then the plan.
 
-## Entity Relationship Diagram
+Market research (headwinds/tailwinds, territory viability) stays narrative in
+`data/market_state.md`, not tabular.
+
+## Deployment tiers
+
+The same entities exist at every tier, but *where they are stored* and *what is
+authoritative* changes. Tiers are additive and opt-in (see
+`docs/readme_plan.md`); a user starts low and opts up. **The application folder
+slug is the identity that joins every tier.**
+
+| Tier | Name | System of record | What it adds |
+|---|---|---|---|
+| **T1** | JD ingestion + applying | SQLite + DuckDB warehouse | Scrape → score → shortlist → tailor → apply. Outcome event feed in `data/tracker.db`, mirrored into the warehouse `silver.fact_outcome_event`. No CRM. |
+| **T2** | Application funnel + tracker | **Twenty CRM** (authoritative) | Twenty owns the application funnel; the SQLite tracker becomes a sync *cache*, never a fork. Same event protocol, `provenance="twenty"`. |
+| **T3** | Full CRM / BD | Twenty + warehouse BD facts | Outreach playbooks, lead scoring, referral tracking, inbound attribution. `silver.dim_person` + `fact_touch` / `fact_referral` / `fact_inbound_attribution`. |
+
+**The one invariant across all tiers:** application state is an **append-only
+event feed**, never mutable status. History is preserved; the latest event
+derives the current stage. This is the same never-deactivate principle as the
+job warehouse.
+
+## Central identity: the application folder slug
+
+Every layer keys an application by its **folder slug**:
 
 ```
-┌──────────┐       ┌────────────────┐       ┌──────────────┐
-│  Agency  │       │    Company     │       │    Person    │
-│          │──1:N──│                │──1:N──│              │
-│ name     │       │ name           │       │ name         │
-│ special. │       │ size           │       │ title        │
-│ regions  │       │ funding        │       │ linkedin_url │
-│ website  │       │ ticker         │       │ email        │
-└────┬─────┘       │ reputation     │       │ contact_type │
-     │             │ locations      │       │ company_id   │
-     │             │ industry       │       │ agency_id    │
-     │             └────────┬───────┘       └──────┬───────┘
-     │                      │                      │
-     │                      │ poster   end_client   │
-     │                      │   │         │         │
-     │             1:N      ▼   ▼         ▼         │ 1:N
-     │    ┌─────────────────────────────────────┐   │
-     │    │          JobDescription              │   │
-     ├───▶│                                     │◀┐ │
-     │    │ poster_company_id                    │ │ │
-     │    │ end_client_name (nullable)            │ │ │
-     │ N:M│ end_client_sector (nullable)          │ │ │
-     │    │ engagement_type (nullable)            │ │ │
-     │    │ title                               │ │ │
-     │    │ location                            │ │ │
-     │    │ pay                                 │ │ │
-     │    │ requirements                        │ │ │
-     │    │ tech_stack                          │ │ │
-     │    │ source_board                        │ │ │
-     │    │ url                                 │ │ │
-     │    │ date_posted                         │ │ │
-     │    └──────────────┬──────────────────────┘   │
-     │                   │                          │
-     │             1:1   │                          │
-     │    ┌──────────────┴──────────┐               │
-     │    │      Application        │               │
-     │    │                         │               │
-     │    │ job_id                  │               │
-     │    │ status                  │               │
-     │    │ status_dates (JSON)     │               │
-     │    │ ats_score               │               │
-     │    │ folder_path             │               │
-     │    │ outcome                 │               │
-     │    │ notes                   │               │
-     │    └─────────────────────────┘               │
-     │                                              │
-     │    ┌─────────────────────────────────────────┘
-     │    │ 1:N
-     │    ▼
-     │   ┌─────────────────┐
-     └──▶│    Outreach     │
-         │                 │
-         │ person_id       │
-         │ application_id  │ (nullable)
-         │ agency_id       │ (nullable)
-         │ channel         │
-         │ direction       │
-         │ message         │
-         │ status          │
-         │ sent_date       │
-         │ reply_date      │
-         │ notes           │
-         └─────────────────┘
+applications/YYYY-MM-DD_<company-slug>_<role-slug>/
 ```
 
-## Entities
+- **`status.yaml`** lives in the folder and records the append-only transition
+  history.
+- **Tracker events** use `folder.name` as `job_id`.
+- **Twenty Opportunities** carry the same string in their `folder` field.
+- The warehouse `silver.jobs.id` (the source URL) joins *through the folder's
+  recorded job URL*, not directly — the `fact_outcome_event.job_id` → `silver.jobs`
+  join is **deliberately nullable** (an outcome may reference an application
+  whose job was never scraped into the warehouse).
 
-### Company
-
-Represents an organization — either a target employer (end client) or a
-posting intermediary (ESN/consulting firm). One company can play either
-role depending on the job.
-
-| Field | Type | Description |
-|---|---|---|
-| `id` | string | Unique identifier |
-| `name` | string | Legal company name |
-| `size` | string | Headcount range (e.g. "51-200", "1000+") |
-| `funding` | string | Funding summary (e.g. "Bootstrapped", "Series B $20M") |
-| `ticker` | string | Stock ticker if public; null if private |
-| `reputation` | string | Free-text reputation notes (sourced) |
-| `locations` | list[string] | Office locations |
-| `industry` | string | Industry/sector |
-
-**Source:** Pipeline enrichment (`pipeline/enrich_canonical.py`, `stage4_company_stats.py`)
-and `new-application` research (Crunchbase, web_search, yfinance).
-
-**Current storage:** Embedded in `merged_jobs.json` as `company_stats` and
-`company_deep_research` fields; replicated into `research.md` per application.
+> ⚠️ **Do not assume `job_id` is a URL.** `silver.jobs.id` is the job URL, but
+> the tracker's `job_id` is the **folder slug**. They are different keys.
 
 ---
 
-### JobDescription
+## 1. The job warehouse (DuckDB `data/warehouse/jobs.db`)
 
-Represents a single job posting from any board. In the French market, the
-**poster** is often an ESN/consulting firm while the **end client** is the
-company where the work is done. This distinction drives everything: the ESN
-recruiter is your contact for placement, but the day rate, team, and often
-the hiring manager live at the end client.
+Kimball star schema, silver = normalized, gold = analytics views. Built by
+`pipeline run`. All surrogate keys are SHA-1 hex `[:16]`. See
+`src/job_search_toolkit/pipelines/jd/silver.py` / `gold.py`.
 
-| Field | Type | Description |
-|---|---|---|
-| `id` | string | Unique identifier |
-| `poster_company_id` | string | FK to Company — the firm that posted the ad (ESN or direct employer) |
-| `end_client_name` | string | End client company name; null if posting directly |
-| `end_client_sector` | string | End client industry/sector; null if not applicable |
-| `engagement_type` | string | `direct_hire`, `esn_placement`, `freelance_mission` |
-| `title` | string | Job title |
-| `location` | string | Location string (city, country) |
-| `workplace_type` | string | `remote`, `hybrid`, `on_site` |
-| `pay` | object | `{min, max, currency, frequency, is_disclosed}` |
-| `contract_types` | list[string] | `["cdi","freelance","cdd"]` etc. |
-| `seniority_level` | string | `junior`, `mid`, `senior`, `lead` |
-| `requirements` | string | English description/requirements text |
-| `tech_stack` | list[string] | Extracted technologies |
-| `source_board` | string | `freework`, `hiringcafe` |
-| `url` | string | Original or apply URL |
-| `date_posted` | date | Posting date |
+### silver.jobs (fact table)
 
-**Source:** Scrapers (`scrape_freework.py`, `scrape_hiringcafe.py`) + pipeline
-enrichment (LLM extracts `end_client_*` and `engagement_type` from descriptions).
+One row per unique `(id, source_board)`, **never deleted**. A job's `id` is its
+source URL. Staleness is inferred from `last_seen_at`, never an `is_active` flip.
 
-**Current storage:** `merged_jobs.json` (canonical), `jobs_ranked.csv` (scored subset).
-The `poster_company_id` maps to an inlined company record in the JSON;
-`end_client_name` and `end_client_sector` are sometimes empty (~86% in current
-data due to the v4-flash function-call JSON malformation — see AGENTS.md
-known sharp edges).
-
----
-
-### Person
-
-Represents a human contact — employee at a target company, hiring manager,
-or recruiter at an agency.
-
-| Field | Type | Description |
-|---|---|---|
-| `id` | string | Unique identifier |
-| `name` | string | Full name |
-| `title` | string | Job title |
-| `company_id` | string | FK to Company; null for agency recruiters |
-| `agency_id` | string | FK to Agency; null for company employees |
-| `linkedin_url` | string | LinkedIn profile URL |
-| `email` | string | Email address (if known) |
-| `contact_type` | string | `data_team`, `hiring_manager`, `recruiter`, `other` |
-| `notes` | string | Context — how found, relevance to which roles |
-
-For ESN-posted jobs, People naturally attach to whichever side is relevant:
-end-client employees for team research, ESN recruiters for placement contact.
-
-**Source:** `cold-outreach` skill (web_search, LinkedIn discovery).
-
-**Current storage:** Planned: `data/contacts.csv`. Not yet implemented.
-`.gitignore` covers `data/contacts*`.
-
----
-
-### Agency
-
-Represents a recruitment agency known to operate in target regions.
-
-| Field | Type | Description |
-|---|---|---|
-| `id` | string | Unique identifier |
-| `name` | string | Agency name |
-| `specializations` | list[string] | e.g. `["data","tech","finance"]` |
-| `regions` | list[string] | e.g. `["france","dach","iberia"]` |
-| `website` | string | Agency website URL |
-
-**Source:** `cold-outreach` skill (web_search for recruitment agencies in target
-regions). Seed list in `job_search_preferences.yaml` → `outreach.recruiter_agencies`.
-
-**Current storage:** Planned alongside Person in `data/contacts.csv`. Not yet
-implemented.
-
----
-
-### Application
-
-Represents one job application — the central workflow entity.
-
-| Field | Type | Description |
-|---|---|---|
-| `id` | string | Unique identifier |
-| `job_id` | string | FK to JobDescription |
-| `status` | string | Current workflow status (see below) |
-| `status_dates` | JSON | `{"shortlisted": "2026-08-07", "applied": "2026-08-10", ...}` |
-| `ats_score` | float | ATS keyword match score (from Resume-Matcher) |
-| `folder_path` | string | Path to `applications/YYYY-MM-DD_company_role/` |
-| `outcome` | string | Terminal label: `rejected`, `offer_accepted`, `offer_declined`, `withdrawn`, `ghosted` |
-| `notes` | string | Free-text notes |
-
-**Source:** `new-application`, `tailor-resume`, `application-tracker` skills.
-
-**Current storage:** `tracker.csv` (flat CSV, 11 columns: `date_added, company,
-role, source, url, status, folder, ats_score, applied_date, outcome, notes`).
-The CSV maps to this model as:
-- `date_added` → first status_dates entry
-- `company`/`role` → denormalized from JobDescription for readability
-- `source` → JobDescription.source_board
-- `url` → JobDescription.url
-- `status` → Application.status
-- `folder` → Application.folder_path
-- `ats_score` → Application.ats_score
-- `outcome` → Application.outcome
-- `notes` → Application.notes
-
-**Status vocabulary** (reconciled with existing `tracker.csv` and
-`application-tracker` skill):
-
-| status | meaning |
+| Column | Notes |
 |---|---|
-| `shortlisted` | Appears in ranked results; not yet researched |
-| `researching` | Company/role research in progress |
-| `tailoring` | Resume being tailored for this role |
-| `ready` | Resume tailored; ready to apply |
-| `applied` | Application submitted; set `applied_date` |
-| `interview` | Interview scheduled or underway |
-| `offer` | Offer received |
-| `rejected` | Terminal — rejected by employer |
-| `withdrawn` | Terminal — withdrawn by us |
+| `id`, `source_board` | Composite PK. `id` = source URL. |
+| `title`, `company`, `location_raw` | Display fields. |
+| `source_url`, `apply_url` | Source + application links. |
+| `workplace_type`, `salary`, `contract_types`, `seniority_level`, `role_category`, `years_experience_min`, `technologies` | Canonical enrichment fields. |
+| `date_posted` | Posting date. |
+| `end_client_sector`, `end_client_name`, `engagement_type` | ESN/end-client split (poster ≠ end client in the French market). |
+| `overall_score`, `recommendation_tier`, `scores` (JSON) | Score engine output. |
+| `company_id` | FK to `dim_company`. |
+| `first_seen_run`, `first_seen_at`, `last_seen_run`, `last_seen_at` | Lineage. Jobs never deactivate; staleness = `last_seen_at` older than `STALE_AFTER_DAYS` (60). |
+| `is_active` | Stays TRUE once seen (do not use for freshness — use `last_seen_at`). |
+| `enriched_at`, `enrichment_version`, `created_at`, `updated_at` | Enrichment/lineage metadata. |
 
-Fine-grained post-application states live in `outcome` and `notes`:
-acknowledgement received, ghosted after 30+ days, offer accepted/declined,
-interview stage details, recruiter contact dates. This split is intentional —
-`status` drives the pipeline (what skill to run next), `outcome` captures the
-final result, `notes` carries the timeline.
+**Enrichment state is column nullability, not flags:** `description_language='fr'`
+→ needs translation; empty `technologies` → needs tech extraction.
+
+### silver dimensions
+
+- **`dim_board`** — static: `board_id, name, description_language, base_url`.
+- **`dim_company`** — one row per (normalized name, source_board):
+  `company_id, name, display_name, source_board, industry, size_employees,
+  year_founded, hq_country, org_type, stock_symbol, stock_exchange,
+  latest_funding_*, homepage_url, enriched_at, enrichment_version`. LLM
+  research lives here, never per-row.
+- **`dim_date`** — spine over `date_posted`: `date_id, iso_week, month, quarter, year`.
+
+### silver fact tables (append-only)
+
+- **`fact_outcome_event`** — one row per stage transition, copied from the
+  tracker feed by the `warehouse_outcomes` asset. Columns: `outcome_event_id`
+  (SHA-1 over identity), `job_id` (folder slug; **nullable FK**, not enforced),
+  `stage, ts, note, provenance, recorded_at, synced_at`. Idempotent via a
+  UNIQUE index on `(job_id, stage, ts, COALESCE(note,''), provenance)`.
+- **`fact_touch`** — BD outreach touch: `touch_id, person_id, company_id,
+  direction (out|in), channel, playbook, status, event_date, touch_number,
+  note, provenance, recorded_at`.
+- **`fact_referral`** — `referral_id, referrer_person_id, target_person_id,
+  target_company_id, status, event_date, note, provenance, recorded_at`.
+- **`fact_inbound_attribution`** — `attribution_id, person_id, company_id,
+  source_asset, event_date, note, provenance, recorded_at`.
+- **`dim_person`** — `person_id, natural_key, name, linkedin_url, title,
+  contact_type, agency, company_id, key_source, follow_up_due_date,
+  created_at, updated_at`.
+
+### gold views (`CREATE OR REPLACE` on every run)
+
+`ranked_jobs`, `by_sector`, `by_tier`, `job_history`, `weekly_snapshot`,
+`new_this_run`, `disappeared_this_run`, `market_pulse`, `active_recent`,
+`score_calibration` (+ BD views: `contact_cadence`, `referral_funnel`,
+`inbound_conversion`, `event_funnel`, `next_action`, `relationship`,
+`lead_rank`, `lead_score_calibration`).
 
 ---
 
-### Outreach
+## 2. The tracker event feed (T1: SQLite `data/tracker.db`; T2: Twenty cache)
 
-Represents one cold outreach message to a Person.
+### protocol.py — the Tracker interface
 
-| Field | Type | Description |
+Backend-agnostic append-only feed. Every backend implements
+`record(job_id, stage, ts, note)` / `current(job_id)` / `iter_outcomes()`.
+Each event dict:
+
+```python
+{job_id, stage, ts, note, provenance, recorded_at}
+```
+
+`provenance` is `"sqlite"` (T1) or `"twenty"` (T2). Both backends are drop-in
+interchangeable — identical keys, only provenance differs.
+
+### T1 — SQLite backend (`data/tracker.db`)
+
+```sql
+CREATE TABLE events (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_id      TEXT NOT NULL,          -- the application folder slug
+    stage       TEXT NOT NULL,
+    ts          TEXT NOT NULL,          -- ISO-8601 transition timestamp
+    note        TEXT,
+    provenance  TEXT NOT NULL DEFAULT 'sqlite',
+    recorded_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX ux_events_payload
+    ON events(job_id, stage, ts, COALESCE(note, ''));
+```
+
+- Append-only; idempotent on exact `(job_id, stage, ts, note)`.
+- **`job_id` = the application folder slug** (`folder.name`), NOT a URL.
+- A missing/corrupt file is recreated with a warning; a non-empty dir is never
+  deleted.
+
+### T2 — Twenty backend
+
+At `tracker.backend = twenty`, **Twenty is authoritative**; `data/tracker.db`
+becomes a best-effort SQLite **mirror** (written on `record()`, never a fork).
+`iter_outcomes()` reads only from Twenty via `crm-bridge`. A cache write
+failure warns but never fails the authoritative record.
+
+The tracker talks to Twenty through the **`crm-bridge`** in the sibling
+`../crm` repo (`uv --directory ../crm run crm-bridge`), never directly.
+
+### status.yaml (per application folder)
+
+The folder's append-only transition history — the source both `tracker record`
+and the tracker feed derive from, so they cannot diverge.
+
+```yaml
+folder: applications/YYYY-MM-DD_company_role
+current_stage: applied
+created_at: "<ts>"
+transitions:
+  - {stage: shortlisted, ts: "..."}
+  - {stage: tailoring,   ts: "..."}
+  - {stage: applied,     ts: "...", note: "source=freework url=... role=... company=..."}
+followups: []
+```
+
+---
+
+## 3. The Twenty CRM object model (T2/T3, authoritative at T2+)
+
+Defined in `../crm/tasks/plans/twenty-crm-foundation.md`. Standard Twenty
+objects repurposed with custom fields (built via the Metadata API):
+
+| Twenty object | Meaning here | Custom fields |
 |---|---|---|
-| `id` | string | Unique identifier |
-| `person_id` | string | FK to Person |
-| `application_id` | string | FK to Application; null if prospecting without a specific job |
-| `agency_id` | string | FK to Agency; null if reaching out to company employees |
-| `channel` | string | `linkedin`, `email` |
-| `direction` | string | `outbound` (we reached out), `inbound` (they contacted us) |
-| `message` | string | Draft or sent message text |
-| `status` | string | `draft`, `draft_approved`, `sent`, `replied`, `no_response`, `declined`, `connected` |
-| `sent_date` | date | When the human sent the message |
-| `reply_date` | date | When a reply was received |
-| `notes` | string | Outcome, follow-up notes |
+| **Company** | Employer, ESN, client, organizer | `companyType` (SELECT), `sector`, `hqCity` |
+| **Person** | Recruiter, hiring manager, peer, contact | `contactType` (SELECT), `linkedinUrl` |
+| **Opportunity** | One job application | `source` (SELECT), `jobUrl`, `atsScore`, `appliedDate`, `outcome`, `notes`, **`folder`** (the folder slug) |
+| **Note** | research.md / jd.md summaries, call notes | attached per opportunity |
+| **Task** | follow-ups (tailor, apply-by, follow up) | — |
 
-**Source:** `cold-outreach` skill (drafts messages, human sends, agent tracks).
+Custom objects: `Event` (eventRecord), `CreatorTarget`, `SocialPost`, `Mission`,
+`PortfolioProject`. Pipeline stages on Opportunity: Shortlisted, Researching,
+Tailoring, Ready, Applied, Interview, Offer, Rejected, Withdrawn — these map
+1:1 onto the tracker stage vocabulary below.
 
-**Current storage:** Planned: `data/outreach_tracker.csv`. `.gitignore` covers
-`data/outreach_*`.
-
----
-
-## Storage Strategy
-
-**Today (flat files):**
-- `merged_jobs.json` — all discovered jobs (Company + JobDescription embedded)
-- `tracker.csv` — Application status (maps to Application table)
-- `job_search_preferences.yaml` — standing constraints
-- `data/market_state.md` — prose market research
-- Application folders — per-job artifacts (jd.md, research.md, CV files)
-
-**Planned (as volume grows):**
-- `data/contacts.csv` — Person + Agency data (`.gitignore`d)
-- `data/outreach_tracker.csv` — Outreach records (`.gitignore`d)
-
-**Migration trigger:** When querying relationships across files becomes painful
-(e.g., "show all outreach for applications at companies in DACH"), consider
-SQLite with this schema. Until then, flat files keep the toolchain simple and
-agent-friendly.
+**Bridge commands** (`../crm`, `crm_bridge/cli.py`): `model`, `seed`, `sync`,
+`stats`, `notes`.
+- `sync --json` upserts an application and **requires `company` + `role`**
+  (structured fields) — it is keyed by `folder` (fallback `jobUrl`).
+- `stats` prints funnel statistics (no `--json` flag as of 2026-08-29).
 
 ---
 
-## What's NOT in the model (by design)
+## 4. Stage / status vocabulary
 
-- **MarketSnapshot table** — territory viability and market signals are
-  narrative. Captured in `data/market_state.md` and referenced in `research.md`.
-  Tabular structure adds schema overhead without analytical payoff at our volume.
-- **Interviews table** — low volume (single-digit interviews at a time).
-  Interview notes live in Application.notes or `applications/<folder>/notes.md`.
-- **Documents table** — resume PDFs, cover letters are files in application
-  folders. The folder path IS the document reference.
-- **Skills / Technologies as entities** — they're list-valued fields on
-  JobDescription and the master resume. Normalizing would add join complexity
-  for no query we currently run.
+The single reconciled vocabulary (in `tracker/protocol.py` `STAGES`, the
+Twenty `STAGE_BY_STATUS`, and `status.yaml`). **Status drives the pipeline**;
+`outcome` (terminal label) and `note` (timeline detail) carry the rest.
+
+| Stage | Meaning |
+|---|---|
+| `discovered` | Appeared in results; not yet evaluated. |
+| `shortlisted` | In the ranked shortlist; worth an application. |
+| `researching` | Company/role research in progress. |
+| `tailoring` | Resume being tailored for this role. |
+| `ready` | Resume tailored; ready to apply. |
+| `applied` | Submitted; record date in `ts` / `applied_date`. |
+| `interview` | Interview scheduled/underway. |
+| `offer` | Offer received. |
+| `rejected` | Terminal — rejected by employer. |
+| `withdrawn` | Terminal — withdrawn by us. |
+| `ghosted` | Terminal — no response past a reasonable horizon. |
+
+Terminal outcome labels (`outcome` field): `rejected`, `offer_accepted`,
+`offer_declined`, `withdrawn`, `ghosted`.
+
+---
+
+## 5. Join map across tiers
+
+```
+silver.jobs.id (URL)
+      │  (via the application's recorded job URL, not direct FK)
+      ▼
+applications/<folder>/status.yaml  ←── the folder slug is the join key ──┐
+      │                                                                 │
+      ▼                                                                 ▼
+data/tracker.db events (job_id = folder slug)             Twenty Opportunity (folder = same slug)
+      │
+      ▼
+silver.fact_outcome_event (job_id = folder slug, nullable → silver.jobs)
+```
+
+- **folder slug** joins: `status.yaml` ⟷ tracker event ⟷ Twenty Opportunity.
+- **`fact_outcome_event.job_id → silver.jobs.id`** is nullable and NOT a FK —
+  an application may exist without a scraped job. To reach `silver.jobs` from
+  an outcome, resolve the folder's job URL, then join on `id`.
+
+---
+
+## 6. What is NOT in the model (by design)
+
+- **MarketSnapshot** — narrative in `data/market_state.md` / `research.md`.
+- **Interviews table** — single-digit volume; lives in application notes.
+- **Documents table** — CVs/cover letters are files; the folder path IS the ref.
+- **Skills/Technologies as entities** — list-valued fields; normalizing adds
+  joins for no query we run.
+
+---
+
+## 7. Storage strategy by tier (current + planned)
+
+| Data | T1 (now) | T2 (opt-in) | T3 (opt-in) |
+|---|---|---|---|
+| Jobs (canonical + lineage) | `data/warehouse/jobs.db` (silver.jobs + gold) | same | same |
+| Application funnel | `data/tracker.db` (SQLite) | **Twenty** (Opportunity), tracker = cache | Twenty |
+| Outcome feedback | `silver.fact_outcome_event` | same | same |
+| Contacts (Person) | `data/contacts.csv` (planned) | Twenty Person | Twenty Person + `silver.dim_person` |
+| Outreach | `data/outreach_tracker.csv` (planned) | Twenty | Twenty + `silver.fact_touch` / `fact_referral` / `fact_inbound_attribution` |
+| Leads | — | — | Twenty / `silver.lead` |
+
+All personal/application data is gitignored or in the private `crm` repo — the
+toolkit repo is PUBLIC.
