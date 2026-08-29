@@ -710,3 +710,351 @@ def ensure_outcomes_table(con: duckdb.DuckDBPyConnection) -> None:
     )
 
 
+
+
+# --- BD/CRM dimensions (WS7 Epic 7.1) ----------------------------------------
+# dim_person + the append-only BD fact tables (touch / referral / inbound
+# attribution). Same conventions as the jobs warehouse: SHA-1 surrogate keys
+# [:16], values rendered via sql_literal (never bound ? params — duckdb 1.5.5
+# deadlock on Windows), CREATE IF NOT EXISTS, deterministic idempotent writes.
+# Never hardcode a CRM here: callers go through these helpers.
+
+BD_TOUCH_STATUS = ("drafted", "sent", "replied", "meeting", "closed")
+BD_DIRECTIONS = ("out", "in")
+
+# Legacy outreach CSV status -> canonical touch status (backfill mapping).
+BD_CSV_STATUS_MAP = {
+    "found": "drafted",
+    "draft_approved": "drafted",
+    "sent": "sent",
+    "replied": "replied",
+    "connected": "replied",
+    "no_response": "closed",
+    "declined": "closed",
+}
+
+DIM_PERSON_COLUMNS: list[tuple[str, str]] = [
+    ("person_id", "VARCHAR"),
+    ("natural_key", "VARCHAR"),
+    ("name", "VARCHAR"),
+    ("linkedin_url", "VARCHAR"),
+    ("title", "VARCHAR"),
+    ("contact_type", "VARCHAR"),
+    ("agency", "VARCHAR"),
+    ("company_id", "VARCHAR"),
+    ("key_source", "VARCHAR"),
+    ("follow_up_due_date", "DATE"),
+    ("created_at", "TIMESTAMP"),
+    ("updated_at", "TIMESTAMP"),
+]
+
+FACT_TOUCH_COLUMNS: list[tuple[str, str]] = [
+    ("touch_id", "VARCHAR"),
+    ("person_id", "VARCHAR"),
+    ("company_id", "VARCHAR"),
+    ("direction", "VARCHAR"),
+    ("channel", "VARCHAR"),
+    ("playbook", "VARCHAR"),
+    ("status", "VARCHAR"),
+    ("event_date", "DATE"),
+    ("touch_number", "INTEGER"),
+    ("note", "VARCHAR"),
+    ("provenance", "VARCHAR"),
+    ("recorded_at", "TIMESTAMP"),
+]
+
+FACT_REFERRAL_COLUMNS: list[tuple[str, str]] = [
+    ("referral_id", "VARCHAR"),
+    ("referrer_person_id", "VARCHAR"),
+    ("target_person_id", "VARCHAR"),
+    ("target_company_id", "VARCHAR"),
+    ("status", "VARCHAR"),
+    ("event_date", "DATE"),
+    ("note", "VARCHAR"),
+    ("provenance", "VARCHAR"),
+    ("recorded_at", "TIMESTAMP"),
+]
+
+FACT_INBOUND_COLUMNS: list[tuple[str, str]] = [
+    ("attribution_id", "VARCHAR"),
+    ("person_id", "VARCHAR"),
+    ("company_id", "VARCHAR"),
+    ("source_asset", "VARCHAR"),
+    ("event_date", "DATE"),
+    ("note", "VARCHAR"),
+    ("provenance", "VARCHAR"),
+    ("recorded_at", "TIMESTAMP"),
+]
+
+
+def person_id(natural_key: str) -> str:
+    """SHA-1 surrogate key over a dim_person natural key (repo convention)."""
+    return hashlib.sha1(str(natural_key).encode("utf-8")).hexdigest()[:16]
+
+
+def _fact_id(*parts: Any) -> str:
+    """SHA-1 surrogate key over the "|" -joined fact identity (None -> '')."""
+    payload = "|".join(str(p or "") for p in parts)
+    return hashlib.sha1(payload.encode("utf-8")).hexdigest()[:16]
+
+
+def _fact_exists(con: duckdb.DuckDBPyConnection, table: str, id_col: str,
+                 fid: str) -> bool:
+    """True when a fact row with this deterministic id is already stored."""
+    row = con.execute(
+        f"SELECT count(*) FROM silver.{table} WHERE {id_col} = {sql_literal(fid)}"
+    ).fetchone()
+    return bool(row and row[0])
+
+
+def ensure_bd_tables(con: duckdb.DuckDBPyConnection) -> None:
+    """Create the BD schema objects if missing (idempotent).
+
+    Primary keys on the deterministic surrogate ids carry idempotency —
+    re-inserting the same event hits ON CONFLICT and is a no-op. IDs are
+    deliberately not foreign keys: facts may reference people/companies
+    that have no dimension row yet (nullable join).
+    """
+    con.execute("CREATE SCHEMA IF NOT EXISTS silver")
+    con.execute(
+        "CREATE TABLE IF NOT EXISTS silver.dim_person ("
+        + ", ".join(f"{name} {typ}" for name, typ in DIM_PERSON_COLUMNS)
+        + ", PRIMARY KEY (person_id))"
+    )
+    con.execute(
+        "CREATE TABLE IF NOT EXISTS silver.fact_touch ("
+        + ", ".join(f"{name} {typ}" for name, typ in FACT_TOUCH_COLUMNS)
+        + ", PRIMARY KEY (touch_id))"
+    )
+    con.execute(
+        "CREATE TABLE IF NOT EXISTS silver.fact_referral ("
+        + ", ".join(f"{name} {typ}" for name, typ in FACT_REFERRAL_COLUMNS)
+        + ", PRIMARY KEY (referral_id))"
+    )
+    con.execute(
+        "CREATE TABLE IF NOT EXISTS silver.fact_inbound_attribution ("
+        + ", ".join(f"{name} {typ}" for name, typ in FACT_INBOUND_COLUMNS)
+        + ", PRIMARY KEY (attribution_id))"
+    )
+
+
+def _person_natural_key(person: dict) -> tuple[str, str]:
+    """Natural key + key_source: normalized LinkedIn URL when present, else
+    "normalized name|company_id" (ambiguous name-keyed merges stay visible
+    via key_source='name')."""
+    url = str(person.get("linkedin_url") or "").strip().lower()
+    if url:
+        return url, "linkedin"
+    name = normalize_company_name(person.get("name") or "")
+    return f"{name}|{person.get('company_id') or ''}", "name"
+
+
+def upsert_person(con: duckdb.DuckDBPyConnection, person: dict) -> str:
+    """Upsert one ``silver.dim_person`` row; returns its person_id.
+
+    Source fields win on conflict but ``created_at`` is preserved (first
+    sighting is the durable fact). ``follow_up_due_date`` is the human-set
+    due date consumed by gold.next_action.
+    """
+    natural_key, key_source = _person_natural_key(person)
+    pid = person_id(natural_key)
+    values = {
+        "natural_key": natural_key,
+        "name": person.get("name"),
+        "linkedin_url": person.get("linkedin_url"),
+        "title": person.get("title"),
+        "contact_type": person.get("contact_type"),
+        "agency": person.get("agency"),
+        "company_id": person.get("company_id"),
+        "key_source": key_source,
+        "follow_up_due_date": person.get("follow_up_due_date"),
+    }
+    cols = list(values)
+    con.execute(
+        f"""
+        INSERT INTO silver.dim_person (
+            person_id, {", ".join(cols)}, created_at, updated_at
+        ) VALUES (
+            {sql_literal(pid)}, {", ".join(sql_literal(values[c]) for c in cols)},
+            NOW(), NOW()
+        )
+        ON CONFLICT (person_id) DO UPDATE SET
+            {", ".join(f"{c} = {sql_literal(values[c])}" for c in cols)},
+            updated_at = NOW()
+        """
+    )
+    return pid
+
+
+def record_touch(con: duckdb.DuckDBPyConnection, touch: dict) -> str:
+    """Append one ``silver.fact_touch`` row; returns its touch_id.
+
+    Deterministic id over the full event identity makes re-recording the
+    same touch a no-op. ``touch_number`` sequences touches per person
+    (0 for drafts with no linked person). Append-only: prior rows never
+    mutate. ``recorded_at`` is the wall-clock insert time; ``event_date``
+    is the business date from the source.
+    """
+    tid = _fact_id(
+        touch.get("person_id"), touch.get("company_id"), touch.get("direction"),
+        touch.get("channel"), touch.get("playbook"), touch.get("status"),
+        touch.get("event_date"), touch.get("note"), touch.get("provenance"),
+    )
+    if _fact_exists(con, "fact_touch", "touch_id", tid):
+        return tid
+    if touch.get("person_id"):
+        row = con.execute(
+            "SELECT COALESCE(MAX(touch_number), 0) FROM silver.fact_touch "
+            f"WHERE person_id = {sql_literal(touch.get('person_id'))}"
+        ).fetchone()
+        touch_number = int(row[0] or 0) + 1
+    else:
+        touch_number = 0
+    con.execute(
+        f"""
+        INSERT INTO silver.fact_touch (
+            touch_id, person_id, company_id, direction, channel, playbook,
+            status, event_date, touch_number, note, provenance, recorded_at
+        ) VALUES (
+            {sql_literal(tid)}, {sql_literal(touch.get("person_id"))},
+            {sql_literal(touch.get("company_id"))},
+            {sql_literal(touch.get("direction"))},
+            {sql_literal(touch.get("channel"))},
+            {sql_literal(touch.get("playbook"))},
+            {sql_literal(touch.get("status"))},
+            {sql_literal(touch.get("event_date"))},
+            {sql_literal(touch_number)},
+            {sql_literal(touch.get("note"))},
+            {sql_literal(touch.get("provenance"))}, NOW()
+        )
+        ON CONFLICT (touch_id) DO NOTHING
+        """
+    )
+    return tid
+
+
+def record_referral(con: duckdb.DuckDBPyConnection, ref: dict) -> str:
+    """Append one ``silver.fact_referral`` row; returns its referral_id.
+
+    Idempotent on the deterministic referral id (re-running is a no-op).
+    """
+    rid = _fact_id(
+        ref.get("referrer_person_id"), ref.get("target_person_id"),
+        ref.get("target_company_id"), ref.get("status"),
+        ref.get("event_date"), ref.get("note"), ref.get("provenance"),
+    )
+    if _fact_exists(con, "fact_referral", "referral_id", rid):
+        return rid
+    con.execute(
+        f"""
+        INSERT INTO silver.fact_referral (
+            referral_id, referrer_person_id, target_person_id,
+            target_company_id, status, event_date, note, provenance, recorded_at
+        ) VALUES (
+            {sql_literal(rid)}, {sql_literal(ref.get("referrer_person_id"))},
+            {sql_literal(ref.get("target_person_id"))},
+            {sql_literal(ref.get("target_company_id"))},
+            {sql_literal(ref.get("status"))},
+            {sql_literal(ref.get("event_date"))},
+            {sql_literal(ref.get("note"))},
+            {sql_literal(ref.get("provenance"))}, NOW()
+        )
+        ON CONFLICT (referral_id) DO NOTHING
+        """
+    )
+    return rid
+
+
+def record_inbound(con: duckdb.DuckDBPyConnection, attr: dict) -> str:
+    """Append one ``silver.fact_inbound_attribution`` row; returns its id.
+
+    Idempotent on the deterministic attribution id (re-running is a no-op).
+    """
+    aid = _fact_id(
+        attr.get("person_id"), attr.get("company_id"), attr.get("source_asset"),
+        attr.get("event_date"), attr.get("note"), attr.get("provenance"),
+    )
+    if _fact_exists(con, "fact_inbound_attribution", "attribution_id", aid):
+        return aid
+    con.execute(
+        f"""
+        INSERT INTO silver.fact_inbound_attribution (
+            attribution_id, person_id, company_id, source_asset, event_date,
+            note, provenance, recorded_at
+        ) VALUES (
+            {sql_literal(aid)}, {sql_literal(attr.get("person_id"))},
+            {sql_literal(attr.get("company_id"))},
+            {sql_literal(attr.get("source_asset"))},
+            {sql_literal(attr.get("event_date"))},
+            {sql_literal(attr.get("note"))},
+            {sql_literal(attr.get("provenance"))}, NOW()
+        )
+        ON CONFLICT (attribution_id) DO NOTHING
+        """
+    )
+    return aid
+
+
+def backfill_outreach_csv(con: duckdb.DuckDBPyConnection, csv_path) -> int:
+    """Backfill the legacy outreach tracker CSV into BD facts; returns #new.
+
+    Headers: date_found, company, name, title, linkedin_url, contact_type,
+    agency, status, date_approved, date_sent, date_replied, outcome, notes.
+    Each row upserts a dim_person and records a fact_touch with event_date =
+    first non-empty of (date_sent, date_approved, date_found) and status via
+    BD_CSV_STATUS_MAP (unknown -> 'drafted'). Companies get dim-company keys
+    under source_board 'outreach' (a synthetic board: these rows come from
+    the tracker, not a scrape board). Idempotent — re-running inserts 0.
+    """
+    import csv
+
+    try:
+        with open(csv_path, "r", newline="", encoding="utf-8-sig") as f:
+            rows = list(csv.DictReader(f))
+    except OSError:
+        return 0
+    if not rows:
+        return 0
+
+    inserted = 0
+    for row in rows:
+        name = (row.get("name") or "").strip()
+        url = (row.get("linkedin_url") or "").strip()
+        if not name and not url:
+            continue
+        company = (row.get("company") or "").strip()
+        cid = company_id(normalize_company_name(company), "outreach") if company else ""
+        pid = upsert_person(con, {
+            "name": name or None,
+            "linkedin_url": url or None,
+            "title": (row.get("title") or "").strip() or None,
+            "contact_type": (row.get("contact_type") or "").strip() or None,
+            "agency": (row.get("agency") or "").strip() or None,
+            "company_id": cid or None,
+        })
+        event_date = next(
+            (row.get(k) for k in ("date_sent", "date_approved", "date_found")
+             if (row.get(k) or "").strip()),
+            "",
+        )
+        status = (row.get("status") or "").strip().lower()
+        tid = _fact_id(
+            pid, cid or None, "out", "linkedin", "cold-outreach",
+            BD_CSV_STATUS_MAP.get(status, "drafted"), event_date,
+            (row.get("notes") or "").strip() or None, "outreach_csv_backfill",
+        )
+        if _fact_exists(con, "fact_touch", "touch_id", tid):
+            continue
+        record_touch(con, {
+            "person_id": pid,
+            "company_id": cid or None,
+            "direction": "out",
+            "channel": "linkedin",
+            "playbook": "cold-outreach",
+            "status": BD_CSV_STATUS_MAP.get(status, "drafted"),
+            "event_date": event_date or None,
+            "note": (row.get("notes") or "").strip() or None,
+            "provenance": "outreach_csv_backfill",
+        })
+        inserted += 1
+    return inserted

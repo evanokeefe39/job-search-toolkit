@@ -49,10 +49,10 @@ live in `tasks/plans/`; this file is the durable summary and current-status reco
 - **Status:** `active` (6.1 near-term; 6.3 parallel side-income track)
 - **Plans:** `tasks/plans/ws6-productization-growth.md`
 
-## WS7 — BD/CRM Depth (T3) *(CURRENT FOCUS)*
+## WS7 — BD/CRM Depth (T3)
 - **Epic 7.1** BD dimensions in the same warehouse (`dim_person`, `fact_touch`, `fact_referral`, `fact_inbound_attribution`)
 - **Epic 7.2** Lead scoring (`score_engine` second consumer over companies/contacts)
-- **Status:** `active` — focus of the current planning cycle (2026-08-28)
+- **Status:** `implemented 2026-08-29` — Epics 7.1/7.2 landed on `feat/ws7-bd-depth` (PR to follow): append-only BD dim/fact tables + gold BD views (contact_cadence, referral_funnel, inbound_conversion, event_funnel, next_action, relationship), outreach_tracker.csv backfill, `bd` CLI group + warehouse-backed cold-outreach skill (7.1); deterministic zero-LLM `score_leads` as score_engine second consumer with versioned lead weights + validated sum-to-1.0, `gold.lead_rank`/`gold.lead_score_calibration`, gated lead calibration reusing WS1 versioned-config + active-override machinery (never LLM weights), `bd score-leads`/`bd leads` + `pipeline lead-score-report`, and a route-by-score step in the skill (7.2). 28 WS7 contract tests + bit-for-bit job-score regression + spine regression green; pipeline gold + pipeline run --boards freework smoke pass. WS1/WS5 contracts untouched.
 - **Plans:** `tasks/plans/bd-warehouse-dimensions.md` (7.1), `tasks/plans/lead-scoring.md` (7.2)
 
 ## WS8 — Deferred / Roadmap

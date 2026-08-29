@@ -1,0 +1,18 @@
+# Default lead scoring weight set (version 1). Sum to 1.0.
+# Deterministic, zero-LLM: lead_score is a weighted sum over the four
+# dimensions intent/fit/access/urgency (Epic 7.2). Weights change only via
+# the gated lead-calibration path (--apply-calibration) promoted from SQL
+# evidence in gold.lead_score_calibration — never LLM-proposed.
+#
+# Boosts are config values too (conservative defaults), movable from
+# calibration evidence. 'neutral' is the value a MISSING signal contributes
+# (0.5) so a thin contact is never penalized as disqualification.
+version: 1
+weights:
+  intent: 0.35
+  fit: 0.30
+  access: 0.20
+  urgency: 0.15
+referral_boost: 0.20
+inbound_intent_boost: 0.20
+neutral: 0.50

@@ -3,6 +3,8 @@
 Subcommands:
     scrape      — board scrapers -> data/bronze/
     pipeline    — Dagster ETL: bronze -> silver (merge, enrich, score)
+    application — application workflow & lifecycle
+    bd          — BD/CRM: person/touch/referral/inbound records + outreach backfill
     tailor      — resume tailoring automation (human-gated)
     skills      — install agent skills into a harness (omp, claude, codex)
 
@@ -208,6 +210,53 @@ def pipeline_score_report(
 
 app.add_typer(pipeline_app, name="pipeline")
 
+@pipeline_app.command("lead-score-report")
+def pipeline_lead_score_report(
+    apply_calibration: bool = typer.Option(
+        False, "--apply-calibration",
+        help="Apply the suggested lead weights (gated: requires SQL evidence "
+             "from gold.lead_score_calibration).",
+    ),
+) -> None:
+    """Lead-score band distribution + gated weight calibration (Epic 7.2).
+
+    Reads gold.lead_score_calibration: lead-count per lead-score band. Lead
+    weights change only via this explicit gated path, promoted from SQL
+    evidence — never LLM-proposed. Without outcome-linked advance evidence
+    (lead outcomes are deferred), it refuses and writes nothing.
+    """
+    from job_search_toolkit.pipelines.jd import score_engine
+    from job_search_toolkit.pipelines.jd.config import WAREHOUSE_DB
+
+    if not WAREHOUSE_DB.is_file():
+        print(f"Warehouse not found: {WAREHOUSE_DB}")
+        raise typer.Exit(code=1)
+
+    from job_search_toolkit.pipelines.jd import gold, silver
+    con = silver.connect()
+    try:
+        gold.build_bd_views(con)
+        rows = con.execute(
+            "SELECT band_start, band_end, lead_count FROM gold.lead_score_calibration"
+        ).fetchall()
+    finally:
+        con.close()
+    print(f"{'band':<18} {'leads':>6}")
+    for start, end, count in rows:
+        print(f"{start:.2f}-{end:.2f} {count:>6}")
+
+    if not apply_calibration:
+        print("\n(dry run — pass --apply-calibration to apply)")
+        return
+    try:
+        result = score_engine.lead_apply_calibration(WAREHOUSE_DB)
+    except RuntimeError as exc:
+        # Lead calibration is outcome-gated (no lead outcomes yet): refuse.
+        print(f"not applied — {exc}")
+        raise typer.Exit(code=1)
+    print(f"\nApplied lead calibration v{result['version']}:")
+    print(f"  active weights:  {result['active_file']}")
+
 # ---------------------------------------------------------------------------
 # tracker
 # ---------------------------------------------------------------------------
@@ -362,6 +411,182 @@ def application_report(
 
 
 app.add_typer(application_app, name="application")
+
+# ---------------------------------------------------------------------------
+# bd
+# ---------------------------------------------------------------------------
+
+bd_app = typer.Typer(help="BD/CRM: person/touch/referral/inbound records + outreach backfill.")
+
+
+@bd_app.command("record-touch")
+def bd_record_touch(
+    person_id: str | None = typer.Option(None, "--person-id", help="dim_person id (optional)."),
+    direction: str = typer.Option("out", "--direction", help="Touch direction: out or in."),
+    channel: str | None = typer.Option(None, "--channel", help="e.g. linkedin, email."),
+    playbook: str | None = typer.Option(None, "--playbook", help="e.g. cold-outreach."),
+    status: str = typer.Option(..., "--status", help="drafted/sent/replied/meeting/closed."),
+    event_date: str | None = typer.Option(None, "--event-date", help="YYYY-MM-DD (default today)."),
+    note: str | None = typer.Option(None, "--note", help="Optional free-text note."),
+    provenance: str = typer.Option("sqlite", "--provenance", help="Where this record came from."),
+) -> None:
+    """Record one touch event."""
+    from job_search_toolkit.pipelines.jd import silver
+
+    if status not in silver.BD_TOUCH_STATUS:
+        raise typer.BadParameter(
+            f"unknown status {status!r}; valid statuses: {', '.join(silver.BD_TOUCH_STATUS)}"
+        )
+    con = silver.connect()
+    try:
+        touch_id = silver.record_touch(con, {
+            "person_id": person_id,
+            "direction": direction,
+            "channel": channel,
+            "playbook": playbook,
+            "status": status,
+            "event_date": event_date,
+            "note": note,
+            "provenance": provenance,
+        })
+    finally:
+        con.close()
+    print(touch_id)
+
+
+@bd_app.command("record-referral")
+def bd_record_referral(
+    referrer_person_id: str = typer.Option(..., "--referrer-person-id", help="dim_person id of the referrer."),
+    target_person_id: str | None = typer.Option(None, "--target-person-id", help="dim_person id of the target (optional)."),
+    target_company_id: str | None = typer.Option(None, "--target-company-id", help="dim_company id of the target (optional)."),
+    status: str = typer.Option(..., "--status", help="e.g. warm_intro_sent."),
+    event_date: str | None = typer.Option(None, "--event-date", help="YYYY-MM-DD (default today)."),
+    note: str | None = typer.Option(None, "--note", help="Optional free-text note."),
+    provenance: str = typer.Option("sqlite", "--provenance", help="Where this record came from."),
+) -> None:
+    """Record one referral event."""
+    from job_search_toolkit.pipelines.jd import silver
+
+    con = silver.connect()
+    try:
+        referral_id = silver.record_referral(con, {
+            "referrer_person_id": referrer_person_id,
+            "target_person_id": target_person_id,
+            "target_company_id": target_company_id,
+            "status": status,
+            "event_date": event_date,
+            "note": note,
+            "provenance": provenance,
+        })
+    finally:
+        con.close()
+    print(referral_id)
+
+
+@bd_app.command("record-inbound")
+def bd_record_inbound(
+    person_id: str | None = typer.Option(None, "--person-id", help="dim_person id (optional)."),
+    company_id: str | None = typer.Option(None, "--company-id", help="dim_company id (optional)."),
+    source_asset: str = typer.Option(..., "--source-asset", help="Source asset that drove the inbound contact."),
+    event_date: str | None = typer.Option(None, "--event-date", help="YYYY-MM-DD (default today)."),
+    note: str | None = typer.Option(None, "--note", help="Optional free-text note."),
+    provenance: str = typer.Option("sqlite", "--provenance", help="Where this record came from."),
+) -> None:
+    """Record one inbound attribution event."""
+    from job_search_toolkit.pipelines.jd import silver
+
+    con = silver.connect()
+    try:
+        attribution_id = silver.record_inbound(con, {
+            "person_id": person_id,
+            "company_id": company_id,
+            "source_asset": source_asset,
+            "event_date": event_date,
+            "note": note,
+            "provenance": provenance,
+        })
+    finally:
+        con.close()
+    print(attribution_id)
+
+
+@bd_app.command("backfill")
+def bd_backfill(
+    csv: Path = typer.Option(..., "--csv", help="Legacy data/outreach_tracker.csv to import."),
+) -> None:
+    """Backfill the legacy outreach CSV into the warehouse (idempotent)."""
+    from job_search_toolkit.pipelines.jd import silver
+
+    con = silver.connect()
+    try:
+        inserted = silver.backfill_outreach_csv(con, csv)
+    finally:
+        con.close()
+    print(f"inserted {inserted} touches from {csv}")
+
+
+@bd_app.command("cadence")
+def bd_cadence() -> None:
+    """Print follow-up cadence rows: person_id, name, days_since_last_touch."""
+    from job_search_toolkit.pipelines.jd import gold, silver
+
+    con = silver.connect()
+    try:
+        gold.build_bd_views(con)
+        rows = con.execute(
+            "SELECT person_id, name, days_since_last_touch FROM gold.contact_cadence"
+        ).fetchall()
+    finally:
+        con.close()
+    if not rows:
+        print("none")
+        return
+    for person_id, name, days in rows:
+        print(f"{person_id} | {name} | {days}")
+
+
+@bd_app.command("leads")
+def bd_leads(limit: int = typer.Option(20, "--limit", help="Max leads to print.")) -> None:
+    """Print scored leads from gold.lead_rank, in lead_score DESC order."""
+    from job_search_toolkit.pipelines.jd import gold, silver
+    from job_search_toolkit.pipelines.jd import score_engine
+
+    con = silver.connect()
+    try:
+        silver.ensure_bd_tables(con)
+        score_engine.ensure_lead_table(con)
+        gold.build_bd_views(con)
+        rows = con.execute(
+            f"SELECT person_id, company_id, intent, fit, access, urgency, lead_score "
+            f"FROM gold.lead_rank LIMIT {int(limit)}"
+        ).fetchall()
+    finally:
+        con.close()
+    if not rows:
+        print("none")
+        return
+    print("person_id | company_id | intent | fit | access | urgency | lead_score")
+    for person_id, company_id, intent, fit, access, urgency, lead_score in rows:
+        print(f"{person_id} | {company_id} | {intent} | {fit} | {access} | {urgency} | {lead_score}")
+
+
+@bd_app.command("score-leads")
+def bd_score_leads() -> None:
+    """Score all BD contacts into silver.lead (deterministic, zero-LLM)."""
+    from job_search_toolkit.pipelines.jd import silver
+    from job_search_toolkit.pipelines.jd import score_engine
+
+    con = silver.connect()
+    try:
+        silver.ensure_bd_tables(con)
+        score_engine.ensure_lead_table(con)
+        n = score_engine.score_leads_from_warehouse(con)
+    finally:
+        con.close()
+    print(f"scored {n} leads")
+
+
+app.add_typer(bd_app, name="bd")
 
 # ---------------------------------------------------------------------------
 # tailor

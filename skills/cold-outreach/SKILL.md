@@ -1,6 +1,6 @@
 ---
 name: cold-outreach
-description: Prepare cold outreach messages for target companies. Find potential contacts (data team members, hiring managers, recruiters at known agencies), draft personalized LinkedIn messages or emails, and maintain an outreach tracker. Input is a company/role from an application folder or a target company list. Use when preparing to reach out before or after applying, building a contact list, or drafting follow-up messages.
+description: Prepare cold outreach messages for target companies. Find potential contacts (data team members, hiring managers, recruiters at known agencies), draft personalized LinkedIn messages or emails, and record outreach in the BD warehouse. Input is a company/role from an application folder or a target company list. Use when preparing to reach out before or after applying, building a contact list, or drafting follow-up messages.
 ---
 ## Requirements
 
@@ -8,11 +8,11 @@ Python 3.14+ and uv (package manager) are required. Install the toolkit with:
 `pip install job-search-toolkit` (or `uv tool install job-search-toolkit`).
 
 
-# Cold Outreach — find contacts, draft messages, track
+# Cold Outreach — find contacts, draft messages, record
 
 Goal: for a target company (from an application folder or prospect list),
-find relevant contacts, draft personalized outreach messages, and track
-outreach in a CSV.
+find relevant contacts, draft personalized outreach messages, and record
+outreach in the BD warehouse (`job-search-toolkit bd ...`).
 
 ## Pre-flight
 
@@ -54,9 +54,18 @@ Search for people at the target company who match the outreach targets:
 - Look for: internal recruiters at target companies, external recruiters at
   agencies known to place data roles
 
-**Output:** For each contact found, record in `data/outreach_tracker.csv`:
-- `date_found`, `company`, `name`, `title`, `linkedin_url`, `contact_type`
-  (data_team/hiring_manager/recruiter), `agency` (if recruiter), `notes`
+**Output:** For each contact found, record it in the BD warehouse:
+
+```
+job-search-toolkit bd record-touch --status drafted --channel linkedin \
+  --playbook cold-outreach --note "<name|title|contact_type|agency|company>"
+```
+
+For warm intros from a known contact, also record:
+`job-search-toolkit bd record-referral --referrer-person-id ... --target-company-id ... --status warm_intro_sent`
+
+For inbound contact driven by a published asset, also record:
+`job-search-toolkit bd record-inbound --source-asset ...`
 
 If fewer than 3 contacts found: STOP and report — insufficient contacts
 for meaningful outreach.
@@ -79,6 +88,27 @@ Sort contacts by priority (highest first):
 2. Data team member at target company (similar role)
 3. Internal recruiter at target company
 4. External recruiter at known agency
+### 2b. Route by score
+
+Before drafting, route the contact list by the deterministic lead score
+(zero-LLM; Epic 7.2) so outreach targets the highest-value relationships
+first. Populate the scores from the recorded contacts, then view the ranked
+queue:
+
+```
+job-search-toolkit bd score-leads
+job-search-toolkit bd leads
+```
+
+`bd leads` prints `person_id | company_id | intent | fit | access | urgency |
+lead_score` from `gold.lead_rank`, ordered by `lead_score DESC`. Prioritize
+contacts in score order for drafting, with special attention to:
+- referrals (boosted access — a warm intro is not buried by cold-score)
+- inbound contacts (higher intent baseline)
+
+The actual send is ALWAYS human-approved (step 4); scoring only orders the
+queue. Scores are recomputed on demand; a lead with no data scores neutral,
+it is never dropped.
 
 ### 3. Draft outreach messages
 
@@ -133,30 +163,36 @@ STOP and present to the human:
 
 Do not send any messages. This skill only prepares drafts.
 
-### 5. Track
+### 5. Record
 
-After human approval, update `data/outreach_tracker.csv`:
-- Set `status` to `draft_approved` for each approved message
-- Record the `date_approved` and the message text in `notes`
-- The human sends messages manually — this skill does not automate sending
+After human approval, update each approved contact's touch status in the
+warehouse:
+
+```
+job-search-toolkit bd record-touch --person-id <pid> --status sent \
+  --channel linkedin --playbook cold-outreach --note "<message text>"
+```
+
+- The human sends messages manually — this skill does not automate sending.
 
 ### 6. Follow-up (future session)
 
-When re-running this skill for the same company, check `data/outreach_tracker.csv`
-for existing entries:
-- `draft_approved` → ask human: "Did you send this? Update status?"
-- `sent` and >7 days since `date_sent` → offer to draft a follow-up
-- `replied` → ask about outcome, update tracker
-
-## Outreach tracker schema
-
-`data/outreach_tracker.csv` (gitignored via `data/outreach_*`):
+Check the follow-up cadence view:
 
 ```
-date_found,company,name,title,linkedin_url,contact_type,agency,status,date_approved,date_sent,date_replied,outcome,notes
+job-search-toolkit bd cadence
 ```
 
-Status values: `found`, `draft_approved`, `sent`, `replied`, `no_response`, `declined`, `connected`
+It prints `person_id | name | days_since_last_touch` for everyone due
+(last touch ≥7 days ago, or never touched). For each due contact:
+- `drafted` → ask human: "Did you send this? Update status?"
+- `sent` → offer to draft a follow-up
+- `replied` → ask about outcome, record it
+  (`job-search-toolkit bd record-touch --status replied ...`)
+
+Legacy CSV: if `data/outreach_tracker.csv` still exists, import it once
+with `job-search-toolkit bd backfill --csv data/outreach_tracker.csv`
+(idempotent) and stop using the CSV afterwards.
 
 ## Do not
 
