@@ -13,8 +13,7 @@
       "name": "job-search-toolkit",
       "description": "Agent skills for the job-search CLI (scrape, pipeline, tailor, skills).",
       "source": "./",
-      "category": "productivity",
-      "skills": ["jd-refresh", "market-research", "new-application", "application-tracker", "tailor-resume", "cold-outreach", "record-outcome", "follow-up"]
+      "category": "productivity"
     }
   ]
 }
