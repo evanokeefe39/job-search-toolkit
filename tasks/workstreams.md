@@ -23,7 +23,22 @@ live in `tasks/plans/`; this file is the durable summary and current-status reco
 ## WS3 — Tailoring Quality
 - **Epic 3.1** Rendered-PDF / ATS text-layer verification
 - **Epic 3.2** Adversarial drafter-reviewer (bounded single revise loop)
-- **Status:** `active` (parallel track; pairs with WS1)
+- **Status:** `implemented 2026-08-29` — Epics 3.1/3.2 landed on
+  `feat/ws3-tailoring-quality`: `tailor verify` (or `tailor run --verify`)
+  extracts the rendered `cv_tailored.pdf` text layer with pypdf and asserts
+  contact-as-literal-text (apostrophe-normalized), no mojibake/PUA glyphs,
+  section reading order, page count vs `verify_page_target`
+  (`tailor_resume_preferences.yaml`), and JD keyword coverage in
+  covered/supported-missing/genuine-gap buckets (honesty rule); a FAIL
+  blocks the `ready` transition (skill gate updated). Epic 3.2 adds the
+  bounded single-revise drafter-reviewer behind `tailor run --with-review`:
+  a fresh-context reviewer critiques the first pass against master + JD +
+  verification report and proposes ONE targeted revision; the fabrication
+  guard (`automation/tailor/audit.py`) is the ceiling — an unsupported
+  claim is rejected and the first pass stays intact. Both flags are opt-in;
+  the default single-pass `tailor run` is byte-identical. Contract tests
+  written first (`tests/test_verify.py` + `tests/test_reviewer.py`); full
+  suite 410 passed. **pypdf is the only new dependency.**
 - **Plans:** `tasks/plans/ws3-tailoring-quality.md`
 
 ## WS4 — Market Insights

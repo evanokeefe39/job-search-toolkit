@@ -11,7 +11,8 @@
 #
 # Env overrides: LLM_MODEL, LLM_BASE_URL, LLM_API_KEY, LLM_CLIENT,
 # LLM_TEMPERATURE, LLM_MAX_TOKENS, TAILOR_LEVEL, TAILOR_MAX_HIGHLIGHTS,
-# TAILOR_HIGHLIGHT_PREFERENCE, TAILOR_MERGE_LOW_VALUE, TAILOR_TONE_FILE.
+# TAILOR_HIGHLIGHT_PREFERENCE, TAILOR_MERGE_LOW_VALUE, TAILOR_TONE_FILE,
+# TAILOR_VERIFY_PAGE_TARGET.
 
 # LLM connection (tailoring)
 llm_model: deepseek-chat
@@ -25,6 +26,7 @@ tailor_level: relaxed            # relaxed | moderate | aggressive
 tailor_max_highlights: 5         # max bullets kept per role
 tailor_highlight_preference: impact_first
 tailor_merge_low_value: true
+verify_page_target: 2            # ATS verification: max pages for cv_tailored.pdf
 
 # Tone-of-voice: omit to use the package-bundled TONE.txt, or point at your own:
 # tailor_tone_file: /path/to/tone.txt

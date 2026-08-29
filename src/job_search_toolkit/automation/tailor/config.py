@@ -61,6 +61,9 @@ class TailorConfig:
     # UP3: allow cutting/merging low-value experience roles entirely.
     merge_low_value: bool = True
 
+    # ATS verification: page-count budget for the rendered cv_tailored.pdf.
+    verify_page_target: int = 2
+
     # Master resume path (CLI overridable; user data, never shipped in the package)
     master_yaml: Path = Path("resume") / "cv.yaml"
 
@@ -86,6 +89,7 @@ def load_config(
     merge_low_value: bool | None = None,
     tone_file: str | None | object = None,
     master_yaml: Path | None = None,
+    verify_page_target: int | None = None,
 ) -> TailorConfig:
     """Merge tailor_resume_preferences.yaml + env + CLI into a TailorConfig.
 
@@ -125,6 +129,10 @@ def load_config(
             pick(master_yaml, "TAILOR_MASTER_YAML",
                   file_cfg, _DEFAULTS.master_yaml)
         ),
+        verify_page_target=int(
+            pick(verify_page_target, "TAILOR_VERIFY_PAGE_TARGET",
+                  file_cfg, _DEFAULTS.verify_page_target)
+        ),
     )
     cfg.cli_overrides = {
         k: v for k, v in {
@@ -135,6 +143,7 @@ def load_config(
             "highlight_preference": highlight_preference,
             "merge_low_value": merge_low_value,
             "tone_file": tone_file,
+            "verify_page_target": verify_page_target,
         }.items() if v is not None
     }
     return cfg
