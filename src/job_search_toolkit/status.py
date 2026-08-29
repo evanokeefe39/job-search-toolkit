@@ -20,7 +20,7 @@ from job_search_toolkit.tracker import STAGES, get_tracker
 
 STATUS_FILE = "status.yaml"
 
-_FOLLOWUP_CAP = 2
+MAX_FOLLOWUPS = 2
 
 
 class CorruptStatusError(Exception):
@@ -166,7 +166,7 @@ def add_followup(folder: Path, ts: str, note: str) -> dict:
             "followups": [],
         }
     followups = status["followups"]
-    if len(followups) >= _FOLLOWUP_CAP:
+    if len(followups) >= MAX_FOLLOWUPS:
         raise FollowupCapError(
             f"follow-up cap reached: {len(followups)} drafts already recorded "
             f"in {_status_path(folder)}; drafts are never sent and the cap "

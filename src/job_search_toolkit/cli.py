@@ -268,6 +268,8 @@ def tracker_outcomes(
             print(f"{e['ts']} | {e['job_id']} | {e['stage']}{note}")
 
 
+app.add_typer(tracker_app, name="tracker")
+
 # application
 # ---------------------------------------------------------------------------
 

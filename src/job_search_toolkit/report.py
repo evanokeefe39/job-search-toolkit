@@ -50,6 +50,10 @@ def fetch_job(db_path: Path, job_id: str) -> dict | None:
     Returns None when the id is unknown. Joins ``dim_company`` org_type and
     industry via the ``company_id`` FK when present (into ``company_info``);
     a missing dim row yields ``company_info = {}``.
+
+    The same ``id`` may exist across multiple ``source_board`` rows (the PK
+    is ``(id, source_board)``); the lowest ``source_board`` is returned
+    deterministically (ORDER BY source_board LIMIT 1).
     """
     con = duckdb.connect(str(db_path))
     try:

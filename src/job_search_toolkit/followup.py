@@ -18,6 +18,7 @@ import re
 from datetime import datetime
 from pathlib import Path
 
+from job_search_toolkit.status import MAX_FOLLOWUPS
 from job_search_toolkit.status import add_followup, followup_count
 from job_search_toolkit.status import read_status
 
@@ -31,9 +32,8 @@ __all__ = [
 FOLLOWUP_THRESHOLD_DAYS = 10
 """Calendar days after an ``applied`` event before an application is due."""
 
-MAX_FOLLOWUPS = 2
-"""Maximum number of draft follow-ups per application; further drafts raise
-:class:`~job_search_toolkit.status.FollowupCapError`."""
+# MAX_FOLLOWUPS is imported (re-exported) from status.py — the cap lives in
+# one place so the two modules can't drift. status.add_followup enforces it.
 
 _DATE_PREFIX = re.compile(r"^\d{4}-\d{2}-\d{2}_(.+)$")
 
