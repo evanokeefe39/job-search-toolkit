@@ -695,3 +695,83 @@ mechanism). Tests are internally consistent, so behavior is unchanged.
 location), never the user's real data. The pre-push hook is the safety net, not the primary
 control. When a fixture needs an email-like string, use an IANA-reserved domain and allowlist
 it in the hook with a comment; prefer a non-French, non-real phone.
+
+## 2026-08-30: scoring formula change left stale derived data (silver.jobs.scores)
+
+**Problem:** After removing `company_quality` from the scoring formula (v2, PR #36),
+the warehouse kept showing OLD-engine scores. The re-scored `ranked_jobs` and the
+enrichment queue silently used wrong derived data — 6530/6553 rows still carried
+`company_quality` in their `scores` JSON, and the top-20 ranking shifted materially
+once re-scored with the new formula. A manual one-off `UPDATE ... SET overall_score = NULL`
++ re-materialize fixed this instance, but the underlying defect remains.
+
+**Five Whys:**
+1. Old scores persisted → `scored_jobs` is incremental (`GATE_SCORE = "overall_score IS NULL"`),
+   so it only scores *pending* rows; already-scored rows were never re-selected.
+2. Already-scored rows weren't re-selected → re-selection is driven by `reset_stale(con, "score")`,
+   which clears `overall_score` only for rows at an older `enrichment_version`; the version wasn't bumped.
+3. Version wasn't bumped → there is NO coupling between the scoring logic (`score_engine.py`) and the
+   version marker (`ENRICHMENT_VERSION` in config); changing the formula requires a human to remember
+   to bump a constant in a disconnected file.
+4. Manual version coupling exists → derived scores are **persisted as columns in the same table as source
+   data** (`silver.jobs`), so invalidation is gated on a version constant rather than on the logic itself.
+5. **Root cause:** Derived data is written back into the source table and rebuilt incrementally under a
+   manual version gate, with no declared dependency between the derivation formula and its materialized
+   output. A formula change doesn't invalidate the output unless a human bumps an unrelated version
+   constant, so stale derived data silently survives.
+
+**Would dbt help?** Partially. dbt's structure is better: derived scores would be a *model* rebuilt from
+source on every `dbt run` (no manual version bump), and dbt documents `--full-refresh` as the canonical
+answer to a logic change + warns that incrementals leave historical rows stale. But dbt doesn't auto-detect
+a SQL change and rebuild — the real advantage is the separation of concerns (source stays raw; derived is a
+recomputable artifact), which is the structural fix, not the mechanism.
+
+**Fix (prevent recurrence, in order of leverage):**
+1. **Self-invalidating scores (highest leverage):** write the formula's version into a `scoring_version`
+   column beside `scores`; a check "stored scoring_version != current" flags stale rows automatically — no
+   manual bump. The data carries its own provenance (maps to dbt's "derivation centralized + change = rebuild event").
+2. **Separate derived from source (dbt-style layering):** compute scores in a materialized gold/mart
+   layer rebuilt from source each run, rather than persisting them in `silver.jobs`. NOTE: `gold.ranked_jobs`
+   is a READ-ONLY VIEW over `silver.jobs` (`SELECT j.*` + company join + staleness filter) — it does NOT
+   recompute scores; it reflects whatever `overall_score` silver holds. So gold cannot paper over stale silver
+   scores today; the dbt-style protection requires gold to be a real materialized computation (or a
+   `CREATE OR REPLACE TABLE`), not a view. Given scores are already centralized in ONE place (silver), the
+   simplest correct fix is option 1 (self-invalidating version), not a second computation layer.
+3. **Bump `ENRICHMENT_VERSION` in the SAME commit as a formula change** (quick manual guardrail — prevents
+   the silent no-op).
+4. **Dagster `code_version` on the scoring asset:** bump it when logic changes; Dagster marks the asset
+   stale + can auto-rematerialize (native invalidation instead of a human-remembered constant).
+5. **Drift-detection test:** recompute a sample of scores from source and compare vs stored values (dbt's
+   "audit incremental vs full recompute" pattern).
+
+**Rule:** a change to a *producer's* derivation logic must invalidate its *consumers'* cached outputs. Never
+change a scoring/derivation formula without a mechanism that marks existing derived rows stale — either
+self-versioned derived data (write the formula version beside it), a rebuilt-from-source mart, or a
+version bump in the same commit. Incremental gates + a manual version constant is a silent-staleness trap.
+
+## 2026-08-30 — Company golden-record dedup (company-canonical-dedup plan)
+
+**Observed:** three aborted worker runs left 11 landed-but-unverified files. Finishing pass found
+four real defects in the landed edits, all caught by behavioral tests against in-memory DuckDB:
+
+1. **Dagster + `from __future__ import annotations`:** the new asset module had a PEP-563 future
+   import, so `context: AssetExecutionContext` compiled to a *string* annotation; dagster's
+   `_validate_context_type_hint` compares the raw annotation object (class identity) and rejects
+   strings — qualified (`dg.AssetExecutionContext`) AND unqualified both fail. Fix: drop the future
+   import in dagster-asset modules (no asset file in this repo uses one — keep it that way).
+2. **`_DIM_COLS` drift:** `dedup_dim_company` selected only `_DIM_COLS` but read
+   `row["dedup_version"]` → KeyError on every run. Select/zip must include the marker column.
+3. **Unreachable typo-band branch:** `review_reason` required `ta == tb` for "typo-band", but
+   real typos (inspiire/inspire) differ in tokens; single-token sub-band pairs fell through to
+   "fuzzy-ambiguous". And board mangling (alstom/astorm, token_set_ratio 83.3) scored BELOW the
+   85 review floor → silently auto-rejected instead of queued. Fix: Levenshtein<=2 + score>=80 +
+   single-token → "board-mangling" (review), and the 85–95 catch-all is the typo band.
+4. **`fetch_jobs` mangled variable:** company_info rebuild referenced undefined `industry` instead
+   of `dim[3]` (NameError on every `join_company=True` read) — would have broken the bridge exports.
+
+**Also:** merge-time alias repointing must be an explicit `UPDATE company_alias SET company_id=keep
+WHERE company_id=drop` — `register_alias` is append-only/no-op-on-existing and cannot repoint.
+
+**Rule:** landed-but-unverified edits are NOT done — verify by import + behavioral test, never by
+reading. And in-memory-fixture tests pay for themselves immediately: 4 of 6 defects were invisible
+to import checks.
