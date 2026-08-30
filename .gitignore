@@ -8,6 +8,8 @@ wheels/
 
 # Virtual environments
 .venv
+# Local project tooling registry (bundles a git checkout of this repo)
+.pi/
 
 # Scraper output
 *.csv
@@ -36,6 +38,7 @@ data/market_*
 data/outreach_*
 data/contacts*
 data/linkedin/
+data/searxng/
 node_modules/
 
 # Actor-local run artifacts (regenerated per run)
