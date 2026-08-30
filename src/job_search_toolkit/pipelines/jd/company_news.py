@@ -127,15 +127,28 @@ def _format_prompt(companies: list[tuple[dict[str, str], list[dict[str, str]]]])
     return "\n\n".join(blocks)
 
 
-def enrich_companies(companies: list[dict[str, str]]) -> list[dict[str, Any]]:
+def enrich_companies(companies: list[dict[str, str]],
+                     *, con: Any = None) -> list[dict[str, Any]]:
     """Batched company-news enrichment.
 
     ``companies``: list of ``{"company_id", "name"}`` (dim_company row shape).
+    ``con`` (optional): DuckDB connection — when given, each company_id is
+    resolved to its golden id via the ``silver.company_alias`` registry so
+    results always key the golden record (post-dedup dim ids are golden
+    already; the registry covers rows keyed by a pre-dedup id).
     Returns ``[{"company_id", "company", "sentiment", "notes"}]``, one entry
     per input, in the same order. Honesty guard: a company with no headlines
     yields ``sentiment="inconclusive", notes=[]`` without any LLM call.
     """
+    if con is not None:
+        from .company_resolve import load_alias_registry, norm
+        registry = load_alias_registry(con)
+        companies = [
+            {**c, "company_id": registry.get(norm(c["name"]), c["company_id"])}
+            for c in companies
+        ]
     client = _get_client()
+
     out: list[dict[str, Any]] = []
     # Collect headlines once per company up front.
     with_headlines: list[tuple[dict[str, str], list[dict[str, str]]]] = []

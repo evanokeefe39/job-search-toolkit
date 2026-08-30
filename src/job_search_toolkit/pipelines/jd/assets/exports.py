@@ -6,8 +6,10 @@ producing them — these assets are the backward-compat bridge: exports
 materialized from the warehouse on every run, never the source of truth.
 
 The fact table no longer stores a ``company_info`` JSON column — the bridge
-reconstructs it per row from ``dim_company`` (same CompanyInfo shape), so
-downstream consumers keep reading ``job["company_info"]`` unchanged.
+reconstructs it per row from the golden ``dim_company`` row (same CompanyInfo
+shape), so downstream consumers keep reading ``job["company_info"]``
+unchanged. Post golden-record dedup there is one dim row per real company, so
+every job of a company gets identical enrichment (no per-board drift).
 """
 
 import duckdb
