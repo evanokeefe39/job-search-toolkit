@@ -18,7 +18,8 @@ pip install job-search-toolkit
 Refresh the job funnel: re-scrape the active boards, upsert them into the
 medallion warehouse (`data/warehouse/jobs.db`), incrementally enrich, score,
 and export, then report the delta from the gold views — new jobs, jobs that
-disappeared, and the top 10 ranked candidates. The warehouse keeps every job
+disappeared, and the top 30 ranked candidates (with posting freshness and any
+company news sentiment/notes). The warehouse keeps every job
 ever seen; jobs are never deactivated — staleness is inferred from time since
 last seen. The agent never shortlists, it presents and stops.
 
@@ -58,33 +59,62 @@ last seen. The agent never shortlists, it presents and stops.
    con = duckdb.connect("data/warehouse/jobs.db")
 
    new_jobs = con.execute(
-       "SELECT company, title, apply_url FROM gold.new_this_run ORDER BY company"
+       "SELECT j.company, j.title, j.apply_url,"
+       "       j.date_posted,"
+       "       CAST(DATEDIFF('day', CAST(j.date_posted AS DATE), CURRENT_DATE)"
+       "            AS INTEGER) AS days_since_posted,"
+       "       c.news_sentiment, c.news_notes "
+       "FROM gold.new_this_run j "
+       "LEFT JOIN silver.dim_company c ON j.company_id = c.company_id "
+       "ORDER BY j.company"
    ).fetchall()
 
    gone_jobs = con.execute(
        "SELECT company, title, apply_url FROM gold.disappeared_this_run ORDER BY company"
    ).fetchall()
 
-   top10 = con.execute(
-       "SELECT company, title, overall_score, salary, location_raw, apply_url "
-       "FROM gold.ranked_jobs LIMIT 10"
+   top30 = con.execute(
+       "SELECT j.company, j.title, j.overall_score, j.salary, j.location_raw,"
+       "       j.date_posted, j.days_since_posted, j.apply_url,"
+       "       c.news_sentiment, c.news_notes "
+       "FROM gold.ranked_jobs j "
+       "LEFT JOIN silver.dim_company c ON j.company_id = c.company_id "
+       "LIMIT 30"
    ).fetchall()
    ```
 
    Report:
-   - **New jobs** (first seen in this run): for each, company, title, and `apply_url`.
+   - **New jobs** (first seen in this run): for each, company, title,
+     `apply_url`, posting age (`days_since_posted`), company sentiment
+     (`news_sentiment`), and a compact note drawn from `news_notes`
+     (truncate to ~120 chars).
    - **Disappeared jobs** (not seen within the staleness horizon): for each,
      company, title, and `apply_url` — likely filled or removed.
-   - **Top 10 by `overall_score`** from `gold.ranked_jobs` (which excludes
+   - **Top 30 by `overall_score`** from `gold.ranked_jobs` (which excludes
      stale jobs): for each job, report company, role (`title`), `overall_score`,
      pay range (extract `min_annual_eur`–`max_annual_eur` from the `salary`
-     JSON — write "not listed" when undisclosed), location (`location_raw`),
-     and URL (`apply_url`).
+     JSON — write "not listed" when undisclosed), posting age
+     (`days_since_posted`, derived from `date_posted`), location
+     (`location_raw`), company sentiment (`news_sentiment`), a compact note
+     drawn from `news_notes` (truncate to ~120 chars), and URL (`apply_url`).
+     Flag any row older than 30 days as potentially stale so the human can
+     weigh freshness against score.
+
+   **Sentiment/notes are honest reads from `silver.dim_company`, joined via
+   `company_id`.** Both may be NULL when the enrichment queue has not yet
+   processed that company — report that as "not enriched", never as a verdict.
+   `news_sentiment` values are `positive` / `negative` / `mixed` /
+   `inconclusive`; treat `inconclusive` as a *valid researched state* (no
+   headlines found or ambiguous coverage), distinct from missing — never
+   re-present it as "not enriched", and never fabricate a sentiment from notes.
+   Label the sentiment column "Sentiment (last 90d)": the news enrichment
+   lookback is 90 days (`when:90d` on the Google/Bing news search, capped at
+   15 headlines per company) — do not describe it as a 30-day window.
 
 4. **Present the shortlist candidates and STOP.**
    - **STOP and present to the human:** a compact report containing (a) the
      count of new jobs, (b) the new-jobs list, (c) the disappeared-jobs list,
-     and (d) the top-10 table.
+     and (d) the top-30 table.
    - End your turn there. The human picks which jobs to shortlist. Do not
      select jobs, add commentary ranking them, or proceed to any application
      work yourself.
