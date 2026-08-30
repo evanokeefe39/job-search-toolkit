@@ -1,0 +1,165 @@
+name_a,name_b,score,reason,status
+abeille assurances,abeille assurances aema groupe,,manual,merged
+agap2,agap2 it,,manual,merged
+alain paysant alfene,alfene,,manual,merged
+alstom,astorm,,manual,merged
+amazon,amazon data services france sas,,manual,merged
+amazon,amazon eu sarl uk branch,,manual,merged
+amazon,amazon web services aws,,manual,merged
+axa,axa en france,,manual,merged
+axima concept equans,equans,,manual,merged
+capital fund management cfm,cfm,,manual,merged
+cherry pick,cherrypick,,manual,merged
+covea,groupe covea maaf mma gmf,,manual,merged
+credit agricole,credit agricole technologies et services,,manual,merged
+credit agricole s a,credit agricole technologies et services,,manual,merged
+data impact by nielseniq,nielseniq,,manual,merged
+ekimetrics,ekimetriks,,manual,merged
+extreme reach,xr extreme reach,,manual,merged
+goldman sachs,goldman sachs bank ag,,manual,merged
+groupe covea,groupe covea maaf mma gmf,,manual,merged
+mindrift,mindrift data annotation,,manual,merged
+mistral,mistral ai,,manual,merged
+mistral,mistral ai sas,,manual,merged
+puig,puig s l,,manual,merged
+qube research technologies,quberesearchandtechnologies,,manual,merged
+theodo,theodo cloud,,manual,merged
+as international,baxter international inc,,manual,rejected
+as international,caci international inc,,manual,rejected
+as international,enova international,,manual,rejected
+as international,gap international,,manual,rejected
+as international,geci international,,manual,rejected
+as international,marriott international,,manual,rejected
+as international,mondelez international,,manual,rejected
+as international,msx international,,manual,rejected
+baxter international inc,caci international inc,,manual,rejected
+baxter international inc,gap international,,manual,rejected
+baxter international inc,msx international,,manual,rejected
+caci international inc,gap international,,manual,rejected
+caci international inc,msx international,,manual,rejected
+enova international,gap international,,manual,rejected
+enova international,msx international,,manual,rejected
+gap international,geci international,,manual,rejected
+gap international,marriott international,,manual,rejected
+gap international,mondelez international,,manual,rejected
+gap international,msx international,,manual,rejected
+geci international,msx international,,manual,rejected
+marriott international,msx international,,manual,rejected
+mondelez international,msx international,,manual,rejected
+bi solutions,cfive solutions,,manual,rejected
+bi solutions,collaborate solutions inc,,manual,rejected
+bi solutions,cs group solutions,,manual,rejected
+bi solutions,gamme solutions,,manual,rejected
+bi solutions,hitachi solutions ltd,,manual,rejected
+bi solutions,incontext solutions,,manual,rejected
+bi solutions,innova solutions,,manual,rejected
+bi solutions,kaizen solutions,,manual,rejected
+bi solutions,motorola solutions,,manual,rejected
+bi solutions,o9 solutions,,manual,rejected
+bi solutions,ontrac solutions,,manual,rejected
+bi solutions,pdf solutions,,manual,rejected
+bi solutions,t2s solutions,,manual,rejected
+cfive solutions,o9 solutions,,manual,rejected
+collaborate solutions inc,o9 solutions,,manual,rejected
+cs group solutions,o9 solutions,,manual,rejected
+gamme solutions,o9 solutions,,manual,rejected
+hitachi solutions ltd,o9 solutions,,manual,rejected
+incontext solutions,o9 solutions,,manual,rejected
+innova solutions,o9 solutions,,manual,rejected
+kaizen solutions,o9 solutions,,manual,rejected
+motorola solutions,o9 solutions,,manual,rejected
+o9 solutions,ontrac solutions,,manual,rejected
+o9 solutions,pdf solutions,,manual,rejected
+o9 solutions,t2s solutions,,manual,rejected
+arabelle solutions,bi solutions,,manual,rejected
+arabelle solutions,o9 solutions,,manual,rejected
+cropx technologies,opus technologies,,manual,rejected
+ippon technologies,proton technologies,,manual,rejected
+alan,talan,,manual,rejected
+aleph,aleph alpha,,manual,rejected
+algolia,algovia,,manual,rejected
+ally,the hr ally,,manual,rejected
+almatech,almatek,,manual,rejected
+alteca,atecna,,manual,rejected
+amgen,damen,,manual,rejected
+amontech,mantech,,manual,rejected
+andema,tandem,,manual,rejected
+ashland,dashlane,,manual,rejected
+avencore,zencore,,manual,rejected
+bouygues,colas bouygues group,,manual,rejected
+brevo,reevo,,manual,rejected
+caden,icade,,manual,rejected
+carrier,cartier,,manual,rejected
+cfgi,cgi,,manual,rejected
+colas,colsa,,manual,rejected
+dealt,exalt,,manual,rejected
+deel,deepl,,manual,rejected
+deodis,geodis,,manual,rejected
+duonext,euronext,,manual,rejected
+eaton,peraton,,manual,rejected
+efor group,elior group,,manual,rejected
+efor group,scor group,,manual,rejected
+electra,lectra,,manual,rejected
+electra,selectra,,manual,rejected
+equinix,equinox,,manual,rejected
+etsy,metsys,,manual,rejected
+exail,exalt,,manual,rejected
+faire,flaire,,manual,rejected
+five9,fives,,manual,rejected
+forter,porter,,manual,rejected
+galileo,galileo rh,,manual,rejected
+gap inc,snap inc,,manual,rejected
+h,n a s h,,manual,rejected
+h,pierre jean h,,manual,rejected
+hach,thatch,,manual,rejected
+headspace,redspace,,manual,rejected
+infotel,intel,,manual,rejected
+ing,king,,manual,rejected
+inside,winside,,manual,rejected
+inspiire,inspire,,manual,rejected
+intapp,netapp,,manual,rejected
+intel,mintel,,manual,rejected
+intel,mitel,,manual,rejected
+kenect,kent,,manual,rejected
+kering,king,,manual,rejected
+kla,kyla,,manual,rejected
+leanpath,leanpay,,manual,rejected
+lectra,selectra,,manual,rejected
+lukla,lula,,manual,rejected
+merck,mercy,,manual,rejected
+mercury,mercy,,manual,rejected
+mintel,mitel,,manual,rejected
+mobica,mosica,,manual,rejected
+motius,otis,,manual,rejected
+neon,nexton,,manual,rejected
+nicholson sas,sas,,manual,rejected
+nielsen,nielseniq,,manual,rejected
+nn group,nrj group,,manual,rejected
+onetribe sas,sas,,manual,rejected
+open,openai,,manual,rejected
+open,openx,,manual,rejected
+otis,zoetis,,manual,rejected
+qantev sas,sas,,manual,rejected
+qobra,quora,,manual,rejected
+ratp,ratp dev,,manual,rejected
+red commerce the global sap solutions provider,sap,,manual,rejected
+res,rest,,manual,rejected
+safran,safran ai,,manual,rejected
+salutech,valtech,,manual,rejected
+sas,sthree sas,,manual,rejected
+sas,techops sas,,manual,rejected
+smile,swile,,manual,rejected
+sonar,sonepar,,manual,rejected
+spendesk,zendesk,,manual,rejected
+tala,talan,,manual,rejected
+teolia,veolia,,manual,rejected
+the lego group,the voleon group,,manual,rejected
+tide,tinder,,manual,rejected
+tomoro,tomorro,,manual,rejected
+visa,visa hunt,,manual,rejected
+visa,visian,,manual,rejected
+zapier,zapiet,,manual,rejected
+zefir,zefr,,manual,rejected
+one,one logic,,manual,rejected
+one,oney,,manual,rejected
+one,pixel one,,manual,rejected
