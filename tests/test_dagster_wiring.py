@@ -229,9 +229,11 @@ def test_gate_classify_selects_new_boards_excludes_hiringcafe(wh):
     assert ids == {"h1"}
 
 
-def test_dim_company_gate_selects_new_boards_excludes_hiringcafe(wh):
+def test_dim_company_gate_selects_unenriched_golden_rows(wh):
+    """Golden grain: the gate is simply the missing-enrichment condition —
+    no per-board filter (hiringcafe ships org_type from the source)."""
     con, _ = wh
-    jobs = [
+    _upsert(con, "run1", [
         {
             "id": "e1", "source_board": "englishjobs", "title": "Data Analyst",
             "description_text": "text", "description_language": "en",
@@ -244,17 +246,16 @@ def test_dim_company_gate_selects_new_boards_excludes_hiringcafe(wh):
             "company": "Hc",
             "company_info": {"name": "Hc", "org_type": "private"},
         },
-    ]
-    _upsert(con, "run1", jobs)
+    ])
     rows = con.execute(
-        f"SELECT source_board FROM silver.dim_company WHERE {S.DIM_COMPANY_GATE}"
+        f"SELECT source_board FROM silver.dim_company WHERE {S.GOLDEN_DIM_COMPANY_GATE}"
     ).fetchall()
     assert [r[0] for r in rows] == ["englishjobs"]
 
 
 def test_no_freework_hardcoding_in_gates():
     assert "source_board = 'freework'" not in S.GATE_CLASSIFY
-    assert "source_board = 'freework'" not in S.DIM_COMPANY_GATE
+    assert "source_board = 'freework'" not in S.GOLDEN_DIM_COMPANY_GATE
 
 
 def _upsert(con, run_id: str, jobs: list[dict]):

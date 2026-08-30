@@ -5,7 +5,9 @@ Views live in the ``gold`` schema of the warehouse database
 
 - ``ranked_jobs``            — scored, non-stale jobs ordered by overall_score DESC;
   exposes ``days_since_posted`` / ``days_since_seen`` so shortlisting can apply
-  its own freshness judgment on top of the score
+  its own freshness judgment on top of the score. Company enrichment comes from
+  the golden ``dim_company`` row (one per company, deduped in place): org_type,
+  stock, and news sentiment/notes.
 - ``by_sector`` / ``by_tier`` — non-stale job counts grouped by sector / tier
 - ``job_history``            — full time-series: first/last seen, is_active,
   days active, days since last seen
@@ -380,6 +382,8 @@ def build_gold(db_path: Path, run_id: str | None = None) -> None:
             SELECT j.*,
                    c.org_type AS company_type,
                    c.stock_symbol AS company_stock_symbol,
+                   c.news_sentiment AS company_news_sentiment,
+                   c.news_notes AS company_news_notes,
                    CAST(DATEDIFF('day', CAST(j.date_posted AS DATE), CURRENT_DATE)
                         AS INTEGER) AS days_since_posted,
                    {_DAYS_SINCE_SEEN} AS days_since_seen

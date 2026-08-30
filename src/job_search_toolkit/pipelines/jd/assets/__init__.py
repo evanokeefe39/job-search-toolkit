@@ -29,6 +29,7 @@ from .post_enrich import linkedin_post_enriched
 from .poster_enrich import linkedin_post_poster_enriched
 from .score import scored_jobs, ranked_csv
 from .gold import gold_views
+from .company_resolve import company_names_resolved
 from .outcomes import sync_outcomes, warehouse_outcomes
 from .exports import merged_jobs_export, freework_enriched_export
 __all__ = [
@@ -62,4 +63,5 @@ __all__ = [
     "gold_views",
     "merged_jobs_export",
     "freework_enriched_export",
+    "company_names_resolved",
 ]

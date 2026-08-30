@@ -96,6 +96,7 @@ DIM_COMPANY_COLUMNS: list[tuple[str, str]] = [
     ("insee_employee_range", "VARCHAR"),
     ("insee_legal_type", "VARCHAR"),
     ("insee_checked_at", "TIMESTAMP"),
+    ("dedup_version", "VARCHAR"),  # golden-record derivation marker (company_resolve)
 ]
 
 # --- Enrichment stage gates -------------------------------------------------
@@ -131,9 +132,12 @@ GATE_POSTER = (
 )
 GATE_SCORE = "is_active AND overall_score IS NULL"
 
-# Company research is dimension-scoped (one row per company, not per job).
-# hiringcafe ships org_type from the source; LLM research never touches it.
-DIM_COMPANY_GATE = "source_board <> 'hiringcafe' AND org_type IS NULL"
+# Company research is dimension-scoped: golden grain (one dim_company row per
+# real company), so the gate is simply the missing-enrichment condition.
+# hiringcafe rows ship org_type from the source and are non-NULL already;
+# after the golden-record dedup no per-board filter may hide an otherwise-
+# unenriched company from research.
+GOLDEN_DIM_COMPANY_GATE = "org_type IS NULL"
 
 # Complement of the gates — true when the stage's output is present.
 DONE_TRANSLATE = "(description_language <> 'fr' OR TRIM(description_text) = '')"
@@ -295,6 +299,11 @@ def ensure_dims(con: duckdb.DuckDBPyConnection) -> None:
             f"ON CONFLICT (board_id) DO NOTHING"
         )
     # One-time migration for pre-Kimball warehouses (no-op once company_info
+    # Golden-record registry (company golden-record dedup): every board-side
+    # name maps to its golden dim_company row. Idempotent, additive-only.
+    from .company_resolve import ensure_company_alias
+
+    ensure_company_alias(con)
     # is gone): backfill dim_company + company_id, then drop the JSON column.
     _migrate_company_info(con)
 
@@ -643,9 +652,11 @@ def fetch_jobs(
     """Fetch rows as dicts with JSON columns decoded into Python values.
 
     With ``join_company=True``, each job dict gains a ``company_info`` dict
-    rebuilt from ``dim_company`` (the same shape the fact table used to store
-    as JSON) — callers keep reading ``job["company_info"]`` unchanged. Rows
-    whose company_id has no dim row get ``company_info = {}``.
+    rebuilt from the golden ``dim_company`` row (the same shape the fact table
+    used to store as JSON) — after the golden-record dedup there is exactly one
+    dim row per real company, so every job of a company (any board) gets the
+    same enrichment. Callers keep reading ``job["company_info"]`` unchanged.
+    Rows whose company_id has no dim row get ``company_info = {}``.
     """
     json_cols = _json_columns(con)
     sql = "SELECT " + ", ".join(f'"{c}"' for c in columns) + f" FROM silver.jobs WHERE {where}"
@@ -675,10 +686,9 @@ def fetch_jobs(
             if dim is None:
                 job["company_info"] = {}
                 continue
-            industry = dim[3]
             job["company_info"] = {
-                "name": dim[2],  # display name, as written on the board
-                "industry": json.loads(industry) if isinstance(industry, str) else industry,
+                "name": dim[2],  # golden display name (surviving board row)
+                "industry": json.loads(dim[3]) if isinstance(dim[3], str) else dim[3],
                 "size_employees": dim[4],
                 "year_founded": dim[5],
                 "hq_country": dim[6],

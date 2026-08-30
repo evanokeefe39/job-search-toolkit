@@ -81,13 +81,25 @@ def insee_lookup(company: str, *, timeout: float = 15.0) -> dict[str, Any] | Non
 
 
 def enrich_companies_insee(companies: list[dict[str, str]],
-                          *, sleep: float = 0.15) -> list[dict[str, Any]]:
+                          *, sleep: float = 0.15,
+                          con: Any = None) -> list[dict[str, Any]]:
     """Sequential INSEE lookup for a list of ``{"company_id", "name"}`` rows.
 
     Sequential (polite, ~0.2-0.4s each) — the INSEE public API rate-limits
     bursts. Returns ``[{"company_id", "employee_range", "legal_type"}]`` for
     found companies only (misses are omitted — honest).
+
+    ``con`` (optional): DuckDB connection — when given, each company_id is
+    resolved to its golden id via the ``silver.company_alias`` registry so
+    results always key the golden record.
     """
+    if con is not None:
+        from .company_resolve import load_alias_registry, norm
+        registry = load_alias_registry(con)
+        companies = [
+            {**c, "company_id": registry.get(norm(c["name"]), c["company_id"])}
+            for c in companies
+        ]
     out: list[dict[str, Any]] = []
     for c in companies:
         res = insee_lookup(c["name"])

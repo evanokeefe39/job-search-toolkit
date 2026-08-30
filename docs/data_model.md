@@ -81,11 +81,22 @@ source URL. Staleness is inferred from `last_seen_at`, never an `is_active` flip
 ### silver dimensions
 
 - **`dim_board`** — static: `board_id, name, description_language, base_url`.
-- **`dim_company`** — one row per (normalized name, source_board):
-  `company_id, name, display_name, source_board, industry, size_employees,
-  year_founded, hq_country, org_type, stock_symbol, stock_exchange,
-  latest_funding_*, homepage_url, enriched_at, enrichment_version`. LLM
-  research lives here, never per-row.
+- **`dim_company`** — the **golden record**: one row per real-world company,
+  regardless of board (deduped in place from the former per
+  `(normalized name, source_board)` grain). `company_id` is SHA-1 of the
+  normalized name (`[:16]`); `name` is the normalized golden key,
+  `display_name` the surviving board's spelling. Enrichment (org_type,
+  stock, funding, `news_*`, `insee_*`) lives here — one row per company, so
+  enrichment is shared across every board's job rows. `dedup_version` marks
+  the derivation (`golden-v1`), so rows stale under a future rule change are
+  detectable. Resolution runs as a separate asset (`company_names_resolved`)
+  OFF the zero-LLM ranking graph; see `pipelines/jd/company_resolve.py`.
+- **`company_alias`** — the source-name → golden-id registry:
+  `alias_name` (PK, normalized board-side name), `company_id` (FK to the
+  golden row), `source` (`exact|stem|fuzzy|manual|seed|rejected`),
+  `confidence` (rapidfuzz score when fuzzy), `created_at`. Append-only;
+  `silver.jobs.company_id` is re-keyed through it (one additive backfill,
+  idempotent).
 - **`dim_date`** — spine over `date_posted`: `date_id, iso_week, month, quarter, year`.
 
 ### silver fact tables (append-only)

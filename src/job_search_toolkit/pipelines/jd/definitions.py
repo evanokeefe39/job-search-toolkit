@@ -34,6 +34,7 @@ from .assets import (
     gold_views,
     merged_jobs_export,
     freework_enriched_export,
+    company_names_resolved,
 )
 from .assets.scrape import BOARD_SCRAPE_ASSETS
 from .assets.merge import SILVER_BOARD_ASSETS, silver_ingest
@@ -92,6 +93,9 @@ ALL_ASSETS = (
     ]
     + [silver_ingest]
     + ENRICH_ASSETS
+    # Incremental golden-record resolution: runnable on explicit selection,
+    # but NOT a dependency of scored_jobs/ranked_csv — never on the ranking path.
+    + [company_names_resolved]
 )
 
 defs = dg.Definitions(

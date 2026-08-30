@@ -169,16 +169,15 @@ def test_tech_gate_selects_null_only(wh):
 
 
 def test_dim_company_gate_freework_only(wh):
-    """hiringcafe company data comes from the source — never LLM-researched.
-    The dim gate selects only non-hiringcafe companies whose org_type is NULL
-    (one row per company, not per job)."""
+    """Golden grain: the gate selects any company whose org_type is NULL
+    (hiringcafe ships org_type from the source, so it never qualifies)."""
     con, _ = wh
     _upsert(con, "run1", [
         make_job("fw", board="freework", org_type=None),
         make_job("hc", board="hiringcafe", org_type="unknown"),
     ])
     rows = con.execute(
-        f"SELECT source_board FROM silver.dim_company WHERE {S.DIM_COMPANY_GATE}"
+        f"SELECT source_board FROM silver.dim_company WHERE {S.GOLDEN_DIM_COMPANY_GATE}"
     ).fetchall()
     assert [r[0] for r in rows] == ["freework"]
 

@@ -14,14 +14,15 @@ call per distinct company (``dim_company`` row), never per job.
 """
 
 import dagster as dg
+import json
 from dagster import AssetExecutionContext
 
 from .merge import SILVER_BOARD_ASSETS
 from ..silver import (
-    DIM_COMPANY_GATE,
     GATE_CLASSIFY,
     GATE_TECH,
     GATE_TRANSLATE,
+    GOLDEN_DIM_COMPANY_GATE,
     connect,
     fetch_jobs,
     mark_enriched,
@@ -31,7 +32,16 @@ from ..silver import (
 )
 from ..config import get_enrichment_version
 
-_DB_UPDATE_TAIL = " AND source_board = {}"
+
+def _coerce_notes(raw) -> list[str]:
+    """news_notes is a JSON list (or legacy string); normalize to list[str]."""
+    notes = raw
+    if isinstance(notes, str):
+        try:
+            notes = json.loads(notes)
+        except ValueError:
+            notes = [notes]
+    return [n for n in (notes or []) if n]
 
 
 def _update(con, job: dict, sets: str) -> None:
@@ -142,10 +152,11 @@ def vertical_classified(context: AssetExecutionContext) -> dg.MaterializeResult:
 def dim_company_enriched(context: AssetExecutionContext) -> dg.MaterializeResult:
     """Research org_type for distinct companies whose org_type is unknown.
 
-    Dimension-scoped: one LLM call per ``dim_company`` row, never per job
-    (4,381 rows → 1,624 companies today). Updates ``dim_company`` only — the
-    ranking path (``scored_jobs``) does not depend on this asset, so ranking
-    materializes without any LLM call.
+    Dimension-scoped: one LLM call per golden ``dim_company`` row — one row
+    per real company after the dedup, so each company is researched exactly
+    once (never per board). Updates ``dim_company`` only — the ranking path
+    (``scored_jobs``) does not depend on this asset, so ranking materializes
+    without any LLM call.
     """
     from ..enrich_canonical import enrich_companies as do_research
 
@@ -153,7 +164,7 @@ def dim_company_enriched(context: AssetExecutionContext) -> dg.MaterializeResult
         reset_stale(con, "company")
         rows = con.execute(
             f"SELECT company_id, name FROM silver.dim_company "
-            f"WHERE {DIM_COMPANY_GATE} ORDER BY company_id"
+            f"WHERE {GOLDEN_DIM_COMPANY_GATE} ORDER BY company_id"
         ).fetchall()
         companies = [{"company_id": r[0], "name": r[1]} for r in rows]
         do_research(companies)
@@ -180,9 +191,12 @@ def dim_company_enriched(context: AssetExecutionContext) -> dg.MaterializeResult
 def dim_company_news_enriched(context: AssetExecutionContext) -> dg.MaterializeResult:
     """Enrich top-ranked companies with news sentiment + INSEE size/legal.
 
-    The queue is implicit in the selection: distinct companies from the
-    current top-ranked fresh jobs (the ranking defines priority), ordered by
-    best overall score DESC, capped at ``enrich_company_max`` (default 50).
+    The queue is implicit in the selection: distinct golden companies from
+    the current top-ranked fresh jobs (the ranking defines priority), ordered
+    by best overall score DESC, capped at ``enrich_company_max`` (default 50).
+    ``silver.jobs.company_id`` is re-keyed to the golden id, so the join to
+    ``dim_company`` hits the single golden row and each company is enriched
+    exactly once regardless of how many boards advertised its jobs.
     Incremental: rows with ``news_checked_at IS NOT NULL`` are skipped, so
     repeated runs only process newly-top-ranked companies. Batched news
     (N companies per DeepSeek call) + sequential INSEE. Never on the ranking
@@ -209,16 +223,34 @@ def dim_company_news_enriched(context: AssetExecutionContext) -> dg.MaterializeR
         ).fetchall()
         companies = [{"company_id": r[0], "name": r[1]} for r in rows]
 
-        news_results = do_news(companies) if companies else []
-        insee_results = do_insee(companies) if companies else []
+        news_results = do_news(companies, con=con) if companies else []
+        insee_results = do_insee(companies, con=con) if companies else []
         insee_by_id = {r["company_id"]: r for r in insee_results}
+
+        from ..company_resolve import aggregate_sentiment
 
         updated = 0
         for r in news_results:
             cid = r["company_id"]
-            notes = r.get("notes") or []
-            sentiment = r.get("sentiment") or "inconclusive"
             insee = insee_by_id.get(cid, {})
+            # Merge-safe write at the golden grain: preserve any notes and
+            # sentiment already on the row (e.g. concatenated across a merged
+            # group by the dedup pass) and fold the fresh fetch in — notes
+            # concatenated (deduped, order-preserving), sentiment via the
+            # DECIDED aggregation rule (drop inconclusive, >1 distinct ->
+            # mixed) so a re-run or post-merge re-enrich never clobbers
+            # merged enrichment.
+            prev_notes, prev_sentiment = con.execute(
+                "SELECT news_notes, news_sentiment FROM silver.dim_company "
+                f"WHERE company_id = {sql_literal(cid)}"
+            ).fetchone()
+            notes: list[str] = _coerce_notes(prev_notes)
+            for n in (r.get("notes") or []):
+                if n and n not in notes:
+                    notes.append(n)
+            sentiment = aggregate_sentiment(
+                [prev_sentiment, r.get("sentiment") or "inconclusive"]
+            )
             sets = (
                 f"news_notes = {sql_json(notes)}, "
                 f"news_sentiment = {sql_literal(sentiment)}, "
