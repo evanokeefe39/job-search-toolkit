@@ -28,6 +28,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from .silver import STALE_AFTER_DAYS
+from . import db
 
 load_dotenv()
 
@@ -543,7 +544,7 @@ def lead_apply_calibration(db_path) -> dict:
     """
     import duckdb
 
-    con = duckdb.connect(str(db_path), read_only=True)
+    con = db.connect(db_path, read_only=True)
     try:
         total = con.execute(
             "SELECT COALESCE(SUM(lead_count), 0) FROM gold.lead_score_calibration"

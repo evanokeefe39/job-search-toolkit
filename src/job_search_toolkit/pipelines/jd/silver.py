@@ -32,7 +32,12 @@ from typing import Any
 
 import duckdb
 
+from . import db
 from .config import WAREHOUSE_DB, get_enrichment_version
+
+def connect() -> duckdb.DuckDBPyConnection:
+    """Open the warehouse database (creating the file if missing)."""
+    return db.connect()
 
 # Pipeline-internal keys that never become warehouse columns.
 _SKIP_KEYS = {"_enrichment", "_source", "company_info"}
@@ -199,12 +204,6 @@ def _infer_column_type(values: list[Any]) -> str:
 # ---------------------------------------------------------------------------
 # Schema + upsert
 # ---------------------------------------------------------------------------
-
-def connect() -> duckdb.DuckDBPyConnection:
-    """Open the warehouse database (creating the file if missing)."""
-    WAREHOUSE_DB.parent.mkdir(parents=True, exist_ok=True)
-    return duckdb.connect(str(WAREHOUSE_DB))
-
 
 def normalize_company_name(name: str) -> str:
     """Canonical dim_company key: lowercase, whitespace collapsed."""

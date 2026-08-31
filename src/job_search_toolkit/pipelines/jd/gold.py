@@ -41,6 +41,8 @@ from pathlib import Path
 
 import duckdb
 
+from . import db
+
 from .silver import (
     STALE_AFTER_DAYS,
     ensure_bd_tables,
@@ -365,7 +367,7 @@ def build_gold(db_path: Path, run_id: str | None = None) -> None:
     """
     db_path = Path(db_path)
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    with duckdb.connect(str(db_path)) as con:
+    with db.connect(db_path) as con:
         con.execute("CREATE SCHEMA IF NOT EXISTS gold")
 
         # BD/CRM + lead gold views (WS7 Epic 7.1/7.2): each view no-ops when

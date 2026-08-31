@@ -18,6 +18,7 @@ from dagster import AssetExecutionContext
 
 from .score import scored_jobs
 from ..config import SILVER_DIR, WAREHOUSE_DB
+from .. import db
 
 # Rebuild the legacy company_info JSON object from the dim_company join.
 # Field set matches schemas.py CompanyInfo; NULLs stay NULL inside the object.
@@ -60,7 +61,7 @@ def _export_json(con, select_sql: str, path) -> None:
 def merged_jobs_export(context: AssetExecutionContext) -> dg.MaterializeResult:
     """Export the canonical lookup file the new-application skill reads."""
     path = SILVER_DIR / "merged_jobs.json"
-    with duckdb.connect(str(WAREHOUSE_DB)) as con:
+    with db.connect() as con:
         _export_json(
             con,
             f"{_FACT_SELECT} WHERE j.is_active ORDER BY j.id, j.source_board",
@@ -77,7 +78,7 @@ def merged_jobs_export(context: AssetExecutionContext) -> dg.MaterializeResult:
 def freework_enriched_export(context: AssetExecutionContext) -> dg.MaterializeResult:
     """Export the freework-only enriched file (fallback lookup for new-application)."""
     path = SILVER_DIR / "freework_jobs_enriched.json"
-    with duckdb.connect(str(WAREHOUSE_DB)) as con:
+    with db.connect() as con:
         _export_json(
             con,
             f"{_FACT_SELECT} WHERE j.is_active AND j.source_board = 'freework' "

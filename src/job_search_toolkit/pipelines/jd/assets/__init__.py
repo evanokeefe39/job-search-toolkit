@@ -32,6 +32,7 @@ from .gold import gold_views
 from .company_resolve import company_names_resolved
 from .outcomes import sync_outcomes, warehouse_outcomes
 from .exports import merged_jobs_export, freework_enriched_export
+from .serve import serve_refresh
 __all__ = [
     "datasciencejobs_jobs",
     "freework_jobs",
@@ -63,5 +64,6 @@ __all__ = [
     "gold_views",
     "merged_jobs_export",
     "freework_enriched_export",
+    "serve_refresh",
     "company_names_resolved",
 ]
