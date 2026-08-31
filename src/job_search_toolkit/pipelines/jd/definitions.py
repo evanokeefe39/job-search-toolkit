@@ -35,6 +35,7 @@ from .assets import (
     merged_jobs_export,
     freework_enriched_export,
     company_names_resolved,
+    serve_refresh,
 )
 from .assets.scrape import BOARD_SCRAPE_ASSETS
 from .assets.merge import SILVER_BOARD_ASSETS, silver_ingest
@@ -51,14 +52,14 @@ RANKING_BOARDS = tuple(b for b in BOARD_SCRAPE_ASSETS if b not in OPT_IN_BOARDS)
 RANKING_ASSETS = (
     [BOARD_SCRAPE_ASSETS[b] for b in RANKING_BOARDS]
     + [SILVER_BOARD_ASSETS[b] for b in RANKING_BOARDS]
-    + [scored_jobs, warehouse_outcomes, ranked_csv, gold_views, merged_jobs_export, freework_enriched_export]
+    + [scored_jobs, warehouse_outcomes, ranked_csv, gold_views, merged_jobs_export, freework_enriched_export, serve_refresh]
 )
 
 # Per-board silver assets (scored_jobs/gold/export depend on them), used by
 # `pipeline run --boards <name>` to select the subset's ingest + downstream.
 PIPELINE_ASSETS = (
     [SILVER_BOARD_ASSETS[b] for b in RANKING_BOARDS]
-    + [scored_jobs, warehouse_outcomes, ranked_csv, gold_views, merged_jobs_export, freework_enriched_export]
+    + [scored_jobs, warehouse_outcomes, ranked_csv, gold_views, merged_jobs_export, freework_enriched_export, serve_refresh]
 )
 
 # Deferred LLM enrichment: optional, never on the ranking path.
@@ -78,7 +79,7 @@ ENRICH_ASSETS = [
 # recovers an orphaned bronze snapshot offline.
 INGEST_ASSETS = (
     [silver_ingest]
-    + [scored_jobs, warehouse_outcomes, ranked_csv, gold_views, merged_jobs_export, freework_enriched_export]
+    + [scored_jobs, warehouse_outcomes, ranked_csv, gold_views, merged_jobs_export, freework_enriched_export, serve_refresh]
 )
 
 # Opt-in boards are in the registry (so `--boards <name>` can select their

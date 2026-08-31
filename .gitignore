@@ -39,6 +39,11 @@ data/outreach_*
 data/contacts*
 data/linkedin/
 data/searxng/
+# Quack serving stack (server, UI attach, refresh flag) + serving mirror — local runtime, may hold the quack token
+# Never commit: data/_quack/attach.sql embeds the quack token and serve.db.* carries job data
+#   (duckdb.exe binary + WAL are not covered by the *.db rule)
+data/_quack/
+data/warehouse/
 node_modules/
 
 # Actor-local run artifacts (regenerated per run)

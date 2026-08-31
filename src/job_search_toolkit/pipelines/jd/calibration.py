@@ -23,6 +23,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import duckdb
+from . import db
 import yaml
 
 FEATURES = [
@@ -62,7 +63,7 @@ def band_evidence(db_path: Path, feature: str) -> dict:
     Returns counts + rates for the low and high score bands over jobs that
     have an 'applied' outcome event. Rate = advanced / applied (0 if none).
     """
-    con = duckdb.connect(str(db_path), read_only=True)
+    con = db.connect(db_path, read_only=True)
     try:
         rows = con.execute(f"""
             WITH applied AS (

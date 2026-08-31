@@ -21,6 +21,7 @@ import json
 from pathlib import Path
 
 import duckdb
+from .pipelines.jd import db
 
 UNKNOWN = "unknown"
 
@@ -55,7 +56,7 @@ def fetch_job(db_path: Path, job_id: str) -> dict | None:
     is ``(id, source_board)``); the lowest ``source_board`` is returned
     deterministically (ORDER BY source_board LIMIT 1).
     """
-    con = duckdb.connect(str(db_path))
+    con = db.connect(db_path)
     try:
         rows = con.execute(
             "SELECT * FROM silver.jobs WHERE id = ? ORDER BY source_board LIMIT 1",
