@@ -59,14 +59,13 @@ last seen. The agent never shortlists, it presents and stops.
    con = duckdb.connect("data/warehouse/jobs.db")
 
    new_jobs = con.execute(
-       "SELECT j.company, j.title, j.apply_url,"
-       "       j.date_posted,"
+       "SELECT j.company, j.title, j.overall_score, j.salary, j.location_raw,"
        "       CAST(DATEDIFF('day', CAST(j.date_posted AS DATE), CURRENT_DATE)"
        "            AS INTEGER) AS days_since_posted,"
        "       c.news_sentiment, c.news_notes "
        "FROM gold.new_this_run j "
        "LEFT JOIN silver.dim_company c ON j.company_id = c.company_id "
-       "ORDER BY j.company"
+       "ORDER BY j.overall_score DESC"
    ).fetchall()
 
    gone_jobs = con.execute(
@@ -75,7 +74,7 @@ last seen. The agent never shortlists, it presents and stops.
 
    top30 = con.execute(
        "SELECT j.company, j.title, j.overall_score, j.salary, j.location_raw,"
-       "       j.date_posted, j.days_since_posted, j.apply_url,"
+       "       j.days_since_posted,"
        "       c.news_sentiment, c.news_notes "
        "FROM gold.ranked_jobs j "
        "LEFT JOIN silver.dim_company c ON j.company_id = c.company_id "
@@ -83,22 +82,26 @@ last seen. The agent never shortlists, it presents and stops.
    ).fetchall()
    ```
 
-   Report:
-   - **New jobs** (first seen in this run): for each, company, title,
-     `apply_url`, posting age (`days_since_posted`), company sentiment
-     (`news_sentiment`), and a compact note drawn from `news_notes`
-     (truncate to ~120 chars).
-   - **Disappeared jobs** (not seen within the staleness horizon): for each,
-     company, title, and `apply_url` — likely filled or removed.
+   Report — the new-jobs table and the top-30 table use the SAME columns:
+   company, role (`title`), `overall_score`, pay range (extract
+   `min_annual_eur`–`max_annual_eur` from the `salary` JSON — write "not
+   listed" when undisclosed), location (`location_raw`), posting age
+   (`days_since_posted`), company sentiment (`news_sentiment`), and a compact
+   note drawn from `news_notes` (a JSON array of strings — join the elements with "; " and truncate to ~120 chars). Do NOT print an
+   `apply_url` column — the signed clickout URLs are too long to be useful and
+   get truncated in a table. The full `apply_url` stays available in the
+   warehouse gold views (`gold.new_this_run.apply_url` /
+   `gold.ranked_jobs.apply_url`) if the human needs to look one up. Present
+   both as markdown tables.
+   - **New jobs** (first seen in this run): same columns as the top-30 table,
+     ordered by `overall_score` DESC.
+   - **Disappeared jobs** (not seen within the staleness horizon): company,
+     title, and `apply_url` (list form — likely filled or removed; the URL is
+     the only link back to the listing).
    - **Top 30 by `overall_score`** from `gold.ranked_jobs` (which excludes
-     stale jobs): for each job, report company, role (`title`), `overall_score`,
-     pay range (extract `min_annual_eur`–`max_annual_eur` from the `salary`
-     JSON — write "not listed" when undisclosed), posting age
-     (`days_since_posted`, derived from `date_posted`), location
-     (`location_raw`), company sentiment (`news_sentiment`), a compact note
-     drawn from `news_notes` (truncate to ~120 chars), and URL (`apply_url`).
-     Flag any row older than 30 days as potentially stale so the human can
-     weigh freshness against score.
+     stale jobs): same columns as the new-jobs table. Flag any row older than
+     30 days as potentially stale so the human can weigh freshness against
+     score.
 
    **Sentiment/notes are honest reads from `silver.dim_company`, joined via
    `company_id`.** Both may be NULL when the enrichment queue has not yet
@@ -113,7 +116,7 @@ last seen. The agent never shortlists, it presents and stops.
 
 4. **Present the shortlist candidates and STOP.**
    - **STOP and present to the human:** a compact report containing (a) the
-     count of new jobs, (b) the new-jobs list, (c) the disappeared-jobs list,
+     count of new jobs, (b) the new-jobs table, (c) the disappeared-jobs list,
      and (d) the top-30 table.
    - End your turn there. The human picks which jobs to shortlist. Do not
      select jobs, add commentary ranking them, or proceed to any application
