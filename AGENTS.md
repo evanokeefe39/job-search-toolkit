@@ -409,3 +409,24 @@ Update: Resume-Matcher is DEPRECATED. Replacement: scripts/tailor_resume.py —
         via yaml.safe_dump(allow_unicode=True). The pipeline completed its
         first successful end-to-end smoke test against the UpClear JD in 14.5s
         with clean audit and valid RenderCV PDF output.
+
+```
+Date: 2026-08-30
+Trigger: Scoring formula changed (company_quality removed, v2) but silver.jobs
+         kept OLD-engine scores — 6530/6553 rows still carried company_quality
+         in their scores JSON. ranked_jobs and the enrichment queue silently
+         consumed stale derived data; the top-20 ranking shifted materially
+         once fully re-scored. Root cause: derived scores are persisted into
+         the source table (silver.jobs) and invalidated by a manual
+         ENRICHMENT_VERSION gate that isn't coupled to the formula change —
+         reset_stale(con,"score") silently no-ops when the version isn't bumped.
+Gap: No rule separating derived data (scores) from source data, and no
+     declared dependency between a derivation formula and its materialized
+     output. Incremental gates + a disconnected version constant = silent
+     staleness trap.
+Update: Rule in tasks/lessons.md: changing a producer's derivation logic MUST
+        invalidate consumers' cached outputs — self-versioned derived data
+        (write formula version beside it), a rebuilt-from-source mart, or a
+        version bump in the same commit. Full analysis + dbt comparison +
+        5-why in tasks/lessons.md (2026-08-30 entry).
+```
