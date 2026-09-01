@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field
 
 from job_search_toolkit.run_config import get_run_config
 from .config import LLM_API_KEY
-from job_search_toolkit.schemas import CompanyType
+from job_search_toolkit.schemas import CompanyLegalType
 
 logger = logging.getLogger(__name__)
 
@@ -241,11 +241,11 @@ def enrich_companies(companies: list[dict]) -> list[dict]:
 
 def _map_company_type(raw: str) -> str:
     mapping: dict[str, str] = {
-        "public": CompanyType.PUBLIC,
-        "private": CompanyType.PRIVATE,
-        "startup": CompanyType.STARTUP,
-        "consulting_firm": CompanyType.CONSULTING_FIRM,
-        "enterprise": CompanyType.ENTERPRISE,
-        "unknown": CompanyType.UNKNOWN,
+        "public": CompanyLegalType.PUBLIC,
+        "private": CompanyLegalType.PRIVATE,
+        "startup": CompanyLegalType.STARTUP,
+        "consulting_firm": CompanyLegalType.CONSULTING_FIRM,
+        "enterprise": CompanyLegalType.ENTERPRISE,
+        "unknown": CompanyLegalType.UNKNOWN,
     }
-    return mapping.get(raw.lower(), CompanyType.UNKNOWN)
+    return mapping.get(raw.lower(), CompanyLegalType.UNKNOWN)

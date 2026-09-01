@@ -311,7 +311,7 @@ def fetch_all_jobs(
 from job_search_toolkit.schemas import (
     CanonicalJob,
     CompanyInfo,
-    CompanyType,
+    CompanyLegalType,
     ContractType,
     EngagementType,
     EnrichmentStatus,
@@ -360,10 +360,10 @@ SENIORITY_NORM_MAP: dict[str, SeniorityLevel] = {
     "Senior Level": SeniorityLevel.SENIOR,
 }
 
-# HiringCafe organization_type → CompanyType
-ORG_TYPE_MAP: dict[str, CompanyType] = {
-    "Public": CompanyType.PUBLIC,
-    "Private": CompanyType.PRIVATE,
+# HiringCafe organization_type → CompanyLegalType (legacy legal-form field)
+ORG_TYPE_MAP: dict[str, CompanyLegalType] = {
+    "Public": CompanyLegalType.PUBLIC,
+    "Private": CompanyLegalType.PRIVATE,
 }
 
 
@@ -399,7 +399,7 @@ def normalize_job(hit: dict) -> CanonicalJob:
 
     # --- Company info ---
     org_type_raw = (c.get("organization_type") or "").title()
-    company_type = ORG_TYPE_MAP.get(org_type_raw, CompanyType.UNKNOWN)
+    company_type = ORG_TYPE_MAP.get(org_type_raw, CompanyLegalType.UNKNOWN)
     industries_raw = c.get("industries") or []
 
     company_info = CompanyInfo(

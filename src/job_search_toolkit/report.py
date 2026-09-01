@@ -75,13 +75,13 @@ def fetch_job(db_path: Path, job_id: str) -> dict | None:
         row["company_info"] = {}
         if row.get("company_id"):
             dims = con.execute(
-                "SELECT org_type, industry FROM silver.dim_company WHERE company_id = ?",
+                "SELECT company_type, industry FROM silver.dim_company WHERE company_id = ?",
                 [row["company_id"]],
             ).fetchall()
             if dims:
-                org_type, industry = dims[0]
+                company_type, industry = dims[0]
                 row["company_info"] = {
-                    "org_type": org_type,
+                    "company_type": company_type,
                     "industry": json.loads(industry) if isinstance(industry, str) else industry,
                 }
         return row
@@ -150,7 +150,7 @@ def render_job_report(job: dict) -> str:
 
     lines.append("")
     lines.append("--- Company Quality ---")
-    lines.append(f"org_type: {flag('org_type', _fmt(company_info.get('org_type')))}")
+    lines.append(f"company_type: {flag('company_type', _fmt(company_info.get('company_type')))}")
     lines.append(f"industry: {flag('industry', _fmt_list(company_info.get('industry')))}")
 
     lines.append("")

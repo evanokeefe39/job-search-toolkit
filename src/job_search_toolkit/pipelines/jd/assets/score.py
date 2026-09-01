@@ -170,7 +170,7 @@ def ranked_csv(context: AssetExecutionContext) -> dg.MaterializeResult:
                 "company_industry": "|".join(ci.get("industry", [])),
                 "company_size": ci.get("size_employees"),
                 "company_founded": ci.get("year_founded"),
-                "company_type": ci.get("org_type"),
+                "company_type": ci.get("company_type"),
                 "company_stock_symbol": ci.get("stock_symbol"),
             }
             writer.writerow(row)

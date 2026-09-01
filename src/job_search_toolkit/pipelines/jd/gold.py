@@ -382,7 +382,7 @@ def build_gold(db_path: Path, run_id: str | None = None) -> None:
             f"""
             CREATE OR REPLACE VIEW gold.ranked_jobs AS
             SELECT j.*,
-                   c.org_type AS company_type,
+                   c.company_type AS company_type,
                    c.stock_symbol AS company_stock_symbol,
                    c.news_sentiment AS company_news_sentiment,
                    c.news_notes AS company_news_notes,
@@ -528,6 +528,16 @@ def build_gold(db_path: Path, run_id: str | None = None) -> None:
         con.execute(
             f"""
             CREATE OR REPLACE VIEW gold.new_this_run AS
-            SELECT * FROM silver.jobs WHERE first_seen_run = {sql_literal(run)}
+            SELECT j.*,
+                   c.company_type AS company_type,
+                   c.stock_symbol AS company_stock_symbol,
+                   c.news_sentiment AS company_news_sentiment,
+                   c.news_notes AS company_news_notes,
+                   CAST(DATEDIFF('day', CAST(j.date_posted AS DATE), CURRENT_DATE)
+                        AS INTEGER) AS days_since_posted,
+                   {_DAYS_SINCE_SEEN} AS days_since_seen
+            FROM silver.jobs j
+            LEFT JOIN silver.dim_company c ON j.company_id = c.company_id
+            WHERE j.first_seen_run = {sql_literal(run)}
             """
         )

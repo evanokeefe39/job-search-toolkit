@@ -32,6 +32,7 @@ _COMPANY_INFO_JSON = (
     "'year_founded', c.year_founded, "
     "'hq_country', c.hq_country, "
     "'org_type', c.org_type, "
+    "'company_type', c.company_type, "
     "'stock_symbol', c.stock_symbol, "
     "'stock_exchange', c.stock_exchange, "
     "'latest_funding_type', c.latest_funding_type, "

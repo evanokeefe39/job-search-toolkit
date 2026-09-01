@@ -88,6 +88,7 @@ DIM_COMPANY_COLUMNS: list[tuple[str, str]] = [
     ("year_founded", "BIGINT"),
     ("hq_country", "VARCHAR"),
     ("org_type", "VARCHAR"),
+    ("company_type", "VARCHAR"),  # derived growth-stage proxy (company_type_derived asset)
     ("stock_symbol", "VARCHAR"),
     ("stock_exchange", "VARCHAR"),
     ("latest_funding_type", "VARCHAR"),
@@ -102,6 +103,7 @@ DIM_COMPANY_COLUMNS: list[tuple[str, str]] = [
     ("insee_legal_type", "VARCHAR"),
     ("insee_checked_at", "TIMESTAMP"),
     ("dedup_version", "VARCHAR"),  # golden-record derivation marker (company_resolve)
+    ("company_sources", "JSON"),   # provenance refs from the CSV enrichment source (company_enrichment_ingested)
 ]
 
 # --- Enrichment stage gates -------------------------------------------------
@@ -142,7 +144,7 @@ GATE_SCORE = "is_active AND overall_score IS NULL"
 # hiringcafe rows ship org_type from the source and are non-NULL already;
 # after the golden-record dedup no per-board filter may hide an otherwise-
 # unenriched company from research.
-GOLDEN_DIM_COMPANY_GATE = "org_type IS NULL"
+GOLDEN_DIM_COMPANY_GATE = "company_type IS NULL"
 
 # Complement of the gates — true when the stage's output is present.
 DONE_TRANSLATE = "(description_language <> 'fr' OR TRIM(description_text) = '')"
@@ -234,6 +236,7 @@ def _company_dim_row(cid: str, name: str, board: str, ci: dict) -> dict:
         "latest_funding_type": ci.get("latest_funding_type"),
         "latest_funding_amount_usd": ci.get("latest_funding_amount_usd"),
         "homepage_url": ci.get("homepage_url"),
+        "company_sources": ci.get("company_sources"),
         "enrichment_version": get_enrichment_version(),
     }
 
@@ -309,20 +312,22 @@ def ensure_dims(con: duckdb.DuckDBPyConnection) -> None:
 
 def _upsert_dim_companies(con: duckdb.DuckDBPyConnection, rows: list[dict]) -> None:
     """Upsert dim_company rows on company_id (source data wins per run).
-
     New rows insert; existing rows keep LLM-researched fields (``org_type``,
     ``hq_country``, ``stock_*``, funding) unless the source provides a
     non-NULL value — scraper-parsed fields refresh, research output survives.
+    ``company_type``/``company_sources`` follow the same COALESCE rule: a
+    trusted CSV value wins, a NULL leaves the stored/derived value in place.
     """
     if not rows:
         return
     fields = [
         "name", "display_name", "source_board", "industry", "size_employees",
-        "year_founded", "hq_country", "org_type", "stock_symbol",
+        "year_founded", "hq_country", "org_type", "company_type",
+        "company_sources", "stock_symbol",
         "stock_exchange", "latest_funding_type", "latest_funding_amount_usd",
         "homepage_url", "enrichment_version",
     ]
-    json_fields = {"industry"}
+    json_fields = {"industry", "company_sources"}
     rows_sql: list[str] = []
     for row in rows:
         values = [sql_literal(row.get("company_id"))]
@@ -613,7 +618,8 @@ def reset_stale(con: duckdb.DuckDBPyConnection, stage: str) -> None:
         # Company research is dimension-scoped: reset dim_company rows so the
         # dim gate re-selects them (per company, not per job).
         con.execute(
-            f"UPDATE silver.dim_company SET org_type = NULL, enriched_at = NULL "
+            f"UPDATE silver.dim_company SET org_type = NULL, company_type = NULL, "
+            f"enriched_at = NULL "
             f"WHERE {stale} AND source_board <> 'hiringcafe'"
         )
     elif stage == "company_news":
@@ -672,11 +678,12 @@ def fetch_jobs(
         out.append(d)
 
     if join_company:
-        # Column order matches DIM_COMPANY_COLUMNS (minus enriched_at).
         dims = con.execute(
             "SELECT company_id, name, display_name, industry, size_employees, "
-            "year_founded, hq_country, org_type, stock_symbol, stock_exchange, "
-            "latest_funding_type, latest_funding_amount_usd, homepage_url "
+            "year_founded, hq_country, org_type, company_type, stock_symbol, "
+            "stock_exchange, "
+            "latest_funding_type, latest_funding_amount_usd, homepage_url, "
+            "company_sources "
             "FROM silver.dim_company"
         ).fetchall()
         by_id = {r[0]: r for r in dims}
@@ -692,11 +699,13 @@ def fetch_jobs(
                 "year_founded": dim[5],
                 "hq_country": dim[6],
                 "org_type": dim[7],
-                "stock_symbol": dim[8],
-                "stock_exchange": dim[9],
-                "latest_funding_type": dim[10],
-                "latest_funding_amount_usd": dim[11],
-                "homepage_url": dim[12],
+                "company_type": dim[8],
+                "stock_symbol": dim[9],
+                "stock_exchange": dim[10],
+                "latest_funding_type": dim[11],
+                "latest_funding_amount_usd": dim[12],
+                "homepage_url": dim[13],
+                "company_sources": json.loads(dim[14]) if isinstance(dim[14], str) else dim[14],
             }
     return out
 
