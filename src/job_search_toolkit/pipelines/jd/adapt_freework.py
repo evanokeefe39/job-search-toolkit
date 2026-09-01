@@ -19,7 +19,7 @@ import re
 from job_search_toolkit.schemas import (
     CanonicalJob,
     CompanyInfo,
-    CompanyType,
+    CompanyLegalType,
     ContractType,
     EngagementType,
     EnrichmentStatus,
@@ -69,12 +69,12 @@ ROLE_MAP: dict[str, RoleCategory] = {
 }
 
 # free-work company_type → CompanyType
-COMPANY_TYPE_MAP: dict[str, CompanyType] = {
-    "startup": CompanyType.STARTUP,
-    "enterprise": CompanyType.ENTERPRISE,
-    "consulting_firm": CompanyType.CONSULTING_FIRM,
-    "public_company": CompanyType.PUBLIC,
-    "private_company": CompanyType.PRIVATE,
+COMPANY_TYPE_MAP: dict[str, CompanyLegalType] = {
+    "startup": CompanyLegalType.STARTUP,
+    "enterprise": CompanyLegalType.ENTERPRISE,
+    "consulting_firm": CompanyLegalType.CONSULTING_FIRM,
+    "public_company": CompanyLegalType.PUBLIC,
+    "private_company": CompanyLegalType.PRIVATE,
 }
 
 

@@ -35,7 +35,7 @@ from job_search_toolkit.run_config import get_run_config
 from job_search_toolkit.schemas import (
     CanonicalJob,
     CompanyInfo,
-    CompanyType,
+    CompanyLegalType,
     ContractType,
     EnrichmentStatus,
     EngagementType,
@@ -474,7 +474,7 @@ def normalize_job(raw: dict) -> CanonicalJob:
             size_employees=None,
             year_founded=None,
             hq_country=country,
-            org_type=CompanyType.UNKNOWN,
+            org_type=CompanyLegalType.UNKNOWN,
             stock_symbol=None,
             stock_exchange=None,
             latest_funding_type=None,

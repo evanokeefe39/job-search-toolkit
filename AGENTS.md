@@ -69,8 +69,20 @@ with human review gates — no fully automated ATS pipeline.
   (Google+Bing RSS → batched DeepSeek `{sentiment, notes[]}`) + `company_insee.py`
   (INSEE size/legal). Writes `news_sentiment`/`news_notes`/`news_checked_at`/
   `insee_*` to `dim_company`. Honesty guard: no headlines → `inconclusive` + empty
-  notes. Never on the ranking path (`scored_jobs` doesn't depend on it); extend
-  beyond the auto-50 with `/skill:company-enrich`.
+- **CSV company-enrichment source (`company_enrichment_ingested`).** A per-company
+  findings CSV is the contract for ad-hoc enrichment (web-researched by a coding
+  agent like Oh My Pi / Claude Code today; a future automated Tavily/Exa agentic
+  loop will produce the same shape). Drop a CSV at `data/company_enrichment/`
+  (gitignored; newest CSV read) with the exact header `company_name,source_board,
+  industry,size_employees,year_founded,hq_country,latest_funding_type,
+  latest_funding_amount_usd,company_type,sources`. Header deviation fails loudly
+  (the CSV *is* the contract). `industry` is a JSON-array string (quote fields
+  containing commas); `company_type` is OPTIONAL — a valid non-empty value is
+  TRUSTED and written directly (survives `company_type_derived`), empty leaves it
+  NULL for the deterministic derivation. `sources` (semicolon-separated URLs) is
+  REQUIRED and appends to `dim_company.company_sources` (provenance). Merge reuses
+  `_upsert_dim_companies` (COALESCE upsert on company_id). No-op when the CSV is
+  absent. This is a NEW SOURCE, not a migration — no direct dim_company UPDATEs.
 
 ## Architecture
 
@@ -89,7 +101,7 @@ src/job_search_toolkit/          # Installable PyPI package: `job-search-toolkit
 │       ├── assets/              # Asset definitions (one module per stage)
 │       │   ├── scrape.py        # freework_jobs, hiringcafe_jobs (writes timestamped bronze + runs.json)
 │       │   ├── merge.py         # silver_upsert (bronze -> silver.jobs, ON CONFLICT preserving enrichment)
-│       │   ├── enrich.py        # translated, tech_extracted, vertical_classified, dim_company_enriched, dim_company_news_enriched
+│       │   ├── enrich.py        # translated, tech_extracted, vertical_classified, dim_company_enriched, company_type_derived, dim_company_news_enriched
 │       │   ├── score.py         # scored_jobs (pending rows only), ranked_csv (bridge export)
 │       │   ├── gold.py          # gold_views (CREATE OR REPLACE analytics views)
 │       │   └── exports.py       # merged_jobs_export, freework_enriched_export (bridge exports)
@@ -113,6 +125,7 @@ skills/                          # Plugin-standard agent skills (skills/<name>/S
 ├── tailor-resume/SKILL.md       # `job-search-toolkit tailor run` + human review + RenderCV PDF
 ├── application-tracker/SKILL.md # Twenty funnel transitions + response-rate stats
 ├── market-research/SKILL.md     # Multi-level job market trend analysis
+├── market-report/SKILL.md       # Data-driven warehouse report: HTML/PDF/newsletter (user-driven Q&A)
 └── cold-outreach/SKILL.md       # Find contacts, draft outreach messages
 
 data/                            # Medallion layout (gitignored outputs)
@@ -178,6 +191,7 @@ blocks carry the same instruction for external users.
 
 ```bash
 /skill:market-research      # Multi-level job market trend analysis
+/skill:market-report        # Data-driven warehouse report (HTML/PDF/newsletter)
 /skill:cold-outreach        # Find contacts, draft outreach messages
 ```
 
@@ -218,11 +232,13 @@ blocks carry the same instruction for external users.
 Kimball star schema (3 dims + 1 fact):
 
 - **silver.dim_board** — 10 rows, static: board_id, name, description_language, base_url
-- **silver.dim_company** — one row per (normalized name, source_board), 1,992 rows:
+- **silver.dim_company** — one row per (normalized name, source_board), ~3,344 rows:
   company_id (SHA-1 hash), name, display_name, source_board, industry, size_employees,
-  year_founded, hq_country, org_type, stock_symbol, stock_exchange, latest_funding_*,
-  homepage_url, enriched_at, enrichment_version. LLM research writes here (deferred,
-  once per company, never on the ranking path).
+  year_founded, hq_country, org_type, company_type, stock_symbol, stock_exchange,
+  latest_funding_*, homepage_url, enriched_at, enrichment_version. ``company_type`` is a
+  deterministic growth-stage proxy (big_tech / corporate / scale_up / startup /
+  it_consulting / unknown) derived by the ``company_type_derived`` asset — no LLM. The
+  legacy ``org_type`` legal-form field is deprecated and no longer researched.
 - **silver.dim_date** — spine over date_posted: date_id, iso_week, month, quarter, year
 - **silver.jobs** — the fact table: one row per unique (id, source_board), never
   deleted. All canonical fields are columns (nested dicts/lists as JSON), plus
@@ -236,8 +252,8 @@ Kimball star schema (3 dims + 1 fact):
 
 Enrichment state is column nullability, not flags: ``description_language='fr'``
 means needs translation; empty ``technologies`` means needs tech extraction.
-Company research lives on ``dim_company`` (DIM_COMPANY_GATE: org_type IS NULL),
-never on per-row enrichment. ``gold.*`` views: ``ranked_jobs`` (joins dim_company,
+Company enrichment lives on ``dim_company``, never on per-row enrichment.
+``gold.*`` views: ``ranked_jobs`` (joins dim_company,
 excludes stale jobs, exposes ``days_since_posted``/``days_since_seen``),
 ``by_sector``, ``by_tier``, ``job_history``, ``weekly_snapshot``, ``new_this_run``,
 ``disappeared_this_run`` (jobs not seen within the staleness horizon).
@@ -246,12 +262,31 @@ excludes stale jobs, exposes ``days_since_posted``/``days_since_seen``),
 
 - Most posting companies are French ESN/consulting firms, not end clients
 - `end_client_sector` is extracted from descriptions, not company names
-- ``dim_company.org_type`` (freework/hellowork/englishjobs/faruse/wwr/remoteok/
-  datasciencejobs) is LLM-researched (deferred, per-company); hiringcafe ships
-  org_type from the source. ``org_type='unknown'`` means researched and
-  inconclusive — not re-researched until the next run's fresh data triggers it.
-- 10 companies have unverified stage-4 claims (SearXNG rate-limited during
-  research) — these remain in dim_company as researched-once entries.
+- ``dim_company.org_type`` is a deprecated legal-form field (public/private/
+  consulting_firm/enterprise/unknown), no longer LLM-researched. Use
+  ``company_type`` instead: the deterministic growth-stage proxy derived by
+  ``company_type_derived`` (big_tech/corporate/scale_up/startup/it_consulting/
+  unknown), folded from job-level ``posting_company_type`` (esn/end_client) +
+  industry/size/founded/funding. Coverage is bounded by raw signal sparsity
+  (~11-22% of dim rows carry industry/size/funding); ``unknown`` is the honest
+  fallback. ``new_this_run`` exposes ``company_type`` + ``company_news_*``.
+
+### Shortlisting: salary + sentiment are mandatory, never optional
+
+Every time jobs are presented for shortlisting or a pick is recommended (any
+window/score filter, any board), the table or list MUST include BOTH:
+(1) each job's **salary** — extract ``min_annual_eur``–``max_annual_eur`` from
+the ``salary`` JSON, or write "not listed" when undisclosed (never omit the
+column; never show a raw JSON blob), and (2) each job's company
+``news_sentiment`` and a compact draw from ``news_notes`` (via
+``silver.dim_company``, joined on ``company_id`` — in the Quack mirror these
+live in ``main.dim_company``). Sentiment values: ``positive`` / ``negative`` /
+``mixed`` / ``inconclusive`` / NULL. Treat ``inconclusive`` as a *valid
+researched state* (no headlines or ambiguous coverage) and NULL as *not yet
+enriched* — never conflate the two, never fabricate a sentiment, never present
+either as a verdict. Rule: if you are listing jobs to a human, include salary,
+sentiment, and notes. No exception for score-based, freshness-based, or any
+other subset.
 
 ## Known sharp edges
 

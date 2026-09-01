@@ -150,37 +150,106 @@ def vertical_classified(context: AssetExecutionContext) -> dg.MaterializeResult:
     description="Research company stats per distinct company (one LLM call per company)",
 )
 def dim_company_enriched(context: AssetExecutionContext) -> dg.MaterializeResult:
-    """Research org_type for distinct companies whose org_type is unknown.
+    """Retired LLM org_type research — kept as a no-op for asset selection.
 
-    Dimension-scoped: one LLM call per golden ``dim_company`` row — one row
-    per real company after the dedup, so each company is researched exactly
-    once (never per board). Updates ``dim_company`` only — the ranking path
-    (``scored_jobs``) does not depend on this asset, so ranking materializes
-    without any LLM call.
+    ``org_type`` (legal form) proved inaccurate and mostly ``unknown``; it is
+    no longer populated. The growth-stage signal now comes from the
+    deterministic ``company_type_derived`` asset. Kept so existing deps and
+    the ``enrich_job`` selection don't break.
     """
-    from ..enrich_canonical import enrich_companies as do_research
-
     with connect() as con:
         reset_stale(con, "company")
+    return dg.MaterializeResult(metadata={"researched": 0, "pending": 0})
+
+
+@dg.asset(
+    deps=list(SILVER_BOARD_ASSETS.values()),
+    group_name="enrichment",
+    description="Derive growth-stage company_type for dim_company (deterministic, no LLM)",
+)
+def company_type_derived(context: AssetExecutionContext) -> dg.MaterializeResult:
+    """Derive ``company_type`` for every gated ``dim_company`` row — no LLM.
+
+    Pure SQL over stored fields, first match wins (see
+    data/_tmp_company_type_spec.md): job-level ``posting_company_type``
+    ('esn' only — 'end_client' is a direct employer, not a consultancy) or a
+    consulting/IT-services industry → ``it_consulting``;
+    >5,000 employees in a tech industry → ``big_tech``; >1,000 →
+    ``corporate``; growth funding or (founded 2008-2017, <=1,000 emp) →
+    ``scale_up``; Seed/Series A or (founded >=2018, <=50 emp) → ``startup``;
+    else ``unknown``. Deterministic: re-running with unchanged inputs yields
+    the same values.
+    """
+    # Gate (company_type IS NULL) — resets on staleness via reset_stale above.
+    with connect() as con:
         rows = con.execute(
-            f"SELECT company_id, name FROM silver.dim_company "
-            f"WHERE {GOLDEN_DIM_COMPANY_GATE} ORDER BY company_id"
-        ).fetchall()
-        companies = [{"company_id": r[0], "name": r[1]} for r in rows]
-        do_research(companies)
-        updated = 0
-        for c in companies:
-            if not c.get("org_type"):
-                continue
-            con.execute(
-                f"UPDATE silver.dim_company SET "
-                f"org_type = {sql_literal(c['org_type'])}, "
-                f"enriched_at = NOW(), "
-                f"enrichment_version = {get_enrichment_version()} "
-                f"WHERE company_id = {sql_literal(c['company_id'])}"
+            f"""
+            WITH sig AS (
+                SELECT
+                    c.company_id,
+                    EXISTS (SELECT 1 FROM silver.jobs j
+                            WHERE j.company_id = c.company_id
+                              AND j.is_active
+                              AND j.posting_company_type = 'esn'
+                    ) AS is_esn,
+                    lower(coalesce(c.industry::VARCHAR, '[]')) AS ind_txt,
+                    c.size_employees AS emp,
+                    c.year_founded AS founded,
+                    c.latest_funding_type AS funding
+                FROM silver.dim_company c
+                WHERE {GOLDEN_DIM_COMPANY_GATE}
             )
-            updated += 1
-    return dg.MaterializeResult(metadata={"researched": updated, "pending": len(companies)})
+            SELECT company_id,
+                CASE
+                    WHEN is_esn
+                         OR contains(ind_txt, 'it services')
+                         OR contains(ind_txt, 'consulting')
+                         OR contains(ind_txt, 'staffing')
+                        THEN 'it_consulting'
+                    WHEN emp > 5000 AND (
+                         contains(ind_txt, 'software')
+                         OR contains(ind_txt, 'cloud')
+                         OR contains(ind_txt, 'internet')
+                         OR contains(ind_txt, 'semiconductor')
+                         OR contains(ind_txt, 'artificial intelligence')
+                         OR contains(ind_txt, 'data')
+                    ) THEN 'big_tech'
+                    WHEN emp > 1000 THEN 'corporate'
+                    WHEN (funding IN ('Series B', 'Series C', 'Series D',
+                                      'Series E', 'Series F', 'Series G',
+                                      'Series H', 'Series I', 'Private Equity',
+                                      'Debt', 'Post-IPO Debt', 'Secondary Market',
+                                      'Corporate Round', 'Funding Round')
+                          OR regexp_matches(coalesce(funding, ''),
+                                            '^Series [B-I]([ -]|$)'))
+                         OR (founded BETWEEN 2008 AND 2017 AND emp <= 1000)
+                        THEN 'scale_up'
+                    WHEN funding IN ('Seed', 'Series A', 'Grant')
+                         OR regexp_matches(coalesce(funding, ''), '^Seed([ -]|$)')
+                         OR (founded >= 2018 AND emp <= 50)
+                        THEN 'startup'
+                    ELSE 'unknown'
+                END AS company_type
+            FROM sig
+            ORDER BY company_id
+            """
+        ).fetchall()
+        if rows:
+            values = ", ".join(
+                f"({sql_literal(cid)}, {sql_literal(ctype)})"
+                for cid, ctype in rows
+            )
+            con.execute(
+                f"""
+                UPDATE silver.dim_company c SET
+                    company_type = v.company_type,
+                    enriched_at = NOW(),
+                    enrichment_version = {get_enrichment_version()}
+                FROM (VALUES {values}) AS v(company_id, company_type)
+                WHERE c.company_id = v.company_id
+                """
+            )
+    return dg.MaterializeResult(metadata={"derived": len(rows), "pending": 0})
 
 
 @dg.asset(

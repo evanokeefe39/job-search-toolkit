@@ -68,7 +68,23 @@ class EngagementType(StrEnum):
     UNKNOWN = "unknown"
 
 
+# Growth-stage / workplace-dynamics proxy — the PRIMARY company-type signal.
+# Predicts management style, culture, trajectory, perks (see company_type_derived
+# asset in silver.py). Values are the work environment, not legal form.
 class CompanyType(StrEnum):
+    BIG_TECH = "big_tech"
+    CORPORATE = "corporate"
+    SCALE_UP = "scale_up"
+    STARTUP = "startup"
+    IT_CONSULTING = "it_consulting"
+    UNKNOWN = "unknown"
+
+
+# Legacy legal-form taxonomy (public/private/startup/consulting_firm/enterprise).
+# Kept only for the deprecated ``org_type`` field and source-board adapters
+# that still emit legal form (hiringcafe, freework). Deprecated — the
+# growth-stage ``CompanyType`` above is the primary company-type signal.
+class CompanyLegalType(StrEnum):
     PUBLIC = "public"
     PRIVATE = "private"
     STARTUP = "startup"
@@ -99,12 +115,14 @@ class CompanyInfo(TypedDict):
     size_employees: int | None
     year_founded: int | None
     hq_country: str | None              # ISO 3166-1 alpha-2 e.g. "FR"
-    org_type: CompanyType
+    company_type: CompanyType            # derived growth-stage proxy (see silver.py)
+    org_type: CompanyLegalType           # legacy legal-form field (deprecated, kept for back-compat)
     stock_symbol: str | None
     stock_exchange: str | None
     latest_funding_type: str | None     # "Series A", "Series B", etc.
     latest_funding_amount_usd: int | None
     homepage_url: str | None
+    company_sources: list[str] | None   # provenance refs (CSV enrichment source)
 
 
 # ---------------------------------------------------------------------------
@@ -236,7 +254,8 @@ def new_canonical_job(source_board: str) -> CanonicalJob:
             size_employees=None,
             year_founded=None,
             hq_country=None,
-            org_type=CompanyType.UNKNOWN,
+            company_type=CompanyType.UNKNOWN,
+            org_type=CompanyLegalType.UNKNOWN,
             stock_symbol=None,
             stock_exchange=None,
             latest_funding_type=None,

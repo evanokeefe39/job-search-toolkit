@@ -370,7 +370,7 @@ def clusters_for_names(names: list[str]) -> list[list[str]]:
 
 _DIM_COLS = [
     "company_id", "name", "display_name", "source_board", "industry",
-    "size_employees", "year_founded", "hq_country", "org_type",
+    "size_employees", "year_founded", "hq_country", "org_type", "company_type",
     "stock_symbol", "stock_exchange", "latest_funding_type",
     "latest_funding_amount_usd", "homepage_url", "enriched_at",
     "enrichment_version", "news_notes", "news_sentiment",
@@ -508,7 +508,7 @@ def dedup_dim_company(con: duckdb.DuckDBPyConnection) -> dict:
             _lit(gid), _lit(gname), _lit(win["display_name"]),
             _lit(win["source_board"]), _json_lit(win["industry"]),
             _lit(win["size_employees"]), _lit(win["year_founded"]),
-            _lit(win["hq_country"]), _lit(win["org_type"]),
+            _lit(win["hq_country"]), _lit(win["org_type"]), _lit(win["company_type"]),
             _lit(win["stock_symbol"]), _lit(win["stock_exchange"]),
             _lit(win["latest_funding_type"]),
             _lit(win["latest_funding_amount_usd"]), _lit(win["homepage_url"]),

@@ -23,13 +23,14 @@ from .merge import (
 )
 from .enrich import (
     translated, tech_extracted, vertical_classified, dim_company_enriched,
-    dim_company_news_enriched,
+    dim_company_news_enriched, company_type_derived,
 )
 from .post_enrich import linkedin_post_enriched
 from .poster_enrich import linkedin_post_poster_enriched
 from .score import scored_jobs, ranked_csv
 from .gold import gold_views
 from .company_resolve import company_names_resolved
+from .company_enrichment import company_enrichment_ingested
 from .outcomes import sync_outcomes, warehouse_outcomes
 from .exports import merged_jobs_export, freework_enriched_export
 from .serve import serve_refresh
@@ -56,6 +57,7 @@ __all__ = [
     "translated",
     "tech_extracted",
     "dim_company_enriched",
+    "company_type_derived",
     "dim_company_news_enriched",
     "vertical_classified",
     "scored_jobs",
@@ -66,4 +68,5 @@ __all__ = [
     "freework_enriched_export",
     "serve_refresh",
     "company_names_resolved",
+    "company_enrichment_ingested",
 ]

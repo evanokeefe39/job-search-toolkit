@@ -27,6 +27,7 @@ from .assets import (
     tech_extracted,
     vertical_classified,
     dim_company_enriched,
+    company_type_derived,
     dim_company_news_enriched,
     scored_jobs,
     warehouse_outcomes,
@@ -35,6 +36,7 @@ from .assets import (
     merged_jobs_export,
     freework_enriched_export,
     company_names_resolved,
+    company_enrichment_ingested,
     serve_refresh,
 )
 from .assets.scrape import BOARD_SCRAPE_ASSETS
@@ -68,9 +70,11 @@ ENRICH_ASSETS = [
     tech_extracted,
     vertical_classified,
     dim_company_enriched,
+    company_type_derived,
     dim_company_news_enriched,
     linkedin_post_enriched,
     linkedin_post_poster_enriched,
+    company_enrichment_ingested,
 ]
 
 # Ingest-only recovery path: silver_ingest (explicit run_id) + the downstream
