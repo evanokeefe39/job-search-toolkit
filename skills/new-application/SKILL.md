@@ -1,6 +1,6 @@
 ---
 name: new-application
-description: Scaffold a new application workspace for a shortlisted job. Input is a row from jobs_ranked.csv or a job URL; locate the full canonical record in the warehouse (silver.jobs, active rows), write the JD and research the company — web_search for company and role, an ad-hoc yfinance check in an eval cell (ticker + price trend, pattern in pipelines/jd/_legacy/stage4_company_stats.py), and a MANUAL Crunchbase checkpoint where the human pastes facts or drops an export — then synthesize research.md from a fixed template and update tracker.csv. Use when starting a new application, preparing to apply, or researching a company before tailoring a CV.
+description: Scaffold a new application workspace for a shortlisted job. Input is a row from jobs_ranked.csv or a job URL; locate the full canonical record in the warehouse (silver.jobs, active rows), write the JD and research the company — web_search for company and role and an ad-hoc yfinance check in an eval cell (ticker + price trend, pattern in pipelines/jd/_legacy/stage4_company_stats.py) — then synthesize research.md from a fixed template and update tracker.csv. Use when starting a new application, preparing to apply, or researching a company before tailoring a CV.
 ---
 ## Requirements
 
@@ -145,7 +145,7 @@ before deciding.
 
 ### 3. Research loop
 
-Gather company and role intelligence from three sources. Keep notes with source
+Gather company and role intelligence from two sources. Keep notes with source
 URLs as you go — they feed research.md.
 
 1. **web_search the company.** Search `"<company name>" company` and
@@ -183,28 +183,19 @@ if ticker:
 ```
 
    Record the 12-month price trend, 52-week range, market cap, and the data
-   date. A private company simply has no ticker — note "private / no ticker"
-   and move on; do not guess a ticker.
-3. **Crunchbase — MANUAL checkpoint.**
-   STOP and present to the human: "Crunchbase is a manual step. Please paste the
-   profile facts (founded, funding rounds, headcount, recent news) or drop a
-   Crunchbase export file into `applications/<folder>/inputs/`, then I will synthesize
-   them into research.md." Do not proceed to write the Crunchbase portions of
-   research.md until the human supplies the facts or file. Never attempt to
-   scrape or automate Crunchbase.
+   date. A private company has no ticker — note "private / no ticker".
 
 ### 4. Write research.md from the fixed template
 Write `applications/<folder>/inputs/research.md` with exactly these sections, each
-citing its sources (web_search result URLs, the yfinance data date, the
-Crunchbase export filename):
+citing its sources (web_search result URLs, the yfinance data date):
 
 - **Business** — what the company does, products/market, business model, why it
   exists; note where the role sits in the org (if known).
 - **Size/Stage** — headcount, revenue scale, public/private, stage (startup /
-  scale-up / corporate); from web search and Crunchbase facts.
-- **Funding/Financials** — funding rounds and totals (Crunchbase facts), stock
-  trend and market cap for public companies (yfinance output with data date),
-  or "not disclosed" when unknown.
+  scale-up / corporate); from web search.
+- **Funding/Financials** — funding rounds and totals (from web search — public
+  announcements, press, company site), stock trend and market cap for public
+  companies (yfinance output with data date), or "not disclosed" when unknown.
 - **Reputation** — public perception, employee sentiment, press, awards;
   anything that signals how the company treats employees.
 - **Red flags** — e.g. declining stock, layoffs in the news, vague JD, long
@@ -249,17 +240,14 @@ job-search-toolkit application record --folder 'applications/YYYY-MM-DD_company-
 ## Failure handling
 
 If any step fails — record not found in the warehouse, web_search returns
-nothing usable, yfinance raises repeatedly, the human is unreachable for the
-Crunchbase checkpoint — STOP and report exactly what failed and what was tried.
-Do not improvise infrastructure: no live scraping of job boards, no Crunchbase
-automation, no alternative research APIs, no pipeline runs.
+nothing usable, yfinance raises repeatedly — STOP and report exactly what
+failed and what was tried. Do not improvise infrastructure: no live scraping of
+job boards, no alternative research APIs, no pipeline runs.
 
 ## Do not
 
 - Never fabricate research findings: no invented funding rounds, headcounts,
   stock figures, or press claims; mark unknowns as unknown.
-- Never automate Crunchbase (API, scraper, or browser automation) — it is a
-  human-paste/export checkpoint by design.
 - Never write personal data outside the gitignored paths: `resume/`,
   `applications/`. This repo is PUBLIC.
 - Never auto-apply, auto-tailor, or auto-render: the go/no-go gate (step 5) and

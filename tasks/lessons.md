@@ -772,6 +772,35 @@ four real defects in the landed edits, all caught by behavioral tests against in
 **Also:** merge-time alias repointing must be an explicit `UPDATE company_alias SET company_id=keep
 WHERE company_id=drop` — `register_alias` is append-only/no-op-on-existing and cannot repoint.
 
-**Rule:** landed-but-unverified edits are NOT done — verify by import + behavioral test, never by
-reading. And in-memory-fixture tests pay for themselves immediately: 4 of 6 defects were invisible
-to import checks.
+## 2026-08-31 — Company sentiment dropped from job shortlists
+
+**Observed:** during an application shortlisting session, job tables repeatedly omitted the
+company `news_sentiment`/`news_notes` columns even though the human asked for "freshest best jobs"
+and the warehouse (`dim_company` / Quack `main.dim_company`) holds them. The human had to ask for
+sentiment explicitly, then again, then codified the fix.
+
+**Learned:** sentiment is a primary decision input for shortlisting, not optional decoration — it's
+one of the few signals (with pay/freshness) that distinguishes a positive-momentum company from a
+neutral one. Dropping it hides exactly the go/no-go signal. The omission recurred because nothing
+in the playbooks/AGENTS made it a hard requirement of the presentation contract.
+
+**Rule:** any job list/pick presented to a human MUST include company sentiment + a compact notes
+draw, with `inconclusive` (valid researched state) and NULL (not yet enriched) treated as distinct.
+Codified in AGENTS.md § "Shortlisting: sentiment is mandatory, never optional".
+
+## 2026-08-31 — Salary omitted from job shortlists
+
+**Observed:** during the same shortlisting session, job tables omitted the pay
+range column even though the warehouse `salary` JSON (min/max annual EUR,
+disclosed flag) holds it. The human asked "always include salary when we are
+looking at jobs."
+
+**Learned:** salary is a first-order decision input for shortlisting alongside
+sentiment — a job's pay band often determines whether it's worth tailoring for
+at all. Omitting it hides a primary filter. Same root cause as the sentiment
+gap: the presentation contract didn't require it.
+
+**Rule:** any job list/pick presented to a human MUST include the salary column
+(extract min/max annual EUR from the `salary` JSON; "not listed" when
+undisclosed), never a raw JSON blob. Merged into AGENTS.md § "Shortlisting:
+salary + sentiment are mandatory, never optional".
