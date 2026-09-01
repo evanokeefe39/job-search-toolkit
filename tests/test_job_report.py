@@ -34,7 +34,7 @@ FULL_JOB: dict = {
                "tech_match": 0.9, "freshness": 0.95},
     "overall_score": 0.812,
     "recommendation_tier": "top",
-    "company_info": {"org_type": "product", "industry": "Software"},
+    "company_info": {"company_type": "product", "industry": "Software"},
 }
 
 
@@ -54,7 +54,7 @@ def _make_db(tmp_path: Path, jobs: list[dict]) -> Path:
     columns = ensure_jobs_table(con, schema_jobs)
     con.execute(
         "CREATE TABLE silver.dim_company "
-        "(company_id VARCHAR, org_type VARCHAR, industry VARCHAR)"
+        "(company_id VARCHAR, company_type VARCHAR, industry VARCHAR)"
     )
     for job in rows:
         # A dim_company row exists only when the job carries company_info —
@@ -63,7 +63,7 @@ def _make_db(tmp_path: Path, jobs: list[dict]) -> Path:
         if ci:
             con.execute(
                 "INSERT INTO silver.dim_company VALUES (?, ?, ?)",
-                [job["company_id"], ci.get("org_type"),
+                [job["company_id"], ci.get("company_type"),
                  json.dumps(ci.get("industry")) if ci.get("industry") else None],
             )
         vals = []
@@ -118,7 +118,7 @@ def test_full_featured_job_renders_deterministic_features() -> None:
     assert "0.812" in report
     assert "top" in report
     # company quality
-    assert "product" in report  # org_type
+    assert "product" in report  # company_type
     assert "Software" in report
 
 
@@ -139,7 +139,7 @@ def test_fetch_job_roundtrip(tmp_path: Path) -> None:
     assert isinstance(job["technologies"], list)
     assert job["technologies"] == ["Python", "DuckDB", "dbt"]
     assert job["scores"]["tech_match"] == 0.9
-    assert job["company_info"]["org_type"] == "product"
+    assert job["company_info"]["company_type"] == "product"
     assert job["company_info"]["industry"] == "Software"
 
 
@@ -159,4 +159,4 @@ def test_fetch_job_missing_company_dim_is_unknown(tmp_path: Path) -> None:
     assert fetched.get("company_info") == {}
     report = render_job_report(fetched)
     assert "unknown" in report
-    assert "org_type: unknown" in report
+    assert "company_type: unknown" in report
