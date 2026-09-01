@@ -8,6 +8,7 @@ from __future__ import annotations
 import pytest
 
 from job_search_toolkit.pipelines.jd import silver as S
+from job_search_toolkit.pipelines.jd import config
 from job_search_toolkit.pipelines.jd.gold import build_gold
 
 
@@ -79,7 +80,7 @@ def make_job(
 def wh(tmp_path, monkeypatch):
     """A warehouse on a throwaway DB file, with WAREHOUSE_DB pointed at it."""
     db = tmp_path / "jobs.db"
-    monkeypatch.setattr(S, "WAREHOUSE_DB", db)
+    monkeypatch.setattr(config, "WAREHOUSE_DB", db)
     con = S.connect()
     yield con, db
     con.close()
@@ -169,13 +170,19 @@ def test_tech_gate_selects_null_only(wh):
 
 
 def test_dim_company_gate_freework_only(wh):
-    """Golden grain: the gate selects any company whose org_type is NULL
-    (hiringcafe ships org_type from the source, so it never qualifies)."""
+    """Golden grain: the gate is purely the missing-company_type condition —
+    no per-board filter (research eligibility is board-independent since the
+    golden-record dedup; #44 made it company_type-based, not org_type-based).
+    A row whose company_type is already derived is excluded."""
     con, _ = wh
     _upsert(con, "run1", [
         make_job("fw", board="freework", org_type=None),
         make_job("hc", board="hiringcafe", org_type="unknown"),
     ])
+    con.execute(
+        "UPDATE silver.dim_company SET company_type = 'product-led' "
+        "WHERE source_board = 'hiringcafe'"
+    )
     rows = con.execute(
         f"SELECT source_board FROM silver.dim_company WHERE {S.GOLDEN_DIM_COMPANY_GATE}"
     ).fetchall()
@@ -221,7 +228,7 @@ def test_gates_skip_inactive_rows(wh):
 def test_gold_views_delta(tmp_path, monkeypatch):
     """new_this_run / disappeared_this_run / ranked_jobs reflect staleness."""
     db = tmp_path / "jobs.db"
-    monkeypatch.setattr(S, "WAREHOUSE_DB", db)
+    monkeypatch.setattr(config, "WAREHOUSE_DB", db)
     con = S.connect()
     # Run 1: j1 + j2. Run 2: only j2 (j1 stops being seen). j3 new in run 2.
     _upsert(con, "run1", [make_job("j1"), make_job("j2")])

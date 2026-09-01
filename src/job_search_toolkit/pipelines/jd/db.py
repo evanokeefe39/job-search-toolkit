@@ -16,7 +16,7 @@ from pathlib import Path
 
 import duckdb
 
-from .config import WAREHOUSE_DB
+from . import config
 
 
 def connect(
@@ -27,6 +27,6 @@ def connect(
 
     Opens ``db_path`` (defaults to the warehouse) directly as a local file.
     """
-    path = Path(db_path) if db_path else WAREHOUSE_DB
+    path = Path(db_path) if db_path else config.WAREHOUSE_DB
     path.parent.mkdir(parents=True, exist_ok=True)
     return duckdb.connect(str(path), read_only=read_only)

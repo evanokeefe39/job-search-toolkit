@@ -30,7 +30,7 @@ from job_search_toolkit.pipelines.jd.assets.enrich import company_type_derived
 def wh(tmp_path, monkeypatch):
     """Hermetic warehouse: tmp duckdb file, silver dims, minimal fact table."""
     db = tmp_path / "wh.duckdb"
-    monkeypatch.setattr(jd_db, "WAREHOUSE_DB", db)
+    monkeypatch.setattr(jd_db.config, "WAREHOUSE_DB", db)
     con = duckdb.connect(str(db))
     try:
         S.ensure_dims(con)

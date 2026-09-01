@@ -274,7 +274,8 @@ def bronze_wh(tmp_path, monkeypatch):
     db = tmp_path / "jobs.db"
     monkeypatch.setattr(M, "BRONZE_DIR", bronze)
     monkeypatch.setattr(M, "BRONZE_RUNS", bronze / "runs.json")
-    monkeypatch.setattr(S, "WAREHOUSE_DB", db)
+    from job_search_toolkit.pipelines.jd import config
+    monkeypatch.setattr(config, "WAREHOUSE_DB", db)
     yield bronze, db
 
 
