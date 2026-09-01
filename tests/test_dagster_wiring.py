@@ -135,6 +135,7 @@ def test_ingest_assets_are_offline_recovery_path():
         "silver_ingest", "scored_jobs", "warehouse_outcomes",
         "ranked_csv", "gold_views",
         "merged_jobs_export", "freework_enriched_export",
+        "serve_refresh",
     }
 
 
@@ -230,8 +231,8 @@ def test_gate_classify_selects_new_boards_excludes_hiringcafe(wh):
 
 
 def test_dim_company_gate_selects_unenriched_golden_rows(wh):
-    """Golden grain: the gate is simply the missing-enrichment condition —
-    no per-board filter (hiringcafe ships org_type from the source)."""
+    """Golden grain: the gate is purely the missing-company_type condition —
+    no per-board filter; a row with company_type already derived is excluded."""
     con, _ = wh
     _upsert(con, "run1", [
         {
@@ -247,6 +248,10 @@ def test_dim_company_gate_selects_unenriched_golden_rows(wh):
             "company_info": {"name": "Hc", "org_type": "private"},
         },
     ])
+    con.execute(
+        "UPDATE silver.dim_company SET company_type = 'product-led' "
+        "WHERE source_board = 'hiringcafe'"
+    )
     rows = con.execute(
         f"SELECT source_board FROM silver.dim_company WHERE {S.GOLDEN_DIM_COMPANY_GATE}"
     ).fetchall()
@@ -268,7 +273,8 @@ def _upsert(con, run_id: str, jobs: list[dict]):
 def wh(tmp_path, monkeypatch):
     """A warehouse on a throwaway DB file, with WAREHOUSE_DB pointed at it."""
     db = tmp_path / "jobs.db"
-    monkeypatch.setattr(S, "WAREHOUSE_DB", db)
+    from job_search_toolkit.pipelines.jd import config
+    monkeypatch.setattr(config, "WAREHOUSE_DB", db)
     con = S.connect()
     yield con, db
     con.close()

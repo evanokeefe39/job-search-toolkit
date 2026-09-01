@@ -56,15 +56,15 @@ def _sjob(jid: str, board: str) -> dict:
 @pytest.fixture
 def bronze_wh(tmp_path, monkeypatch):
     """A throwaway bronze manifest + DuckDB warehouse for the ingest tests."""
-    from job_search_toolkit.pipelines.jd import silver as S
     from job_search_toolkit.pipelines.jd.assets import merge as M
+    from job_search_toolkit.pipelines.jd import config as cfg
 
     bronze = tmp_path / "bronze"
     bronze.mkdir()
     db = tmp_path / "jobs.db"
     monkeypatch.setattr(M, "BRONZE_DIR", bronze)
     monkeypatch.setattr(M, "BRONZE_RUNS", bronze / "runs.json")
-    monkeypatch.setattr(S, "WAREHOUSE_DB", db)
+    monkeypatch.setattr(cfg, "WAREHOUSE_DB", db)
     yield bronze, db
 
 
@@ -320,15 +320,14 @@ def test_silver_ingest_asset_ingests_one_board(bronze_wh):
 def _run_cli(args, bronze_wh, monkeypatch):
     """Run the CLI pipeline subcommand against the fixture's bronze/warehouse."""
     from job_search_toolkit.pipelines.jd.assets import merge as M
-    from job_search_toolkit.pipelines.jd import silver as S
+    from job_search_toolkit.pipelines.jd import config as cfg
     from typer.testing import CliRunner
-
     from job_search_toolkit.cli import app
 
     _, db = bronze_wh
     monkeypatch.setattr(M, "BRONZE_DIR", bronze_wh[0])
     monkeypatch.setattr(M, "BRONZE_RUNS", bronze_wh[0] / "runs.json")
-    monkeypatch.setattr(S, "WAREHOUSE_DB", db)
+    monkeypatch.setattr(cfg, "WAREHOUSE_DB", db)
     return CliRunner().invoke(app, ["pipeline", *args])
 
 

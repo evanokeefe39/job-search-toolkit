@@ -33,7 +33,7 @@ from typing import Any
 import duckdb
 
 from . import db
-from .config import WAREHOUSE_DB, get_enrichment_version
+from .config import get_enrichment_version
 
 def connect() -> duckdb.DuckDBPyConnection:
     """Open the warehouse database (creating the file if missing)."""
