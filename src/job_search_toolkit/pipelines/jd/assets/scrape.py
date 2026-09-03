@@ -5,6 +5,7 @@ import json
 import os
 
 import dagster as dg
+import httpx
 from dagster import AssetExecutionContext
 
 from .common import (
@@ -19,6 +20,7 @@ from .common import (
     WWR_RAW,
     WTTJ_RAW,
     append_bronze_run,
+    append_bronze_trip,
     bronze_timestamped_path,
     iso_timestamp,
 )
@@ -53,12 +55,67 @@ def _write_bronze_snapshot(board: str, run_id: str, jobs: list[dict]) -> None:
         json.dumps(jobs, indent=2, ensure_ascii=False), encoding="utf-8"
     )
     append_bronze_run(run_id, board, ts, f"{board}/{ts_path.name}", len(jobs))
+def trip_guard(board: str):
+    """Per-run source circuit breaker for a board scrape asset.
+
+    Wraps the asset's compute so a SOURCE-level failure trips THIS board for
+    THIS run instead of aborting the whole Dagster run: the exception is
+    logged, recorded in the per-run trip manifest (``data/bronze/trips.json``),
+    and the asset returns a normal ``MaterializeResult`` with a ``tripped``
+    marker rather than raising. The per-board silver reader then sees no bronze
+    for the tripped board and no-ops, so ``scored_jobs``/gold still run on every
+    other board's fresh data. A board that scrapes 0 jobs legitimately is NOT
+    tripped (only a source failure trips). No persistent cross-run state — every
+    run re-attempts every board.
+
+    Trip boundary — only these are treated as a source failure (caught):
+      * ``httpx.HTTPError``: transport/HTTP failures (403/5xx via
+        ``raise_for_status``, timeouts, connect errors, redirect loops) that
+        escape the scrapers uncaught.
+      * ``RuntimeError``: the deliberate signal scrapers raise for bot-block /
+        site-structure changes (``No buildId``, ``Non-JSON response``,
+        ``No pageProps``, geocoding failure).
+
+    Any other exception (``TypeError``/``KeyError``/``AttributeError``/
+    ``IndexError``/``ValueError``/``JSONDecodeError`` from scraper or
+    normalization logic) is a genuine code defect and is re-raised to fail the
+    run loudly — the same property that surfaces scraper/code regressions (see
+    the ranked_csv + config-constant bugs, both caught because they failed).
+    A defect must never be silently masked as a "tripped" no-op.
+    """
+
+    def deco(fn):
+        import functools
+
+        @functools.wraps(fn)
+        def wrapper(context: AssetExecutionContext) -> dg.MaterializeResult:
+            try:
+                return fn(context)
+            except (httpx.HTTPError, RuntimeError) as exc:
+                msg = f"{type(exc).__name__}: {exc}"
+                context.log.error(
+                    f"CIRCUIT TRIP [{board}]: {msg} — skipping {board} this run; "
+                    "other sources continue."
+                )
+                append_bronze_trip(context.run_id, board, msg)
+                return dg.MaterializeResult(
+                    metadata={
+                        "tripped": True,
+                        "board": board,
+                        "error": str(exc)[:300],
+                    }
+                )
+
+        return wrapper
+
+    return deco
 
 
 @dg.asset(
     group_name="sources",
     description="Raw job listings scraped from free-work.com (Paris tech/IT)",
 )
+@trip_guard("freework")
 def freework_jobs(context: AssetExecutionContext) -> dg.MaterializeResult:
     """Scrape free-work.com and normalize to canonical format."""
     from job_search_toolkit.scrapers.freework import (
@@ -88,6 +145,7 @@ def freework_jobs(context: AssetExecutionContext) -> dg.MaterializeResult:
     group_name="sources",
     description="Raw job listings scraped from hiringcafe.com (Next.js SSR data route)",
 )
+@trip_guard("hiringcafe")
 def hiringcafe_jobs(context: AssetExecutionContext) -> dg.MaterializeResult:
     """Scrape hiringcafe.com and normalize to canonical format."""
     from job_search_toolkit.scrapers.hiringcafe import scrape
@@ -109,6 +167,7 @@ def hiringcafe_jobs(context: AssetExecutionContext) -> dg.MaterializeResult:
     group_name="sources",
     description="Raw job listings scraped from hellowork.com (French general board)",
 )
+@trip_guard("hellowork")
 def hellowork_jobs(context: AssetExecutionContext) -> dg.MaterializeResult:
     """Scrape hellowork.com and normalize to canonical format."""
     from job_search_toolkit.scrapers.hellowork import (
@@ -128,6 +187,7 @@ def hellowork_jobs(context: AssetExecutionContext) -> dg.MaterializeResult:
     group_name="sources",
     description="Raw job listings scraped from englishjobs.fr (English jobs in France)",
 )
+@trip_guard("englishjobs")
 def englishjobs_jobs(context: AssetExecutionContext) -> dg.MaterializeResult:
     """Scrape englishjobs.fr and normalize to canonical format."""
     from job_search_toolkit.scrapers.englishjobs import (
@@ -147,6 +207,7 @@ def englishjobs_jobs(context: AssetExecutionContext) -> dg.MaterializeResult:
     group_name="sources",
     description="Raw job listings scraped from faruse.com (English jobs in Europe)",
 )
+@trip_guard("faruse")
 def faruse_jobs(context: AssetExecutionContext) -> dg.MaterializeResult:
     """Scrape faruse.com and normalize to canonical format."""
     from job_search_toolkit.scrapers.faruse import (
@@ -166,6 +227,7 @@ def faruse_jobs(context: AssetExecutionContext) -> dg.MaterializeResult:
     group_name="sources",
     description="Raw job listings scraped from weworkremotely.com (remote-only RSS feeds)",
 )
+@trip_guard("wwr")
 def wwr_jobs(context: AssetExecutionContext) -> dg.MaterializeResult:
     """Scrape weworkremotely.com RSS feeds and normalize to canonical format."""
     from job_search_toolkit.scrapers.weworkremotely import (
@@ -184,6 +246,7 @@ def wwr_jobs(context: AssetExecutionContext) -> dg.MaterializeResult:
     group_name="sources",
     description="Raw job listings scraped from remoteok.com (public JSON API)",
 )
+@trip_guard("remoteok")
 def remoteok_jobs(context: AssetExecutionContext) -> dg.MaterializeResult:
     """Scrape remoteok.com and normalize to canonical format."""
     from job_search_toolkit.scrapers.remoteok import (
@@ -202,6 +265,7 @@ def remoteok_jobs(context: AssetExecutionContext) -> dg.MaterializeResult:
     group_name="sources",
     description="Raw job listings scraped from datasciencejobs.com (data-only board)",
 )
+@trip_guard("datasciencejobs")
 def datasciencejobs_jobs(context: AssetExecutionContext) -> dg.MaterializeResult:
     """Scrape datasciencejobs.com and normalize to canonical format."""
     from job_search_toolkit.scrapers.datasciencejobs import (
@@ -230,6 +294,7 @@ def _has_discovery_key() -> bool:
     group_name="sources",
     description="LinkedIn job listings (/jobs/view/) discovered via the LinkedIn source adapter",
 )
+@trip_guard("linkedin_jobs")
 def linkedin_jobs(context: AssetExecutionContext) -> dg.MaterializeResult:
     """Discover + normalize LinkedIn job listings into canonical format."""
     from job_search_toolkit.scrapers.linkedin.adapter import run_discovery
@@ -256,6 +321,7 @@ def linkedin_jobs(context: AssetExecutionContext) -> dg.MaterializeResult:
     group_name="sources",
     description="LinkedIn recruiter posts (/posts/) discovered via the LinkedIn source adapter",
 )
+@trip_guard("linkedin_posts")
 def linkedin_posts(context: AssetExecutionContext) -> dg.MaterializeResult:
     """Discover + normalize LinkedIn recruiter posts into canonical format."""
     from job_search_toolkit.scrapers.linkedin.adapter import run_discovery
@@ -286,6 +352,7 @@ def linkedin_posts(context: AssetExecutionContext) -> dg.MaterializeResult:
     group_name="sources",
     description="Welcome to the Jungle France job offers via the deployed Apify actor (opt-in)",
 )
+@trip_guard("wttj")
 def wttj_jobs(context: AssetExecutionContext) -> dg.MaterializeResult:
     """Scrape WTTJ France offers via Apify and normalize to canonical format."""
     from ..adapt_wttj import normalize_wttj_job
@@ -321,6 +388,7 @@ def wttj_jobs(context: AssetExecutionContext) -> dg.MaterializeResult:
     group_name="sources",
     description="Built In France tech job listings (opt-in)",
 )
+@trip_guard("builtin")
 def builtin_jobs(context: AssetExecutionContext) -> dg.MaterializeResult:
     """Scrape builtin.com/jobs/eu/france and normalize to canonical format."""
     from job_search_toolkit.scrapers.builtin import scrape

@@ -44,6 +44,28 @@ DOWNSTREAM_ASSETS = [
 ]
 
 
+def _report_trips(run_id: str | None) -> None:
+    """Print which sources tripped (per-run circuit breaker) at end of a run.
+
+    Reads the per-run trip manifest for ``run_id``. A tripped source is one
+    whose scrape raised this run but did not abort the run (the other sources
+    completed). Prints a summary line per tripped source; no-op when none.
+    """
+    if run_id is None:
+        return  # result lacked a run id (e.g. a mock in unit tests)
+    from .assets.common import read_run_trips
+
+    trips = read_run_trips(run_id)
+    if not trips:
+        return
+    print(
+        f"WARNING: {len(trips)} source(s) tripped this run "
+        "(skipped; all other sources completed):"
+    )
+    for t in trips:
+        print(f"  - {t['board']}: {t['error']}")
+
+
 def _boards_selection(boards: list[str], enrich: bool = False) -> dg.AssetSelection:
     """Asset selection for a ``--boards`` subset run.
 
@@ -97,6 +119,7 @@ def run_ingest(run_id: str, board: str | None = None) -> bool:
     }
     result = dg.materialize(ALL_ASSETS, selection=selection, run_config=run_config)
     print(f"SUCCESS: {result.success}")
+    _report_trips(getattr(result, "run_id", None))
     return result.success
 
 
@@ -169,6 +192,7 @@ def _materialize(enrich: bool, boards: list[str] | None) -> bool:
         result = dg.materialize(assets)
 
     print(f"SUCCESS: {result.success}")
+    _report_trips(getattr(result, "run_id", None))
     return result.success
 
 
