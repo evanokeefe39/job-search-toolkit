@@ -1,0 +1,167 @@
+# Source health spike — hiringcafe.com & hellowork.com 403s (2026-09-03)
+
+Investigation into the two sources that trip the pipeline's per-source circuit
+breaker (added in #50). Both returned `403 Forbidden` during live `pipeline run`
+runs. This doc records the diagnosis, the live evidence behind it, and the
+recommended fix per source.
+
+Status: **diagnosis complete for both; fix validated for hiringcafe, not yet
+implemented.**
+
+## TL;DR
+
+| Source | Block type | Root cause | Verdict |
+|---|---|---|---|
+| hiringcafe.com | **Persistent / deterministic** | Plain `httpx` TLS fingerprint is caught by a Cloudflare managed JS challenge on the HTML homepage | **Fixable** — `curl_cffi` Chrome TLS impersonation returns 200 + real job data (validated live) |
+| hellowork.com | **Transient / intermittent** | No static block; rate/anti-bot blip under the high concurrency of a full pipeline run | **Healthy now** — returns 200 under normal + sustained load; likely a per-IP request-rate guard triggered by concurrent boards |
+
+The circuit breaker (PR #50) correctly isolates both — the difference is that
+hiringcafe will trip *every* run until fixed, while hellowork trips rarely and
+is already back to healthy.
+
+---
+
+## Method
+
+Read each scraper's HTTP layer, then reproduced each live failure with raw HTTP
+probes from this machine (the pipeline runs on this same host/IP), controlling
+for: exact scraper headers, pagination depth, sustained request rate, and TLS
+impersonation. All probes are single-client from this laptop — the same egress
+the real `pipeline run` uses.
+
+---
+
+## HiringCafe (persistent 403 — deterministic)
+
+### What the scraper does
+
+`src/job_search_toolkit/scrapers/hiringcafe.py` uses a plain `httpx.Client`
+with a desktop-Chrome `User-Agent` (line ~179). The first request is a GET of
+`https://hiringcafe.com/` (the HTML homepage) in `_fetch_build_id()` to pull the
+`__NEXT_DATA__` `buildId`, then it queries the Next.js data route
+`/_next/data/<buildId>/index.json?searchState=…`.
+
+### Live reproduction
+
+```
+GET https://hiringcafe.com/   (exact scraper headers, plain httpx)
+→ 403  Cloudflare  body: "<title>Just a moment...</title>" (5661 bytes)
+   server: cloudflare   cf-ray: <present>
+```
+
+The 403 body is a Cloudflare **managed JS challenge** interstitial — not a
+blocklist/UA block. Markers observed: `challenge-platform`, repeated
+`challenge`, "Just a moment...". No Turnstile; classic `__cf` challenge.
+
+### Root cause
+
+Cloudflare grades a client by its **TLS/HTTP2 fingerprint**, not just the
+`User-Agent` header. `httpx` (Python `httpcore`/`h11`) presents a TLS ClientHello
+that does not match any real browser build, so Cloudflare serves the JS
+challenge to confirm a real browser. It is **deterministic**: every plain-httpx
+request to the homepage gets 403, which is why hiringcafe tripped on every run
+the circuit breaker ran.
+
+The homepage challenge also gates the data route (the search JSON): the data
+route requires a valid `buildId` that only comes from the challenged homepage,
+and the route itself is behind the same edge.
+
+### Validated fix
+
+`curl_cffi` with Chrome impersonation is already a working dependency in this
+repo (wttj uses it). Swapping the HTTP layer passes the challenge:
+
+```
+curl_cffi.requests.get("https://hiringcafe.com/", impersonate="chrome")
+→ 200  len=1,409,408  __NEXT_DATA__ present  buildId=oCYdM1uLz4opwokmKe2ve
+
+GET /_next/data/<buildId>/index.json?searchState={"searchQuery":"data engineer","sortBy":"date"}&page=0
+  (curl_cffi chrome)
+→ 200  application/json   ssrHits=98  ssrTotalCount=2314
+   sample: company=Coca-Cola Europacific Partners, real apply_url
+```
+
+So the full hiringcafe flow (homepage → buildId → data route → job hits) works
+end-to-end through `curl_cffi`'s Chrome impersonation with the same headers the
+scraper already sends.
+
+### Recommended change (not yet implemented — a follow-up)
+
+In `HiringCafeClient`, replace the `httpx.Client` with a `curl_cffi` session
+that impersonates Chrome, OR use `curl_cffi.requests` for each request the way
+wttj does. Keep the existing headers + `x-nextjs-data` extra header on the data
+route. `curl_cffi` is a first-class declared dependency (`curl_cffi>=0.16.0`
+in `pyproject.toml`, present in `uv.lock`) and already used by wttj — so the fix
+adds no new dependency.
+
+---
+
+## HelloWork (transient 403 — healthy now)
+
+### What the scraper does
+
+`src/job_search_toolkit/scrapers/hellowork.py` uses a plain `httpx.Client`
+(headers + `follow_redirects=True`), GETs the search page
+`https://www.hellowork.com/fr-fr/emploi/recherche.html?k=…&l=…&c=…&p=N`, parses
+cards, then fetches **each job's detail page** (`/fr-fr/emplois/<id>.html`) for
+the description — so a full scrape is one request per page PLUS ~1 request per
+job.
+
+### Live reproduction — currently healthy
+
+The exact pipeline failure was a 403 on page 23 (`…&p=23`) mid-scrape. Live
+probes **today** all return 200:
+
+```
+hellowork search page  (exact scraper headers)
+  p=1,2,5,10,20,23,25  → 200, cards present (real results)
+  p=30                 → 200 (last page, 0 cards — correct end)
+
+Sustained simulation of the real scrape pattern:
+  6 search pages + 150 detail-page requests, rapid → ALL 200
+
+Burst: 30 detail requests in 1.2s → ALL 200
+```
+
+The response has `server: None`, no Cloudflare headers, and an `x-cache`
+header — HelloWork sits behind its own cache/CDN tier, not Cloudflare.
+
+### Root cause hypothesis
+
+Not a static bot-block (it returns 200 from the same IP/machine that the
+pipeline uses). The 403 on `p=23` in the full run is best explained as a
+**transient per-IP request-rate / anti-bot guard** that tripped under the
+full-run concurrency: that same `pipeline run` was also retrying hiringcafe and
+firing 10 other boards from one IP in a short window, and hellowork itself makes
+hundreds of sequential requests (detail pages) per scrape. A lighter request
+footprint now (no concurrent boards, moderate rate) is not flagged.
+
+This was not verified by re-triggering a block (deliberately not hammering a
+production source to force one), so it is a **hypothesis**, not a confirmed
+mechanism.
+
+### Recommended actions
+
+- **No scraper change needed for correctness** — hellowork is healthy on its
+  own. The circuit breaker already absorbs the rare transient trip.
+- **Optional hardening** (only if hellowork trips recur across runs):
+  add mild pacing between detail fetches and/or a bounded retry-with-backoff on
+  403, matching the rate-limit etiquette. Do not impersonate/push past it — the
+  403 is HelloWork enforcing its own rate limits, which should be respected.
+- Consider scoping the number of detail fetches (the scrape is slow: 28 pages ×
+  ~30 detail fetches serial ≈ hundreds of requests, and the isolated run
+  exceeded 240 s). A `--max-pages` cap or an "index-only, fetch details lazily"
+  mode would cut volume.
+
+---
+
+## Open questions / decisions for the human
+
+1. **Implement the hiringcafe `curl_cffi` fix?** It is validated and low-risk
+   (same lib wttj uses, same headers), and it removes the source that trips
+   every run. Recommend yes.
+2. **Declare `curl_cffi` in `pyproject.toml`?** It is currently an undeclared
+   venv dependency (only wttj pulls it in). Adding it makes hiringcafe's use
+   explicit and is the correct move if we adopt it for hiringcafe.
+3. **hellowork detail-fetch volume** — worth a `--max-pages`/detail cap so a
+   single board doesn't make hundreds of serial requests per run?
