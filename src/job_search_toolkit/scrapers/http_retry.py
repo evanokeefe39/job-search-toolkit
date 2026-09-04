@@ -29,9 +29,14 @@ import httpx
 
 from job_search_toolkit.run_config import get_run_config
 
-# Statuses that are safe to retry: rate-limited or server-side transient.
-# 429 + 5xx (mirrors builtin.py/_RETRIABLE and linkedin/fetch._RETRYABLE).
-DEFAULT_RETRIABLE = frozenset({429, 500, 502, 503, 504})
+# Statuses that are safe to retry: rate-limited, transient, or a bot-guard
+# blip. 403 is included deliberately: several boards (hellowork observed live)
+# return a *transient* 403 under concurrent-load / anti-bot rate guarding that
+# clears within a backoff window, so retrying it recovers the scrape. A 403
+# from a genuinely permanent block or auth failure is bounded by http_retries
+# (default 2) and then the caller's raise_for_status() still fails it — it is
+# not retried forever. 429 + 5xx mirror builtin/_RETRIABLE and linkedin.
+DEFAULT_RETRIABLE = frozenset({403, 429, 500, 502, 503, 504})
 
 
 def request_with_retry(

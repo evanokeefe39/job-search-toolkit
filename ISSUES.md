@@ -8,21 +8,23 @@
 ## Open
 
 
-### Source health: hellowork real 403 is not retried by shared retry helper (DECISION NEEDED 2026-09-04)
+### Source health: hellowork real 403 is not retried by shared retry helper (RESOLVED 2026-09-04)
 
 **Symptom:** the real hellowork trip during diagnosis was an HTTP 403 at page
 23 that later recovered on its own — a transient block, not a permanent one.
 The shared retry helper (`src/job_search_toolkit/scrapers/http_retry.py`)
-retries only `DEFAULT_RETRIABLE = {429, 500, 502, 503, 504}`, so 403 is never
-retried; the retry test simulated a 429, not the 403 that actually happened.
+retried only `DEFAULT_RETRIABLE = {429, 500, 502, 503, 504}`, so 403 was never
+retried; the original retry test simulated a 429, not the 403 that happened.
 
-**Judgment call:** blanket 403-retry is usually wrong (403 typically means a
-real bot-block; hammering escalates it). But hellowork's 403 was transient and
-recovered. Candidate fix: a PER-BOARD 403 retry for hellowork only (small retry
-count, e.g. 2 attempts with backoff), not a global change to `DEFAULT_RETRIABLE`.
-
-**Decision needed by human before implementing any 403 retry.** Do not implement
-without explicit approval.
+**Decision (human, 2026-09-04):** retry 403 globally — added 403 to
+`DEFAULT_RETRIABLE` in `scrapers/http_retry.py`. Rationale: a 403 from a
+transient bot-guard / anti-bot rate blip (hellowork observed) clears within a
+backoff window and recovers; a genuinely permanent 403 is still bounded by
+`http_retries` (default 2) and then fails via the caller's `raise_for_status`,
+so it is not retried indefinitely or escalated. The hellowork retry test now
+simulates the real 403 (not 429). Tests: `test_403_is_in_default_retriable_set`,
+`test_retries_403_then_succeeds`, `test_persistent_403_is_bounded_not_retried_forever`,
+`test_hellowork_fetch_page_retries_real_403`.
 
 ### Source health: curl_cffi `impersonate="chrome"` alias drift risk (OPEN 2026-09-04)
 

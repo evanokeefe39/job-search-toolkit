@@ -26,7 +26,10 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-from job_search_toolkit.scrapers.http_retry import request_with_retry  # noqa: E402
+from job_search_toolkit.scrapers.http_retry import (  # noqa: E402
+    DEFAULT_RETRIABLE,
+    request_with_retry,
+)
 
 
 class _StubResp:
@@ -78,6 +81,35 @@ def cfg(monkeypatch):
     import job_search_toolkit.scrapers.http_retry as hr
     monkeypatch.setattr(hr, "get_run_config", lambda: FakeRC())
     return FakeRC
+
+
+def test_403_is_in_default_retriable_set():
+    """403 is deliberately retriable (transient bot-guard blips on hellowork and
+    peers); guard against a future removal that would reintroduce the bug."""
+    assert 403 in DEFAULT_RETRIABLE
+
+
+def test_retries_403_then_succeeds(cfg, monkeypatch):
+    """403 then 200 -> retried with one backoff sleep, then returns the 200."""
+    import job_search_toolkit.scrapers.http_retry as hr
+    sleeps = []
+    monkeypatch.setattr(hr.time, "sleep", lambda s: sleeps.append(s))
+    client = _StubClient([_StubResp(403), _StubResp(200)])
+    resp = request_with_retry(client, "GET", "https://x/")
+    assert resp.status_code == 200
+    assert len(client.calls) == 2
+    assert len(sleeps) == 1
+
+
+def test_persistent_403_is_bounded_not_retried_forever(cfg, monkeypatch):
+    """A genuinely permanent 403 is bounded by http_retries (not infinite),
+    and the final 403 is returned so the caller's raise_for_status still fails."""
+    import job_search_toolkit.scrapers.http_retry as hr
+    monkeypatch.setattr(hr.time, "sleep", lambda s: None)
+    client = _StubClient([_StubResp(403), _StubResp(403), _StubResp(403)])
+    resp = request_with_retry(client, "GET", "https://x/")
+    assert resp.status_code == 403
+    assert len(client.calls) == 3  # retries(2) + initial(1)
 
 
 def test_retries_retriable_status_then_succeeds(cfg, monkeypatch):
@@ -161,9 +193,10 @@ def test_all_retry_less_boards_now_use_helper():
             "datasciencejobs", "weworkremotely", "faruse"} <= wired
 
 
-def test_hellowork_fetch_page_retries_transient(monkeypatch):
-    """The source that actually tripped: hellowork's listing fetch must recover
-    a transient 429/403 via the retry helper (not fail the scrape)."""
+def test_hellowork_fetch_page_retries_real_403(monkeypatch):
+    """The source that actually tripped: hellowork's listing fetch hit a real
+    transient HTTP 403 (observed at p=23 under full-run load). With 403 now in
+    DEFAULT_RETRIABLE, the retry must recover it (not fail the scrape)."""
     from job_search_toolkit.scrapers import hellowork as hw
 
     class FakeCfg:
@@ -194,10 +227,10 @@ def test_hellowork_fetch_page_retries_transient(monkeypatch):
 
         def get(self, url, **kwargs):
             self.n += 1
-            # first call is a transient 429 (like the pipeline trip), then 200
-            return Resp(429) if self.n == 1 else Resp(200, text="<html>jobs</html>")
+            # first call is the real transient 403 (the observed trip), then 200
+            return Resp(403) if self.n == 1 else Resp(200, text="<html>jobs</html>")
 
     c = Client()
     text = hw.fetch_page(c, "https://www.hellowork.com/...", 23)
-    assert c.n == 2  # retried once after the transient 429
+    assert c.n == 2  # retried once after the transient 403
     assert "<html>jobs</html>" in text
