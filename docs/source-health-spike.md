@@ -5,19 +5,21 @@ breaker (added in #50). Both returned `403 Forbidden` during live `pipeline run`
 runs. This doc records the diagnosis, the live evidence behind it, and the
 recommended fix per source.
 
-Status: **diagnosis complete for both; fix validated for hiringcafe, not yet
-implemented.**
+Status: **diagnosis complete; fixes implemented and verified end-to-end.** A
+full `pipeline run` now completes RUN_SUCCESS with zero trips (hiringcafe's 403
+resolved via curl_cffi Chrome impersonation; hellowork's transient blip absorbed
+by shared retry-with-backoff).
 
 ## TL;DR
 
 | Source | Block type | Root cause | Verdict |
 |---|---|---|---|
-| hiringcafe.com | **Persistent / deterministic** | Plain `httpx` TLS fingerprint is caught by a Cloudflare managed JS challenge on the HTML homepage | **Fixable** — `curl_cffi` Chrome TLS impersonation returns 200 + real job data (validated live) |
-| hellowork.com | **Transient / intermittent** | No static block; rate/anti-bot blip under the high concurrency of a full pipeline run | **Healthy now** — returns 200 under normal + sustained load; likely a per-IP request-rate guard triggered by concurrent boards |
+| hiringcafe.com | **Persistent / deterministic** | Plain `httpx` TLS fingerprint is caught by a Cloudflare managed JS challenge on the HTML homepage | **Fixed** — `curl_cffi` Chrome TLS impersonation returns 200 + real job data (implemented, verified in a live full pipeline run) |
+| hellowork.com | **Transient / intermittent** | No static block; rate/anti-bot blip under the high concurrency of a full pipeline run | **Hardened** — shared retry-with-backoff on its listing fetch absorbs the transient blip (verified in a live full pipeline run) |
 
-The circuit breaker (PR #50) correctly isolates both — the difference is that
-hiringcafe will trip *every* run until fixed, while hellowork trips rarely and
-is already back to healthy.
+The circuit breaker (PR #50) isolates both. After these fixes a full `pipeline
+run` completes RUN_SUCCESS with **zero trips** (both sources healthy) and a
+normal delta.
 
 ---
 
@@ -85,9 +87,10 @@ So the full hiringcafe flow (homepage → buildId → data route → job hits) w
 end-to-end through `curl_cffi`'s Chrome impersonation with the same headers the
 scraper already sends.
 
-### Recommended change (not yet implemented — a follow-up)
+### Implemented fix (2026-09-03)
 
-In `HiringCafeClient`, replace the `httpx.Client` with a `curl_cffi` session
+`HiringCafeClient` now uses a `curl_cffi.requests.Session(impersonate="chrome")`
+instead of `httpx.Client` (same lib wttj uses).
 that impersonates Chrome, OR use `curl_cffi.requests` for each request the way
 wttj does. Keep the existing headers + `x-nextjs-data` extra header on the data
 route. `curl_cffi` is a first-class declared dependency (`curl_cffi>=0.16.0`
@@ -140,18 +143,15 @@ This was not verified by re-triggering a block (deliberately not hammering a
 production source to force one), so it is a **hypothesis**, not a confirmed
 mechanism.
 
-### Recommended actions
+### Actions taken (2026-09-03)
 
-- **No scraper change needed for correctness** — hellowork is healthy on its
-  own. The circuit breaker already absorbs the rare transient trip.
-- **Optional hardening** (only if hellowork trips recur across runs):
-  add mild pacing between detail fetches and/or a bounded retry-with-backoff on
-  403, matching the rate-limit etiquette. Do not impersonate/push past it — the
-  403 is HelloWork enforcing its own rate limits, which should be respected.
-- Consider scoping the number of detail fetches (the scrape is slow: 28 pages ×
-  ~30 detail fetches serial ≈ hundreds of requests, and the isolated run
-  exceeded 240 s). A `--max-pages` cap or an "index-only, fetch details lazily"
-  mode would cut volume.
+- Added a bounded retry-with-backoff on HelloWork's listing-page fetch via the
+  new shared `request_with_retry` helper (driven by RunConfig http_retries /
+  http_backoff), so a transient 403/429 mid-scrape is retried instead of
+  tripping. The 403 was HelloWork enforcing its rate limits under concurrent
+  full-run load; retrying with backoff respects that rather than pushing past it.
+- The full `pipeline run` with these changes completed RUN_SUCCESS with zero
+  trips (hellowork + hiringcafe both healthy).
 
 ---
 
@@ -251,18 +251,18 @@ actor is overkill — hellowork returns 200 from this IP today. The correct fix 
 **retry-with-backoff** on its detail fetches (respecting its rate limits), which
 the repo already has a shared pattern for in builtin/wttj/linkedin.
 
-### Recommended path (decision for the human)
+### Decision taken (2026-09-03)
 
-1. **hiringcafe**: prefer `curl_cffi` Chrome impersonation (free, no new dep,
-   validated). An Apify store actor is the fallback if we want IP rotation /
-   managed reliability, at per-run cost — but it does not solve a fingerprint
-   challenge *better* than impersonation does, and the account has no
-   residential units provisioned today.
-2. **hellowork (and the 7 other retry-less boards)**: unify on the existing
-   `RunConfig.http_retries/http_backoff` retry-with-backoff pattern (copy
-   builtin.py's `fetch_page`) so transient 429/5xx recover instead of tripping.
-   This is the substantive "are we retrying properly" answer: not yet, and it is
-   the higher-leverage fix than any proxy spend.
-3. **crawlee**: unused — either remove from pyproject or, if the intent is an
-   in-repo crawlee-based crawler for the blocked boards, that is a larger
-   project than a 403 fix and should be its own plan.
+1. **hiringcafe**: implemented `curl_cffi` Chrome impersonation (free, no new
+   dep — curl_cffi already declared + used by wttj). An Apify store actor
+   remains a fallback if we later want IP rotation / managed reliability, but it
+   does not solve a fingerprint challenge better than impersonation does, and
+   the account has no residential units provisioned today. (User chose this over
+   the Apify path after review.)
+2. **retry gap**: created `scrapers/http_retry.request_with_retry` (shared,
+   driven by RunConfig http_retries/http_backoff) and wired it into all 7
+   previously-retry-less boards (hellowork, freework, englishjobs, remoteok,
+   datasciencejobs, weworkremotely, faruse). builtin/wttj/linkedin already had
+   inline retry and were left untouched. User chose retry-on-all-boards.
+3. **crawlee**: left as a declared dependency (user decision) — noted here as
+   possibly dead; revisit if a crawlee-based crawler is ever planned.

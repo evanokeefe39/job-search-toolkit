@@ -25,6 +25,7 @@ def _cfg(**overrides) -> RunConfig:
 class _FakeResponse:
     def __init__(self, text: str) -> None:
         self.text = text
+        self.status_code = 200
 
     def raise_for_status(self) -> None:
         return None
@@ -99,6 +100,8 @@ def test_faruse_page_size_and_timeout_reach_http_call(monkeypatch, tmp_path):
     )
 
     class _Resp:
+        status_code = 200
+
         def raise_for_status(self):
             return None
 

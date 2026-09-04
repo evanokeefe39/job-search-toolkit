@@ -42,6 +42,7 @@ from job_search_toolkit.schemas import (
 )
 
 from job_search_toolkit.run_config import get_run_config
+from job_search_toolkit.scrapers.http_retry import request_with_retry
 
 app = typer.Typer(no_args_is_help=False)
 
@@ -95,7 +96,7 @@ def build_url(query: str, location: str) -> str:
 
 
 def fetch_page(client: httpx.Client, url: str) -> str:
-    resp = client.get(url, timeout=get_run_config().http_timeout)
+    resp = request_with_retry(client, "GET", url, timeout=get_run_config().http_timeout)
     resp.raise_for_status()
     return resp.text
 
