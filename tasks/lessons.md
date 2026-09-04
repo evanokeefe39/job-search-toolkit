@@ -804,3 +804,30 @@ gap: the presentation contract didn't require it.
 (extract min/max annual EUR from the `salary` JSON; "not listed" when
 undisclosed), never a raw JSON blob. Merged into AGENTS.md § "Shortlisting:
 salary + sentiment are mandatory, never optional".
+
+## 2026-09-04 — Probe before parallelizing a board scraper
+
+**Observed:** after the hellowork worker-pool fix cut the pipeline ~21min ->
+~10m49s, the same `ThreadPoolExecutor` pattern was assumed to transfer to wttj
+(92s of serial offer fetches). A live probe proved it harmful: wttj serial
+fetched 8 offer URLs in 12.3s (7/8 ok), but `ThreadPoolExecutor(max_workers=2)`
+took 25.1s and returned **0/8 ok — every request HTTP 202** (wttj's anti-bot
+throttle). The change was abandoned before any code landed.
+
+**Learned:** a concurrency win is source-specific. hellowork is **latency-bound**
+(many independent round-trips, no server throttle — the 403 was a transient
+blip). wttj is **rate-limit-bound** (the module explicitly returns HTTP 202
+under aggressive fetch and paces with `_MIN_REQUEST_INTERVAL=1.0` + curl_cffi
+impersonation). A worker pool on a rate-limit-bound source triggers the
+throttle on every request and makes it ~2x slower AND emptier. The module's
+existing serial pacing is the correct posture.
+
+**Rule:** before applying concurrency to any board scraper, probe it live first
+— fetch ~8 real URLs serial vs a 2-worker pool. If the pool triggers the
+source's throttle status (202/429/403), concurrency will hurt, not help; keep
+serial pacing. Only latency-bound sources (no server throttle) get the worker
+pool. Codified in `tasks/plans/board-parallelism-investigation.md`.
+
+**Also:** the edit-tool mangle hazard recurred (run_config.py twice,
+config.example.yaml, hellowork.py) — all reverted and redone via full-file
+writes / controlled patches. Reaffirms the 2026-08-06 "full write only" rule.
