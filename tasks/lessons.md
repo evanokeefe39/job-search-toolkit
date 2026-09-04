@@ -831,3 +831,31 @@ pool. Codified in `tasks/plans/board-parallelism-investigation.md`.
 **Also:** the edit-tool mangle hazard recurred (run_config.py twice,
 config.example.yaml, hellowork.py) — all reverted and redone via full-file
 writes / controlled patches. Reaffirms the 2026-08-06 "full write only" rule.
+
+## 2026-09-04 — Probe must be SUSTAINED, not 8 URLs (linkedin false positive)
+
+**Observed:** the board-parallelization spike probed linkedin with 8 real URLs
+and measured a clean ~4.8x concurrent win (9.1s -> 1.9s, zero 429), concluding
+linkedin was latency-bound and parallelizable. Probing the REAL `_run_pass`
+(full discovery -> ~30 URLs/run) told a different story: under sustained
+concurrency linkedin returns HTTP 429 and DROPS jobs (conc=2 lost 1 job,
+conc=5 lost most fetches — 52 x 429). The 8-URL probe was a FALSE POSITIVE,
+too small and too brief to trip the rate limiter.
+
+**Learned:** a source can tolerate a SHORT burst of concurrency (no throttle in
+the first ~10 requests) while rate-limiting under SUSTAINED load (dozens+
+requests). Small probes overstate the safe concurrency ceiling. The wttj lesson
+("probe before parallelize") was right but under-specified: the probe must run
+the REAL fetch loop at realistic volume, not a handful of hand-picked URLs.
+
+**Rule:** before adding concurrency to a board scraper, probe with the REAL
+`_run_pass`/scrape path at realistic volume (>= 20-30 fetches, matching a real
+run), capturing per-request statuses. An 8-URL probe that shows "no throttle"
+is not sufficient evidence the source tolerates sustained concurrency. If any
+throttle status (429/202/403) appears at the target concurrency, back off or
+treat the source as rate-limit-bound (see residential-proxy decision below).
+
+**Also (human directive):** for rate-limited sources, weigh Apify residential
+proxies and the cost-benefit of the speed/scalability they unlock — proxies
+decouple concurrency from IP throttling. Full trade-off framing in
+`docs/board-parallelization-spike.md`.
