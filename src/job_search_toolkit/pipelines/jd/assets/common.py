@@ -6,7 +6,7 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-from ..config import BRONZE_DIR, BRONZE_RUNS
+from ..config import BRONZE_DIR, BRONZE_RUNS, BRONZE_TRIPS
 
 # Medallion paths for the JD pipeline assets.
 FREEWORK_RAW = BRONZE_DIR / "freework_jobs.json"
@@ -72,5 +72,37 @@ def append_bronze_run(run_id: str, board: str, ts: str, file_rel: str, job_count
     BRONZE_RUNS.write_text(
         json.dumps(entries, indent=2, ensure_ascii=False), encoding="utf-8"
     )
+
+def append_bronze_trip(run_id: str, board: str, error: str) -> None:
+    """Record a per-run source trip in ``data/bronze/trips.json``.
+
+    Entry shape: ``{run_id, board, error, timestamp}``. Kept separate from
+    ``runs.json`` so a tripped board (which wrote no bronze snapshot) never
+    appears to the per-board silver reader as a run entry to ingest. Appended
+    (created if missing), same read-modify-write pattern as ``append_bronze_run``.
+    """
+    entries: list[dict] = []
+    if BRONZE_TRIPS.exists():
+        entries = json.loads(BRONZE_TRIPS.read_text(encoding="utf-8"))
+    entries.append({
+        "run_id": run_id,
+        "board": board,
+        "error": error,
+        "timestamp": iso_timestamp(),
+    })
+    BRONZE_TRIPS.parent.mkdir(parents=True, exist_ok=True)
+    BRONZE_TRIPS.write_text(
+        json.dumps(entries, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+
+
+def read_run_trips(run_id: str) -> list[dict]:
+    """Trip entries recorded for one run, or ``[]`` when none / manifest absent."""
+    if not BRONZE_TRIPS.exists():
+        return []
+    return [
+        e for e in json.loads(BRONZE_TRIPS.read_text(encoding="utf-8"))
+        if e.get("run_id") == run_id
+    ]
 
 

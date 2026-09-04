@@ -25,6 +25,9 @@ WAREHOUSE_DIR = WORK_DIR / "data" / "warehouse"
 BRONZE_RUNS = BRONZE_DIR / "runs.json"
 WAREHOUSE_DB = WAREHOUSE_DIR / "jobs.db"
 
+# Per-run source-trip manifest (circuit breaker): which sources tripped this run.
+BRONZE_TRIPS = BRONZE_DIR / "trips.json"
+
 
 def ensure_data_dirs() -> None:
     """Create the medallion directories if missing (idempotent)."""
