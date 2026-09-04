@@ -35,6 +35,12 @@ class RunConfig:
     knobs live here.
     """
 
+    # Bounded worker pool for per-job detail-page fetches (hellowork makes ~1
+    # request per job; a shared thread-safe httpx.Client serves all workers).
+    # 1 = fully serial (previous behavior). hellowork is anti-bot
+    # rate-guarded, so keep this modest; retry-with-backoff absorbs any blip.
+    detail_concurrency: int = 5
+
     # HTTP / fetch (board scrapers + LinkedIn page fetch)
     http_timeout: float = 30.0
     http_retries: int = 2
@@ -107,6 +113,7 @@ _INT_FIELDS = {
     "hiringcafe_max_pages",
     "wttj_max_jobs",
     "builtin_max_pages",
+    "detail_concurrency",
 }
 _FLOAT_FIELDS = {
     "http_timeout",

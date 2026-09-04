@@ -25,6 +25,7 @@ defaults:
   http_retries: 2
   http_backoff: 1.5
   max_pages: 0                 # 0/empty = unlimited; `--max-pages N` overrides
+  detail_concurrency: 5        # workers for per-job detail fetches (hellowork); 1 = serial
 
   # LinkedIn guest jobs API
   guest_page_size: 10          # cards per guest-API page

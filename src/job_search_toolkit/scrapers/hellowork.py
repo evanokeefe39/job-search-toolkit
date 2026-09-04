@@ -21,6 +21,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Annotated, Literal, Optional
 from urllib.parse import quote_plus
+from concurrent.futures import ThreadPoolExecutor
 
 import httpx
 import typer
@@ -291,7 +292,7 @@ def fetch_job_description(client: httpx.Client, url: str) -> str | None:
     is absent.
     """
     try:
-        resp = client.get(url, timeout=get_run_config().http_timeout)
+        resp = request_with_retry(client, "GET", url)
         resp.raise_for_status()
     except httpx.HTTPError:
         return None
@@ -391,20 +392,40 @@ def scrape(list_url: str, output: Path, max_pages: int | None, fmt: str) -> int:
         print(f"Found {total_pages} pages")
 
         all_jobs: list[CanonicalJob] = []
+        workers = get_run_config().detail_concurrency
         for page in range(1, total_pages + 1):
             if page > 1:
                 html = fetch_page(client, list_url, page)
                 soup = BeautifulSoup(html, "html.parser")
             cards = soup.find_all("li", attrs={"data-id-storage-item-id": True})
-            page_jobs = 0
+            # Collect the page's raw cards first, then fetch the detail
+            # descriptions — concurrently when detail_concurrency > 1 (a
+            # bounded pool shares the single thread-safe httpx.Client; each
+            # URL is fetched exactly once), else serially. Description order
+            # and normalize_job output order are unchanged vs the old loop.
+            page_items = []
             for card in cards:
                 raw = extract_job(card)
                 if raw and raw.get("title"):
-                    detail_url = raw.get("url")
-                    if detail_url:
-                        raw["description"] = fetch_job_description(client, detail_url)
-                    all_jobs.append(normalize_job(raw))
-                    page_jobs += 1
+                    page_items.append(raw)
+
+            def _fetch_desc(raw: dict) -> dict:
+                url = raw.get("url")
+                if url:
+                    raw["description"] = fetch_job_description(client, url)
+                return raw
+
+            if workers > 1 and len(page_items) > 1:
+                with ThreadPoolExecutor(max_workers=workers) as pool:
+                    list(pool.map(_fetch_desc, page_items))
+            else:
+                for raw in page_items:
+                    _fetch_desc(raw)
+
+            page_jobs = 0
+            for raw in page_items:
+                all_jobs.append(normalize_job(raw))
+                page_jobs += 1
             print(f"  Page {page}: {page_jobs} jobs (1 detail fetch per job)")
     finally:
         client.close()
