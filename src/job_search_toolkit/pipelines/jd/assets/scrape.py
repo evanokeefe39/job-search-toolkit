@@ -6,6 +6,7 @@ import os
 
 import dagster as dg
 import httpx
+from curl_cffi.requests.exceptions import RequestException as CurlRequestException
 from dagster import AssetExecutionContext
 
 from .common import (
@@ -72,6 +73,11 @@ def trip_guard(board: str):
       * ``httpx.HTTPError``: transport/HTTP failures (403/5xx via
         ``raise_for_status``, timeouts, connect errors, redirect loops) that
         escape the scrapers uncaught.
+      * ``curl_cffi.requests.exceptions.RequestException`` (imported as
+        ``CurlRequestException``): transport/HTTP failures raised by boards
+        using the curl_cffi transport (hiringcafe since the Chrome-impersonation
+        swap). Its hierarchy is ``RequestException -> CurlError -> OSError`` —
+        it does NOT derive from ``httpx.HTTPError``, so it needs its own arm.
       * ``RuntimeError``: the deliberate signal scrapers raise for bot-block /
         site-structure changes (``No buildId``, ``Non-JSON response``,
         ``No pageProps``, geocoding failure).
@@ -91,7 +97,7 @@ def trip_guard(board: str):
         def wrapper(context: AssetExecutionContext) -> dg.MaterializeResult:
             try:
                 return fn(context)
-            except (httpx.HTTPError, RuntimeError) as exc:
+            except (httpx.HTTPError, CurlRequestException, RuntimeError) as exc:
                 msg = f"{type(exc).__name__}: {exc}"
                 context.log.error(
                     f"CIRCUIT TRIP [{board}]: {msg} — skipping {board} this run; "

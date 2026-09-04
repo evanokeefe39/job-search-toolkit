@@ -22,6 +22,7 @@ from urllib.parse import quote_plus
 
 import httpx
 import typer
+from curl_cffi import requests as curl_requests
 
 from job_search_toolkit.run_config import get_run_config
 
@@ -176,7 +177,10 @@ class HiringCafeClient:
         self.delay = delay
         self._build_id: str | None = None
         self._last_request_at = 0.0
-        self.client = httpx.Client(headers=HEADERS, timeout=get_run_config().http_timeout)
+        # HiringCafe sits behind a Cloudflare managed JS challenge that grades TLS
+        # fingerprints; plain httpx is flagged (403). curl_cffi impersonates a
+        # real Chrome TLS handshake. Headers are still sent per-request below.
+        self.client = curl_requests.Session(impersonate="chrome")
 
     @property
     def build_id(self) -> str:
@@ -214,10 +218,13 @@ class HiringCafeClient:
             raise RuntimeError(f"No pageProps in response for page {page}.")
         return pp
 
-    def _request(self, method: str, url: str, extra_headers: dict | None = None) -> httpx.Response:
+    def _request(self, method: str, url: str, extra_headers: dict | None = None) -> curl_requests.Response:
         self._throttle()
         headers = {**HEADERS, **(extra_headers or {})}
-        resp = self.client.request(method, url, headers=headers)
+        resp = self.client.request(
+            method, url, headers=headers,
+            timeout=get_run_config().http_timeout,
+        )  # impersonation comes from Session(impersonate="chrome") in __init__
         resp.raise_for_status()
         return resp
 

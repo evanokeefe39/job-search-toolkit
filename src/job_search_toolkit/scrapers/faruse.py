@@ -32,6 +32,7 @@ import httpx
 import typer
 
 from job_search_toolkit.run_config import get_run_config
+from job_search_toolkit.scrapers.http_retry import request_with_retry
 from job_search_toolkit.schemas import (
     CanonicalJob,
     CompanyInfo,
@@ -282,7 +283,7 @@ def build_payload(
 
 def fetch_page(client: httpx.Client, url: str, payload: dict) -> dict:
     """POST one page of the search-jobs edge function. Returns parsed JSON."""
-    resp = client.post(url, json=payload, timeout=get_run_config().http_timeout)
+    resp = request_with_retry(client, "POST", url, json=payload, timeout=get_run_config().http_timeout)
     resp.raise_for_status()
     return resp.json()
 
@@ -292,7 +293,9 @@ def fetch_page_rest(client: httpx.Client, page: int) -> list[dict]:
 
     Returns the raw rows for one page, ordered by publishedAt descending.
     """
-    resp = client.get(
+    resp = request_with_retry(
+        client,
+        "GET",
         JOBS_TABLE_URL,
         params={
             "select": "*",
