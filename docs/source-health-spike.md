@@ -165,3 +165,104 @@ mechanism.
    explicit and is the correct move if we adopt it for hiringcafe.
 3. **hellowork detail-fetch volume** — worth a `--max-pages`/detail cap so a
    single board doesn't make hundreds of serial requests per run?
+
+## Apify / crawlee / residential-proxy assessment (2026-09-03)
+
+Follow-up to the 403 diagnosis: the user asked whether the Apify residential
+proxies (or existing Apify scrapers / crawlee) are the right fix path for the
+anti-bot 403s, and whether retry-with-backoff is implemented across sources.
+
+### Existing Apify integration (what the repo already does)
+
+- `apify-client` is a declared dependency, used in three places:
+  - `scrapers/linkedin/discovery.py` — `ApifyBackend` runs `apify~google-search-scraper`
+    (Google SERP actor) for LinkedIn post discovery; SDK `.actor().start` /
+    `.run().wait_for_finish` / `.dataset().iterate_items`.
+  - `scrapers/linkedin/profile.py` — runs `data-slayer/linkedin-profile-scraper`
+    for poster-location enrichment.
+  - `pipelines/jd/assets/scrape.py` (`wttj_jobs`) — runs actor `xSJbryo1TaOba9s9T`
+    ("Wttj France Jobs", a purchased third-party store actor) for WTTJ, output to
+    a dataset then normalized locally. **This is the existing precedent for
+    routing a board through a paid Apify store actor.**
+- `crawlee>=1.9.0` is declared in `pyproject.toml` but **imported nowhere** in
+  `src/` or `tests/` — it is a dead dependency (likely vestigial from an earlier
+  crawlee-based approach; check git history before removing).
+- Apify account (this machine's `.env` `APIFY_API_TOKEN`): **STARTER plan**
+  ($39/mo usage cap). Proxy groups reported: `RESIDENTIAL availableCount: 0`,
+  `UNBLOCKER availableCount: 0`, `BUYPROXIES94952` (USA static, 27 avail),
+  `StaticUS3` (3 IPs). **The account currently has NO residential or unblocker
+  proxy traffic provisioned** — the plan row lists generous *limits* but 0
+  *available* units now. So "we have Apify residential proxies" is not currently
+  true; buying residential/unblocker would add cost under the $39/mo cap.
+
+### Apify store coverage of the two blocked boards
+
+Third-party store actors exist for both (all paid per-use):
+- hiringcafe: `5mV5rBsvmjtTVRB9h` (memo23), `HOFNzVybefjHP08Pd` (blackfalcondata),
+  `wPexnKCojHk91OHgM` (crawlerbros), `fcbakhfQC6oV2OJRU` (azzouzana), and others.
+- hellowork: `CcsmRDbHoGUAm4jX4`, `mKrpmBatihcFby4AI`, `dzJ6qcLhdHQmAnRLa`
+  (blackfalcondata), plus a combined "France Job Scraper — WTTJ + France Travail
+  + Hellowork" (`RmzXYGyXnseoeZIet`).
+
+Not in the account; not yet smoke-tested. Reliability/cost/schema would need the
+External Integration Gate (1 live run each) before adoption.
+
+### Retry-with-backoff audit (all 12 boards + linkedin)
+
+Shared `RunConfig` defaults exist: `http_retries: 2`, `http_backoff: 1.5`,
+`http_timeout: 30` (`config.yaml` + `config.example.yaml`).
+
+| Board | Retry/backoff? | How |
+|---|---|---|
+| builtin | ✅ | `fetch_page` retries 429/5xx with `cfg.http_backoff*(attempt+1)` |
+| wttj | ✅ | curl_cffi `http_get` retries `{202,408,429,500,502,503,504}` + 1s pacing |
+| linkedin/fetch | ✅ | exponential backoff on 429/5xx; 404/410 no-retry |
+| hellowork | ❌ | bare `client.get` + `raise_for_status`, no retry |
+| freework | ❌ | bare `client.get` + `raise_for_status` |
+| englishjobs | ❌ | bare `client.get` + `raise_for_status` |
+| faruse | ❌ | bare `client.post/.get` + `raise_for_status` |
+| remoteok | ❌ | bare `client.get` + `raise_for_status` |
+| weworkremotely | ❌ | bare `client.get` + `raise_for_status` |
+| datasciencejobs | ❌ | bare `client.get` + `raise_for_status` |
+| hiringcafe | ⚠️ | `_throttle` paces requests but **does not retry** on failure |
+
+**So retry-with-backoff is NOT implemented across sources** — it exists in
+builtin/wttj/linkedin (all sharing `RunConfig.http_retries/http_backoff`) but the
+other 8 scrape boards make one bare request and give up. A transient 429/5xx on
+freework/hellowork/etc. currently fails that board's scrape (which the circuit
+breaker now absorbs, but a retry would recover it). This is a real gap.
+
+### Assessment: which fix path for the 403s?
+
+hiringcafe's 403 is a **Cloudflare TLS-fingerprint challenge**, not an IP ban —
+residential proxies would NOT help (Cloudflare grades the client fingerprint,
+which is the same through a proxy; a proxy only changes the source IP, and the
+challenge is served regardless of IP freshness for a non-browser TLS
+ClientHello). The proven fix is browser TLS impersonation:
+- `curl_cffi` Chrome impersonation already returns 200 + real job data
+  (validated earlier in this doc), OR
+- an Apify actor that internally does browser-grade scraping (a store actor like
+  the blackfalcondata/crawlerbros hiringcafe scrapers, or the existing "Wttj
+  France Jobs" pattern). This costs per-run money under the $39/mo cap and needs
+  gate smoke-testing.
+
+For hellowork (transient rate blip, healthy now): a residential proxy or store
+actor is overkill — hellowork returns 200 from this IP today. The correct fix is
+**retry-with-backoff** on its detail fetches (respecting its rate limits), which
+the repo already has a shared pattern for in builtin/wttj/linkedin.
+
+### Recommended path (decision for the human)
+
+1. **hiringcafe**: prefer `curl_cffi` Chrome impersonation (free, no new dep,
+   validated). An Apify store actor is the fallback if we want IP rotation /
+   managed reliability, at per-run cost — but it does not solve a fingerprint
+   challenge *better* than impersonation does, and the account has no
+   residential units provisioned today.
+2. **hellowork (and the 7 other retry-less boards)**: unify on the existing
+   `RunConfig.http_retries/http_backoff` retry-with-backoff pattern (copy
+   builtin.py's `fetch_page`) so transient 429/5xx recover instead of tripping.
+   This is the substantive "are we retrying properly" answer: not yet, and it is
+   the higher-leverage fix than any proxy spend.
+3. **crawlee**: unused — either remove from pyproject or, if the intent is an
+   in-repo crawlee-based crawler for the blocked boards, that is a larger
+   project than a 403 fix and should be its own plan.
