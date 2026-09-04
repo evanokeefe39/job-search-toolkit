@@ -14,49 +14,48 @@ otherwise it is **latency-bound** (concurrency helps, like hellowork).
 | Board | Time share | Fetch profile | Bound | Concurrent win? |
 |---|---|---|---|---|
 | hellowork | ~222s (was 585s) | ~810 per-job detail fetches, serial | latency | **YES** (merged #52, ~2.6x) |
-| **linkedin_jobs** | ~177s | ~90 per-URL fetches, serial, fresh client each | latency | **YES** (~4.8x measured) |
-| **linkedin_posts** | ~82s | same `_run_pass` loop as jobs | latency | **YES** (same loop) |
+| **linkedin_jobs** | ~177s | ~90 per-URL fetches, serial, fresh client each | **rate-limit** | **NO** (429s lose jobs) |
+| **linkedin_posts** | ~82s | same `_run_pass` loop as jobs | **rate-limit** | **NO** (same loop) |
 | wttj | ~92s | ~200 offer fetches, serial + paced | **rate-limit** | **NO** (0/8 under pool; HTTP 202) |
 | hiringcafe | ~16s | curl_cffi, low volume | — | negligible |
 | freework | ~9s | low volume | — | negligible |
 | englishjobs/wwr/faruse/remoteok/builtin | 1-5s | tiny | — | not worth it |
 
-## The decisive new finding: LinkedIn is latency-bound and parallelizable
+## CORRECTION 2026-09-04: LinkedIn is rate-limit-bound under sustained load
 
-Unlike wttj, LinkedIn job/post page fetches tolerate concurrency with no
-throttling. Measured on 8 real `/jobs/view/` URLs:
+The 8-URL probe above was a FALSE POSITIVE — too small to trip LinkedIn's rate
+limiter. Probing the REAL `_run_pass` (full discovery -> ~30 URLs per run) told
+a different story. Under sustained concurrency LinkedIn returns HTTP 429 and
+DROPS jobs:
 
-| Mode | 8 URLs | Result |
-|---|---|---|
-| serial (current: fresh `httpx.Client` per URL) | 9.1s (~1.1s each) | 8/8 ok |
-| **4-worker pool + shared client** | **1.9s** | **8/8 ok, zero 429/block** |
+| detail_concurrency | jobs | wall | 429s (fetch errors) |
+|---|---|---|---|
+| 1 (serial) | 28-30 | ~69s | 0 |
+| 2 | 27 | ~62s | 1 (lost 1 job) |
+| 3 | 27 | ~61s | 3 |
+| **5** | **24-48** | ~29s | **52 (most fetches failed)** |
 
-~4.8x faster with no anti-bot penalty. Two compounding inefficiencies in the
-current code (`scrapers/linkedin/adapter.py` `_run_pass`):
-1. `for result in urls: fetch_page(url)` — one serial round-trip per URL.
-2. `fetch_page(url)` with no shared client creates a **fresh `httpx.Client`
-   per call** (`fetch.py` `owns_client=True` path) — a new TCP+TLS handshake
-   per URL is much of the ~1.1s.
+So LinkedIn is **partially rate-limit-bound** (tolerates brief bursts, 429s
+under sustained concurrency). A worker pool at the shared default
+`detail_concurrency=5` would SILENTLY LOSE jobs — worse than slow.
 
-Both jobs (`linkedin_jobs`) and posts (`linkedin_posts`) flow through the
-SAME `_run_pass` fetch loop, so **one change** (bounded worker pool + a shared
-client threaded through `_run_pass`) fixes both boards (~260s combined).
+**Decision (human, 2026-09-04):** LinkedIn stays SERIAL. The one safe change
+is reusing ONE shared `httpx.Client` across the serial fetches (removing the
+per-call TLS handshake that inflated each fetch). Do NOT parallelize LinkedIn
+fetches without a residential-proxy layer first.
 
-## What to implement (when approved)
+## Residential-proxy principle (human directive, 2026-09-04)
 
-In `scrapers/linkedin/adapter.py` `_run_pass`: replace the serial
-`for result in urls: fetch_page(url, client=None)` with a bounded
-`ThreadPoolExecutor` that (a) shares ONE `httpx.Client` across workers (created
-once in `_run_pass` and passed to every `fetch_page`) and (b) preserves URL
-order + stale/failed classification. Reuse the repo's thread-pool convention
-(`concurrent.futures`, bounded workers). Respect order-sensitivity: France
-filtering per job is pure per-record, so order does not matter for correctness,
-but keep it deterministic for stable output.
-
-CAVEAT: LinkedIn is anti-bot sensitive and the guest API is undocumented/
-fragile (see `docs/linkedin-source-spike.md`). Use a modest worker count
-(4-6, matching the probe) and keep the existing retry/backoff in `fetch_page`.
-Probe on a live run before finalizing the worker count.
+For ANY rate-limited source going forward (linkedin, wttj, future boards),
+before choosing concurrency, weigh using **Apify residential proxies** and the
+**cost-benefit of the speed increase vs scalability it enables** — rather than
+either (a) accepting job loss from naive concurrency or (b) staying slow
+forever. Residential proxies decouple "many concurrent requests" from "your
+one IP gets throttled," which is the real ceiling on scraping rate for
+anti-bot sources. Trade-off to evaluate per source: proxy $/GB (or per-result)
+vs the wall-clock saved and whether the board's volume justifies it. Cheap
+boards (faruse, remoteok) never justify proxies; high-volume latency-bound
+targets that are IP-throttled (linkedin at scale, wttj) are the candidates.
 
 ## Sources NOT worth it
 
@@ -65,11 +64,15 @@ Probe on a live run before finalizing the worker count.
 - **hiringcafe / freework / thin boards**: already small (1-16s); a worker
   pool adds complexity for negligible gain.
 
-## Estimated impact
+## Estimated impact (corrected)
 
-Parallelizing the linkedin `_run_pass` fetch (~260s -> ~60-70s) on top of the
-hellowork fix would take the pipeline from ~10m49s to roughly **~8min**.
-Combined with hellowork's fix, that's ~21min -> ~8min overall (~2.6x).
+With hellowork already concurrent (#52) and wttj/linkedin both rate-limit-bound
+(no safe worker pool without proxies), the remaining safe win is the
+linkedin shared-client reuse (removing per-call TLS handshakes) — a modest but
+real improvement. The earlier ~8min estimate assumed parallelizing linkedin,
+which is NOT viable without a residential-proxy layer. Real further gains on
+linkedin/wttj require the proxy cost-benefit decision above; hellowork remains
+the one board where the worker pool paid off.
 
 ## Docker / deployment note (user question)
 

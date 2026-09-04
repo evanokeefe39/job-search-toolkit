@@ -19,7 +19,7 @@ from typing import Literal, Sequence
 
 import httpx
 
-from job_search_toolkit.run_config import load_run_config
+from job_search_toolkit.run_config import get_run_config, load_run_config
 from job_search_toolkit.scrapers.linkedin.config import LinkedInConfig
 from job_search_toolkit.scrapers.linkedin.discovery import (
     DiscoveryBackend,
@@ -180,35 +180,69 @@ def _run_pass(
         language_code=config.language_code,
     )
     urls = _dedup_urls(_filter(run["results"], kind))
-    for result in urls:
-        url = result["url"]
-        try:
-            html = fetch_page(url, client=client)
-        except FetchError as exc:
-            if exc.status_code in _GONE:
-                stale.append(url)
-            else:
-                failed.append(url)
-            continue
-        if kind == "post":
-            rec: PostRecord | JobRecord = parse_post(html, url)
-            rec["technologies"] = scanner.scan(rec["text"])
-        else:
-            rec = parse_job(html, url)
-            if not _is_france_job(rec, config.country_code):
-                # Login-walled job pages yield partial records with no JSON-LD
-                # location, so they fail the France filter. The guest search
-                # card carries the authoritative office location — fill it in
-                # and re-check before dropping the job.
-                filled = _france_location_from_card(result.get("location"))
-                if filled is not None:
-                    rec["location"] = filled
-                if not _is_france_job(rec, config.country_code):
-                    continue
-            rec["technologies"] = scanner.scan(rec["description"])
-        records.append(rec)
+    # Fetch/parse each discovered URL serially, reusing ONE shared httpx.Client
+    # (the previous code created a fresh client per URL, paying a new TLS
+    # handshake each time). LinkedIn is rate-limit-bound (HTTP 429 under
+    # sustained concurrency — measured), so it stays serial: real concurrency
+    # on this source would need a residential-proxy layer (Apify) to avoid
+    # job loss. See docs/board-parallelization-spike.md.
+    owns_client = client is None
+    if owns_client:
+        client = httpx.Client(follow_redirects=True, timeout=get_run_config().http_timeout)
+    try:
+        results = [_fetch_parse_one(r, kind, config, scanner, client) for r in urls]
+    finally:
+        if owns_client:
+            client.close()
+
+    for rec, stale_url, failed_url in results:
+        if rec is not None:
+            records.append(rec)
+        if stale_url is not None:
+            stale.append(stale_url)
+        if failed_url is not None:
+            failed.append(failed_url)
 
     return records, stale, failed, run["cost_usd"], run["usage"]
+
+
+def _fetch_parse_one(
+    result: SearchResult,
+    kind: str,
+    config: LinkedInConfig,
+    scanner: TechnologyScanner,
+    client: httpx.Client | None,
+) -> tuple[PostRecord | JobRecord | None, str | None, str | None]:
+    """Fetch + parse + tech-scan ONE discovered URL (a pool worker).
+
+    Returns ``(record, stale_url, failed_url)`` — exactly one of the URL slots
+    is populated (record for a kept parse, stale for 404/410, failed for other
+    fetch errors) and the record slot is None for a filtered/non-France job.
+    """
+    url = result["url"]
+    try:
+        html = fetch_page(url, client=client)
+    except FetchError as exc:
+        if exc.status_code in _GONE:
+            return None, url, None
+        return None, None, url
+    if kind == "post":
+        rec: PostRecord | JobRecord = parse_post(html, url)
+        rec["technologies"] = scanner.scan(rec["text"])
+        return rec, None, None
+    rec = parse_job(html, url)
+    if not _is_france_job(rec, config.country_code):
+        # Login-walled job pages yield partial records with no JSON-LD
+        # location, so they fail the France filter. The guest search card
+        # carries the authoritative office location — fill it in and re-check
+        # before dropping the job.
+        filled = _france_location_from_card(result.get("location"))
+        if filled is not None:
+            rec["location"] = filled
+        if not _is_france_job(rec, config.country_code):
+            return None, None, None
+    rec["technologies"] = scanner.scan(rec["description"])
+    return rec, None, None
 
 
 def run_discovery(
