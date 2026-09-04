@@ -7,6 +7,61 @@
 
 ## Open
 
+
+### Source health: hellowork real 403 is not retried by shared retry helper (DECISION NEEDED 2026-09-04)
+
+**Symptom:** the real hellowork trip during diagnosis was an HTTP 403 at page
+23 that later recovered on its own — a transient block, not a permanent one.
+The shared retry helper (`src/job_search_toolkit/scrapers/http_retry.py`)
+retries only `DEFAULT_RETRIABLE = {429, 500, 502, 503, 504}`, so 403 is never
+retried; the retry test simulated a 429, not the 403 that actually happened.
+
+**Judgment call:** blanket 403-retry is usually wrong (403 typically means a
+real bot-block; hammering escalates it). But hellowork's 403 was transient and
+recovered. Candidate fix: a PER-BOARD 403 retry for hellowork only (small retry
+count, e.g. 2 attempts with backoff), not a global change to `DEFAULT_RETRIABLE`.
+
+**Decision needed by human before implementing any 403 retry.** Do not implement
+without explicit approval.
+
+### Source health: curl_cffi `impersonate="chrome"` alias drift risk (OPEN 2026-09-04)
+
+**Context:** hiringcafe's client uses curl_cffi with `impersonate="chrome"` to
+pass the Cloudflare TLS-fingerprint challenge. `"chrome"` is a drifting alias —
+curl_cffi 0.16 bundles impersonation targets up to chrome146, so the alias
+tracks whatever the local library ships and the fingerprint moves with upgrades.
+
+**Risk:** TLS impersonation passes the current challenge only. If Cloudflare /
+hiringcafe tightens or escalates to a JS / Turnstile challenge, no TLS
+impersonation passes and hiringcafe silently regresses to 403 trips every run.
+
+**Direction:** monitor for drift (e.g. pin/alert on curl_cffi upgrades, or a
+periodic canary run of hiringcafe); feed the trips manifest alerting below.
+
+### Source health: trips.json is written but never aggregated across runs (OPEN 2026-09-04)
+
+**Context:** the per-run trip manifest (`data/bronze/trips.json`) is read only
+by the `run.py` CLI report for the current run. Nothing aggregates trips across
+runs, so a chronically-degraded source (e.g. hiringcafe 403-ing every run) is
+visible only if a human watches each run's output.
+
+**Direction:** cross-run aggregation + alerting (even a "board tripped N of
+last M runs" line in the CLI report) — this also operationalizes the
+curl_cffi impersonation-drift risk above.
+
+### Pipeline runtime ~21 min; hellowork serial per-job detail fetches dominate (ENHANCEMENT 2026-09-04)
+
+**Context:** full pipeline runtime is ~21 min. Hellowork fetches ~1 detail
+page per job (hundreds, serially) and dominates wall time. Not a regression
+from the source-health work — an efficiency item. Direction: bounded
+concurrency for detail fetches, or caching unchanged detail pages.
+
+### Thin boards: faruse (2 silver rows), remoteok (5), builtin (13, stale) (TRIAGE 2026-09-04)
+
+**Context:** faruse, remoteok and builtin return very few or stale rows —
+low value per unit of run time and maintenance. Pre-existing, out of scope for
+the source-health workstream. Triage: retire, re-scope, or accept as-is.
+
 ### LinkedIn discovery: France-relevant yield too low — 3/92 jobs (BLOCKER 2026-08-25)
 
 **Status:** BLOCKER for completing the LinkedIn feature (decide before closing

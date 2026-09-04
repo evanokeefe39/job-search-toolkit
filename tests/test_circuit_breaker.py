@@ -121,6 +121,48 @@ def test_trip_guard_http_error_trips(trips):
     assert "403" in str(result.metadata["error"])
 
 
+def test_trip_guard_curl_cffi_request_exception_trips(trips):
+    """A curl_cffi RequestException (hiringcafe's transport since the
+    Chrome-impersonation swap) derives from CurlError/OSError, NOT
+    httpx.HTTPError — it must still be caught as a source failure:
+    tripped metadata, trip recorded, no re-raise."""
+    from curl_cffi.requests.exceptions import HTTPError as CurlHTTPError
+    from job_search_toolkit.pipelines.jd.assets.scrape import trip_guard
+    from job_search_toolkit.pipelines.jd.assets.common import read_run_trips
+
+    def cloudflared(context):
+        raise CurlHTTPError("HTTP 403 Forbidden (Cloudflare TLS challenge)")
+
+    ctx = dg.build_asset_context()
+    result = trip_guard("hiringcafe")(cloudflared)(ctx)
+
+    assert result is not None
+    assert result.metadata["tripped"] is True
+    assert result.metadata["board"] == "hiringcafe"
+    assert "403" in str(result.metadata["error"])
+    recorded = read_run_trips(ctx.run_id)
+    assert [t["board"] for t in recorded] == ["hiringcafe"]
+
+
+def test_trip_guard_curl_cffi_transport_error_trips(trips):
+    """A curl_cffi transport-level failure (ConnectionError/Timeout under
+    CurlError -> OSError) is caught the same way — OSError-derived curl_cffi
+    exceptions must not escape trip_guard and abort the run."""
+    from curl_cffi.requests.exceptions import ConnectionError as CurlConnectionError
+    from job_search_toolkit.pipelines.jd.assets.scrape import trip_guard
+    from job_search_toolkit.pipelines.jd.assets.common import read_run_trips
+
+    def dead(context):
+        raise CurlConnectionError("Failed to connect to hiringcafe.com: TLS handshake failed")
+
+    ctx = dg.build_asset_context()
+    result = trip_guard("hiringcafe")(dead)(ctx)
+
+    assert result.metadata["tripped"] is True
+    assert "TLS handshake" in str(result.metadata["error"])
+    assert read_run_trips(ctx.run_id)  # trip recorded
+
+
 def test_trip_guard_success_not_tripped(trips):
     """A successful scrape returns its result and records no trip."""
     from job_search_toolkit.pipelines.jd.assets.scrape import trip_guard
